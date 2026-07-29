@@ -27,9 +27,11 @@ jobs:
     # Windows 우선 배포 (REQ-NF-001). HWP 엔진(jlink JRE + hwplib) + LibreOffice(DOCX/HWP→PDF)를
     # dist/engine에 번들 — v0.3a·v0.3b(DEC-007·DEC-012).
     # 빌드·스모크·라이선스 검증은 PR에서도 머지 게이트로 실행하고,
-    # 아티팩트 업로드만 main/태그/수동 실행으로 제한한다.
+    # 아티팩트 업로드·릴리스 발행은 main/태그/수동 실행으로 제한한다.
     needs: test
     runs-on: windows-latest
+    permissions:
+      contents: write   # 태그 push 시 GitHub Release 생성·자산 업로드용 (DEC-014)
     env:
       # 스파이크로 검증된 hwplib 리비전 (spike/hwplib/RESULT.md · DEC-007).
       # 갱신은 별도 PR에서 스파이크/스모크 결과와 함께 진행할 것.
@@ -242,3 +244,20 @@ jobs:
         with:
           name: FileConverter-windows-installer
           path: packaging/installer-out/*.exe
+      - name: Publish GitHub Release (태그 push에서만 — v*.exe README 다운로드 링크의 실제 소스)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $versioned = Get-ChildItem packaging/installer-out -Filter *.exe | Select-Object -First 1
+          # README의 "최신 버전 바로 다운로드" 링크가 매 릴리스마다 파일명이 바뀌지
+          # 않도록, 버전 파일명과 별개로 고정 파일명 사본도 함께 올린다
+          # (.../releases/latest/download/FileConverter-Setup-latest.exe로 항상 접근 가능).
+          $latest = Join-Path $versioned.DirectoryName "FileConverter-Setup-latest.exe"
+          Copy-Item $versioned.FullName $latest
+          gh release create "${{ github.ref_name }}" $versioned.FullName $latest `
+            --repo "${{ github.repository }}" `
+            --title "File Converter ${{ github.ref_name }}" `
+            --notes "Windows 인스톨러(관리자 권한 불요). 자세한 내용: README.md · docs/06_open_questions.md" `
+            --prerelease
