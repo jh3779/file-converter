@@ -1,0 +1,169 @@
+/* ============================================================
+   파일 확장자 변환기 DS — Global Tokens & Shared
+   Base: Material 3 · ColorScheme "Vault Teal"
+   근거: docs/00_project_brief.md(완전 오프라인 보안) · 06 DEC-006
+   tertiary(green)는 "변환 완료(done)" 한 의미에만 격리한다.
+   ============================================================ */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css");
+@import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,300..700,0..1,0");
+@import url("https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&display=swap");
+
+/* ---------- Light — Vault Teal ---------- */
+:root{
+  --ds-primary:#00696D; --ds-on-primary:#FFFFFF;
+  --ds-primary-container:#9CF1F6; --ds-on-primary-container:#002021;
+  --ds-secondary:#4A6365; --ds-on-secondary:#FFFFFF;
+  --ds-secondary-container:#CCE8E9; --ds-on-secondary-container:#051F21;
+  --ds-tertiary:#3B6939; --ds-on-tertiary:#FFFFFF;   /* 격리: "변환 완료" 전용 */
+  --ds-tertiary-container:#BCF0B4; --ds-on-tertiary-container:#002204;
+  --ds-error:#BA1A1A; --ds-on-error:#FFFFFF;
+  --ds-error-container:#FFDAD6; --ds-on-error-container:#410002;
+  --ds-surface:#FAFDFC; --ds-on-surface:#191C1C;
+  --ds-surface-variant:#DAE4E5; --ds-on-surface-variant:#3F4949;
+  --ds-outline:#6F7979; --ds-outline-variant:#BEC8C9;
+  --ds-surface-container-lowest:#FFFFFF; --ds-surface-container-low:#F4F7F7;
+  --ds-surface-container:#EEF1F1; --ds-surface-container-high:#E8EBEB;
+  --ds-surface-container-highest:#E2E5E5;
+  --ds-inverse-surface:#2B3232; --ds-inverse-on-surface:#EFF1F1;
+  --ds-inverse-primary:#80D4D9; --ds-scrim:#000000; --ds-shadow:#000000;
+
+  /* 도메인 상태 색 — STATE-002 (FileItem) 5상태 */
+  --ds-st-queued-bg:#DAE4E5;  --ds-st-queued-fg:#3F4949;   /* queued  대기 */
+  --ds-st-conv-bg:#9CF1F6;    --ds-st-conv-fg:#002021;     /* converting 변환 중 */
+  --ds-st-done-bg:#3B6939;    --ds-st-done-fg:#FFFFFF;     /* done    완료 (tertiary) */
+  --ds-st-fail-bg:#FFDAD6;    --ds-st-fail-fg:#410002;     /* failed  실패 */
+  --ds-st-skip-bg:#EEF1F1;    --ds-st-skip-fg:#6F7979;     /* skipped 건너뜀 */
+
+  --ds-font-plain:"Pretendard Variable",Pretendard,"Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+  --ds-font-mono:"Roboto Mono",ui-monospace,Menlo,monospace;
+
+  --ds-space-1:4px; --ds-space-2:8px; --ds-space-3:12px; --ds-space-4:16px;
+  --ds-space-5:20px; --ds-space-6:24px; --ds-space-7:32px; --ds-space-8:40px;
+  --ds-radius-xs:4px; --ds-radius-sm:8px; --ds-radius-md:12px;
+  --ds-radius-lg:16px; --ds-radius-xl:28px; --ds-radius-full:999px;
+  --ds-elev-1:0 1px 2px rgba(0,0,0,.30),0 1px 3px 1px rgba(0,0,0,.15);
+  --ds-elev-2:0 1px 2px rgba(0,0,0,.30),0 2px 6px 2px rgba(0,0,0,.15);
+  --ds-elev-3:0 1px 3px rgba(0,0,0,.30),0 4px 8px 3px rgba(0,0,0,.15);
+}
+/* ---------- Dark — Vault Teal ---------- */
+[data-ds-theme="dark"]{
+  --ds-primary:#80D4D9; --ds-on-primary:#003739;
+  --ds-primary-container:#004F52; --ds-on-primary-container:#9CF1F6;
+  --ds-secondary:#B1CBCD; --ds-on-secondary:#1B3436;
+  --ds-secondary-container:#324B4D; --ds-on-secondary-container:#CCE8E9;
+  --ds-tertiary:#A1D399; --ds-on-tertiary:#0A390F;
+  --ds-tertiary-container:#235024; --ds-on-tertiary-container:#BCF0B4;
+  --ds-error:#FFB4AB; --ds-on-error:#690005;
+  --ds-error-container:#93000A; --ds-on-error-container:#FFDAD6;
+  --ds-surface:#101414; --ds-on-surface:#DEE3E3;
+  --ds-surface-variant:#3F4949; --ds-on-surface-variant:#BEC8C9;
+  --ds-outline:#899393; --ds-outline-variant:#3F4949;
+  --ds-surface-container-lowest:#0B0F0F; --ds-surface-container-low:#181C1C;
+  --ds-surface-container:#1C2021; --ds-surface-container-high:#262B2B;
+  --ds-surface-container-highest:#313636;
+  --ds-inverse-surface:#DEE3E3; --ds-inverse-on-surface:#2B3232;
+  --ds-inverse-primary:#00696D;
+
+  --ds-st-queued-bg:#3F4949;  --ds-st-queued-fg:#BEC8C9;
+  --ds-st-conv-bg:#004F52;    --ds-st-conv-fg:#9CF1F6;
+  --ds-st-done-bg:#A1D399;    --ds-st-done-fg:#0A390F;
+  --ds-st-fail-bg:#93000A;    --ds-st-fail-fg:#FFDAD6;
+  --ds-st-skip-bg:#1C2021;    --ds-st-skip-fg:#899393;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--ds-surface-container-high);font-family:var(--ds-font-plain);color:var(--ds-on-surface);-webkit-font-smoothing:antialiased}
+a{color:var(--ds-primary)}
+code{font-family:var(--ds-font-mono);font-size:.9em;background:rgba(0,0,0,.05);padding:1px 5px;border-radius:4px}
+[data-ds-theme="dark"] code{background:rgba(255,255,255,.08)}
+h2{margin:0}
+@keyframes dsspin{to{transform:rotate(360deg)}}
+
+.wrap{max-width:1180px;margin:0 auto;padding:28px 40px 72px;display:flex;flex-direction:column;gap:22px}
+@media (max-width:640px){.wrap{padding:18px 16px 56px}}
+
+/* 상단 sticky 네비 */
+.topnav{position:sticky;top:0;z-index:10;background:var(--ds-surface-container-high);border-bottom:1px solid var(--ds-outline-variant);padding:10px 40px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+@media (max-width:640px){.topnav{padding:10px 16px}}
+.topnav .brand{font-size:14px;font-weight:700;margin-right:6px}
+.topnav a,.topnav span.cur{text-decoration:none;font-size:12.5px;font-weight:600;border-radius:8px;padding:6px 11px}
+.topnav a{background:var(--ds-surface);border:1px solid var(--ds-outline-variant);color:var(--ds-on-surface)}
+.topnav a:hover{background:var(--ds-surface-container)}
+.topnav span.cur{background:var(--ds-inverse-surface);color:var(--ds-inverse-on-surface)}
+.topnav .spacer{flex:1}
+.topnav button{background:var(--ds-surface);border:1px solid var(--ds-outline-variant);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:600;color:var(--ds-on-surface);cursor:pointer;font-family:inherit}
+
+/* 페이지 내 알약형 목차 */
+.toc{display:flex;gap:6px;flex-wrap:wrap;font-size:12px}
+.toc a{text-decoration:none;background:var(--ds-surface);border:1px solid var(--ds-outline-variant);border-radius:999px;padding:4px 11px;color:var(--ds-on-surface-variant)}
+.toc a:hover{color:var(--ds-primary);border-color:var(--ds-primary)}
+
+.pagehead{display:flex;flex-direction:column;gap:6px}
+.pagehead .t{font-size:24px;font-weight:700}
+.pagehead .s{font-size:12.5px;color:var(--ds-on-surface-variant)}
+
+.card{background:var(--ds-surface);border:1px solid var(--ds-outline-variant);border-radius:12px}
+.pad{padding:18px}
+.sec{display:flex;flex-direction:column;gap:12px;scroll-margin-top:64px}
+.sec-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.sec-num{font-family:var(--ds-font-mono);font-size:11px;font-weight:700;background:var(--ds-inverse-surface);color:var(--ds-inverse-on-surface);border-radius:5px;padding:3px 8px}
+.sec-t{font-size:16px;font-weight:700}
+.tag{font-family:var(--ds-font-mono);font-size:10.5px;color:var(--ds-outline)}
+.muted{color:var(--ds-on-surface-variant)}
+.grid{display:grid;gap:12px}
+.note{font-size:12px;line-height:1.65;color:var(--ds-on-surface-variant)}
+
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid var(--ds-outline-variant);padding:7px 10px;text-align:left;font-size:12px;vertical-align:top;line-height:1.5}
+th{background:var(--ds-surface-container-low);font-weight:700}
+.mono{font-family:var(--ds-font-mono)}
+.tblwrap{overflow-x:auto}
+
+.msym{font-family:'Material Symbols Outlined';font-weight:400;font-style:normal;line-height:1;display:inline-block;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;vertical-align:middle}
+.msym.f{font-variation-settings:'FILL' 1,'wght' 500,'GRAD' 0,'opsz' 24}
+
+/* 버튼 프리뷰 */
+.btn{border-radius:999px;display:inline-flex;align-items:center;justify-content:center;gap:8px;font-size:14px;font-weight:600;height:40px;padding:0 24px}
+.btn-fill{background:var(--ds-primary);color:var(--ds-on-primary)}
+.btn-out{border:1px solid var(--ds-outline);color:var(--ds-primary)}
+.btn-text{color:var(--ds-primary);padding:0 12px}
+.btn-err{border:1px solid var(--ds-error);color:var(--ds-error)}
+.spin{width:16px;height:16px;border:2px solid rgba(0,0,0,.15);border-top-color:var(--ds-primary);border-radius:50%;animation:dsspin .9s linear infinite;flex:none}
+
+/* 상태 배지 */
+.badge{border-radius:999px;padding:4px 10px;font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px}
+
+/* 색 스와치 */
+.swatch{border-radius:8px;padding:10px 12px;font-size:11px;font-weight:600;display:flex;flex-direction:column;gap:2px;min-height:56px;justify-content:center}
+.swatch .hex{font-family:var(--ds-font-mono);font-size:10px;font-weight:500;opacity:.8}
+
+/* 데스크톱 창 목업 (와이어프레임) — 데스크톱 GUI 앱이므로 폰 대신 창 프레임 */
+.frame{display:flex;flex-direction:column;gap:9px}
+.win{width:520px;height:400px;border:2px solid var(--ds-on-surface);border-radius:12px;background:var(--ds-surface);display:flex;flex-direction:column;overflow:hidden;flex:none;position:relative}
+.win.sm{width:400px;height:250px}
+.titlebar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--ds-outline-variant);background:var(--ds-surface-container-low);flex:none}
+.titlebar .apptitle{font-size:12px;font-weight:600;flex:1;display:flex;align-items:center;gap:6px}
+.titlebar .winctl{font-family:var(--ds-font-mono);font-size:11px;color:var(--ds-on-surface-variant);letter-spacing:6px}
+.hand{font-family:'Nanum Pen Script',cursive;font-size:15px;line-height:1.3;color:var(--ds-on-surface-variant);max-width:520px}
+
+/* 드롭존 프리뷰 */
+.dropzone{border:2px dashed var(--ds-outline);border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--ds-on-surface-variant);background:var(--ds-surface-container-lowest)}
+.dropzone.active{border-color:var(--ds-primary);background:var(--ds-primary-container);color:var(--ds-on-primary-container)}
+.dropzone.strip{flex-direction:row;padding:8px;gap:6px;font-size:11.5px}
+
+/* 파일 행 프리뷰 */
+.filerow{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--ds-outline-variant);border-radius:8px;background:var(--ds-surface-container-lowest);font-size:12px}
+.filerow .fname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.filerow .fmt{font-family:var(--ds-font-mono);font-size:10.5px;color:var(--ds-on-surface-variant)}
+.fmtsel{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--ds-outline);border-radius:8px;padding:4px 8px;font-family:var(--ds-font-mono);font-size:11px;font-weight:500;background:var(--ds-surface)}
+
+/* 진행 바 */
+.progress{height:6px;border-radius:999px;background:var(--ds-surface-variant);overflow:hidden}
+.progress>span{display:block;height:100%;background:var(--ds-primary);border-radius:999px}
+
+/* 다이얼로그/스크림 프리뷰 */
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;padding:24px}
+.dialog{background:var(--ds-surface-container-low);border-radius:16px;box-shadow:var(--ds-elev-3);padding:18px;display:flex;flex-direction:column;gap:10px;max-width:320px;width:100%}
+
+footer.ds{font-size:12px;color:var(--ds-on-surface-variant);line-height:1.7;border-top:1px solid var(--ds-outline-variant);padding-top:16px;margin-top:6px}

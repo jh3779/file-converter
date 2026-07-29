@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>파일 변환기 DS · 5 화면 · 와이어프레임</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <span class="brand">파일 변환기 DS <span class="mono" style="font-size:11px;font-weight:500">v0.1</span></span>
+  <a href="design-system.html">1 · 원칙 &amp; 파운데이션</a>
+  <a href="components.html">2 · 컴포넌트</a>
+  <a href="patterns.html">3 · 상태 패턴 · 접근성</a>
+  <a href="qt-mapping.html">4 · 구현 매핑 (PySide6)</a>
+  <span class="cur">5 · 화면 · 와이어프레임</span>
+  <span class="spacer"></span>
+  <button data-theme-toggle>◐ 테마</button>
+</nav>
+
+<div class="wrap">
+
+  <header class="pagehead">
+    <div class="t">5 · 화면 흐름 · 와이어프레임</div>
+    <div class="s">데스크톱 창 목업(최소 창 640×480 기준 축소) — 정본: <code>../02_ui_flow.md</code> · <code>../03_screen_contract.md</code></div>
+    <div class="toc">
+      <a href="#s0">흐름도</a><a href="#s1">SCR-001 empty</a><a href="#s2">SCR-001 list</a><a href="#s3">SCR-001 converting</a><a href="#s4">SCR-002 결과</a><a href="#s5">SCR-003 기록</a><a href="#s6">다이얼로그</a>
+    </div>
+  </header>
+
+  <section id="s0" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">S-00</span><span class="sec-t">화면 흐름도</span><span class="tag">FLOW-001 · FLOW-002</span></div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px">
+      <span class="badge" style="background:var(--ds-inverse-surface);color:var(--ds-inverse-on-surface)">앱 실행</span><span class="mono">→</span>
+      <span class="badge" style="background:var(--ds-secondary-container);color:var(--ds-on-secondary-container)">SCR-001 empty</span><span class="mono">─ 파일 드롭 →</span>
+      <span class="badge" style="background:var(--ds-secondary-container);color:var(--ds-on-secondary-container)">SCR-001 list</span><span class="mono">─ 변환하기 →</span>
+      <span class="badge" style="background:var(--ds-primary-container);color:var(--ds-on-primary-container)">SCR-001 converting</span><span class="mono">→</span>
+      <span class="badge" style="background:var(--ds-tertiary-container);color:var(--ds-on-tertiary-container)">SCR-002 결과 오버레이</span><span class="mono">─ 확인 →</span>
+      <span class="badge" style="background:var(--ds-secondary-container);color:var(--ds-on-secondary-container)">SCR-001 (성공: 비움 / 실패: 실패만 남김)</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;margin-top:4px">
+      <span class="badge" style="background:var(--ds-secondary-container);color:var(--ds-on-secondary-container)">SCR-001</span><span class="mono">─ 기록 아이콘 ⇄</span>
+      <span class="badge" style="background:var(--ds-secondary-container);color:var(--ds-on-secondary-container)">SCR-003 기록 패널</span>
+      <span class="note" style="margin-left:8px">· converting 중 취소/종료 시도 → 다이얼로그(S-06) · 실패 시에도 흐름은 끊기지 않음(INV-04)</span>
+    </div>
+  </section>
+
+  <section id="s1" class="sec">
+    <div class="sec-h"><span class="sec-num">S-01</span><span class="sec-t">SCR-001 · 메인 — empty</span><span class="tag">SCR-001 empty · REQ-F-001</span></div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <div class="frame">
+        <div class="tag">첫 실행 / 목록 비움 직후</div>
+        <div class="win">
+          <div class="titlebar">
+            <span class="apptitle"><span class="msym" style="font-size:15px;color:var(--ds-primary)">swap_horiz</span>파일 변환기</span>
+            <span class="msym" style="font-size:17px;color:var(--ds-on-surface-variant)" title="최근 기록">history</span>
+            <span class="winctl">— ▢ ✕</span>
+          </div>
+          <div style="flex:1;padding:20px;display:flex;flex-direction:column;gap:12px">
+            <div class="dropzone" style="flex:1">
+              <span class="msym" style="font-size:40px">upload_file</span>
+              <div style="font-size:15px;font-weight:600;color:var(--ds-on-surface)">파일을 여기에 끌어다 놓으세요</div>
+              <div style="font-size:12px">또는 클릭해서 선택 · DOCX PDF HWP CSV XLSX JSON</div>
+            </div>
+          </div>
+          <div style="padding:10px 20px 14px;border-top:1px solid var(--ds-outline-variant);display:flex;align-items:center;gap:8px">
+            <span class="msym" style="font-size:14px;color:var(--ds-on-surface-variant)">shield</span>
+            <span style="font-size:11px;color:var(--ds-on-surface-variant)">모든 변환은 이 컴퓨터 안에서 처리됩니다</span>
+            <span style="flex:1"></span>
+            <span class="btn btn-fill" style="height:36px;font-size:13px;opacity:.38">변환하기</span>
+          </div>
+        </div>
+        <div class="hand">첫 화면은 드롭존이 주인공. 지원 포맷을 드롭존 안에서 미리 알려줌. 변환하기는 비활성(38%) — 눌러야 할 것이 하나뿐이라는 걸 시각적으로.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="s2" class="sec">
+    <div class="sec-h"><span class="sec-num">S-02</span><span class="sec-t">SCR-001 · 메인 — list</span><span class="tag">SCR-001 list · REQ-F-002·007·008</span></div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <div class="frame">
+        <div class="tag">파일 4개 추가 (1개 미지원)</div>
+        <div class="win">
+          <div class="titlebar">
+            <span class="apptitle"><span class="msym" style="font-size:15px;color:var(--ds-primary)">swap_horiz</span>파일 변환기</span>
+            <span class="msym" style="font-size:17px;color:var(--ds-on-surface-variant)">history</span>
+            <span class="winctl">— ▢ ✕</span>
+          </div>
+          <div style="flex:1;padding:14px 20px;display:flex;flex-direction:column;gap:8px;overflow:hidden">
+            <div class="dropzone strip"><span class="msym" style="font-size:15px">add</span>파일 추가 또는 끌어다 놓기</div>
+            <div class="filerow">
+              <span class="msym" style="font-size:16px;color:var(--ds-secondary)">description</span>
+              <span class="fname" style="font-size:11.5px">보고서_최종.docx</span>
+              <span class="fmt">DOCX →</span><span class="fmtsel" style="font-size:10px;padding:3px 6px">PDF <span class="msym" style="font-size:12px">arrow_drop_down</span></span>
+              <span class="msym" style="font-size:14px;color:var(--ds-on-surface-variant)">close</span>
+            </div>
+            <div class="filerow">
+              <span class="msym" style="font-size:16px;color:var(--ds-secondary)">description</span>
+              <span class="fname" style="font-size:11.5px">공고문.hwp</span>
+              <span class="fmt">HWP →</span><span class="fmtsel" style="font-size:10px;padding:3px 6px">PDF <span class="msym" style="font-size:12px">arrow_drop_down</span></span>
+              <span class="msym" style="font-size:14px;color:var(--ds-on-surface-variant)">close</span>
+            </div>
+            <div class="filerow">
+              <span class="msym" style="font-size:16px;color:var(--ds-secondary)">table_chart</span>
+              <span class="fname" style="font-size:11.5px">매출데이터.csv</span>
+              <span class="fmt">CSV →</span><span class="fmtsel" style="font-size:10px;padding:3px 6px;border-color:var(--ds-error);color:var(--ds-error)">선택 <span class="msym" style="font-size:12px">arrow_drop_down</span></span>
+              <span class="msym" style="font-size:14px;color:var(--ds-on-surface-variant)">close</span>
+            </div>
+            <div class="filerow" style="opacity:.55">
+              <span class="msym" style="font-size:16px">block</span>
+              <span class="fname" style="font-size:11.5px">사진.png</span>
+              <span style="font-size:10.5px;color:var(--ds-on-surface-variant)">지원하지 않는 형식입니다</span>
+              <span class="msym" style="font-size:14px;color:var(--ds-on-surface-variant)">close</span>
+            </div>
+          </div>
+          <div style="padding:10px 20px 14px;border-top:1px solid var(--ds-outline-variant);display:flex;align-items:center;gap:8px">
+            <span class="msym" style="font-size:14px;color:var(--ds-on-surface-variant)">shield</span>
+            <span style="font-size:11px;color:var(--ds-on-surface-variant)">저장: 원본 폴더 · 원본은 그대로 둡니다</span>
+            <span style="flex:1"></span>
+            <span style="font-size:10.5px;color:var(--ds-error)">포맷을 선택해 주세요</span>
+            <span class="btn btn-fill" style="height:36px;font-size:13px;opacity:.38">변환하기</span>
+          </div>
+        </div>
+        <div class="hand">드롭존은 strip으로 축소. 포맷 미선택 행이 있으면 변환하기 비활성 + 사유를 버튼 옆에(토스트 금지). 미지원 파일은 받되 행에서 사유를 알려줌.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="s3" class="sec">
+    <div class="sec-h"><span class="sec-num">S-03</span><span class="sec-t">SCR-001 · 메인 — converting</span><span class="tag">SCR-001 converting · STATE-001·002 · C-05</span></div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <div class="frame">
+        <div class="tag">3개 중 1개 완료 · 입력 잠금</div>
+        <div class="win">
+          <div class="titlebar">
+            <span class="apptitle"><span class="msym" style="font-size:15px;color:var(--ds-primary)">swap_horiz</span>파일 변환기</span>
+            <span class="msym" style="font-size:17px;color:var(--ds-on-surface-variant);opacity:.4">history</span>
+            <span class="winctl">— ▢ ✕</span>
+          </div>
+          <div style="flex:1;padding:14px 20px;display:flex;flex-direction:column;gap:8px">
+            <div class="filerow">
+              <span class="msym" style="font-size:16px;color:var(--ds-secondary)">description</span>
+              <span class="fname" style="font-size:11.5px">보고서_최종.docx <span class="fmt">→ PDF</span></span>
+              <span class="badge" style="background:var(--ds-st-done-bg);color:var(--ds-st-done-fg);font-size:10px"><span class="msym" style="font-size:12px">check</span>완료</span>
+            </div>
+            <div class="filerow">
+              <span class="msym" style="font-size:16px;color:var(--ds-secondary)">description</span>
+              <span class="fname" style="font-size:11.5px">공고문.hwp <span class="fmt">→ PDF</span></span>
+              <span class="badge" style="background:var(--ds-st-conv-bg);color:var(--ds-st-conv-fg);font-size:10px"><span class="spin" style="width:9px;height:9px;border-width:1.5px"></span>변환 중</span>
+            </div>
+            <div class="filerow">
+              <span class="msym" style="font-size:16px;color:var(--ds-secondary)">table_chart</span>
+              <span class="fname" style="font-size:11.5px">매출데이터.csv <span class="fmt">→ XLSX</span></span>
+              <span class="badge" style="background:var(--ds-st-queued-bg);color:var(--ds-st-queued-fg);font-size:10px"><span class="msym" style="font-size:12px">schedule</span>대기 중</span>
+            </div>
+          </div>
+          <div style="padding:10px 20px 14px;border-top:1px solid var(--ds-outline-variant);display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;justify-content:space-between;font-size:11px"><b>변환 중…</b><span class="mono">1 / 3 완료</span></div>
+            <div class="progress"><span style="width:33%"></span></div>
+            <div style="display:flex;justify-content:flex-end"><span class="btn btn-out" style="height:32px;font-size:12px">취소</span></div>
+          </div>
+        </div>
+        <div class="hand">셀렉트·✕·드롭존·기록 모두 잠금(흐려짐). 진행 바는 완료 수/전체 수 실측만. 유일한 행동 = 취소. 이 상태에서 창 닫기 → S-06 경고.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="s4" class="sec">
+    <div class="sec-h"><span class="sec-num">S-04</span><span class="sec-t">SCR-002 · 결과 요약 — 오버레이</span><span class="tag">SCR-002 · REQ-F-009 · OQ-005 제안</span></div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <div class="frame">
+        <div class="tag">partial-fail (성공 2 · 실패 1)</div>
+        <div class="win">
+          <div class="titlebar">
+            <span class="apptitle"><span class="msym" style="font-size:15px;color:var(--ds-primary)">swap_horiz</span>파일 변환기</span>
+            <span class="winctl">— ▢ ✕</span>
+          </div>
+          <div style="flex:1"></div>
+          <div class="scrim">
+            <div class="dialog">
+              <div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700"><span class="msym" style="font-size:20px;color:var(--ds-error)">warning</span>일부 파일을 변환하지 못했습니다</div>
+              <div class="mono" style="font-size:11.5px"><span style="color:var(--ds-tertiary);font-weight:700">성공 2</span> · <span style="color:var(--ds-error);font-weight:700">실패 1</span></div>
+              <div class="filerow" style="background:var(--ds-error-container);border-color:transparent">
+                <span class="msym" style="font-size:14px;color:var(--ds-on-error-container)">error</span>
+                <div style="flex:1;min-width:0">
+                  <div style="font-size:11.5px;font-weight:600;color:var(--ds-on-error-container)">공고문.hwp → PDF</div>
+                  <div style="font-size:10.5px;color:var(--ds-on-error-container)">파일을 읽을 수 없습니다. 파일이 손상되었을 수 있어요</div>
+                </div>
+              </div>
+              <div class="note" style="font-size:11px">이름이 겹쳐 <span class="mono">보고서_최종 (1).pdf</span>로 저장했습니다.</div>
+              <div style="display:flex;gap:8px;justify-content:flex-end">
+                <span class="btn btn-text" style="height:32px;font-size:12px">결과 폴더 열기</span>
+                <span class="btn btn-fill" style="height:32px;font-size:12px">확인</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="hand">별도 창이 아니라 같은 창 위 오버레이(OQ-005 제안). 확인 → 실패한 공고문.hwp만 목록에 남음 = 재시도 경로.</div>
+      </div>
+      <div class="frame">
+        <div class="tag">all-success</div>
+        <div class="win">
+          <div class="titlebar">
+            <span class="apptitle"><span class="msym" style="font-size:15px;color:var(--ds-primary)">swap_horiz</span>파일 변환기</span>
+            <span class="winctl">— ▢ ✕</span>
+          </div>
+          <div style="flex:1"></div>
+          <div class="scrim">
+            <div class="dialog">
+              <div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700"><span class="msym f" style="font-size:20px;color:var(--ds-tertiary)">check_circle</span>변환 완료</div>
+              <div class="mono" style="font-size:11.5px"><span style="color:var(--ds-tertiary);font-weight:700">성공 3</span> · 실패 0</div>
+              <div class="note" style="font-size:11px">3개 파일을 원본 폴더에 저장했습니다.</div>
+              <div style="display:flex;gap:8px;justify-content:flex-end">
+                <span class="btn btn-text" style="height:32px;font-size:12px">결과 폴더 열기</span>
+                <span class="btn btn-fill" style="height:32px;font-size:12px">확인</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="hand">tertiary 녹색은 여기 "완료"에서만 등장. 확인 → 목록 비움 → S-01로.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="s5" class="sec">
+    <div class="sec-h"><span class="sec-num">S-05</span><span class="sec-t">SCR-003 · 최근 기록 — 사이드 패널</span><span class="tag">SCR-003 · REQ-F-010 · FLOW-002</span></div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <div class="frame">
+        <div class="tag">기록 패널 열림 (list)</div>
+        <div class="win">
+          <div class="titlebar">
+            <span class="apptitle"><span class="msym" style="font-size:15px;color:var(--ds-primary)">swap_horiz</span>파일 변환기</span>
+            <span class="msym" style="font-size:17px;color:var(--ds-primary)">history</span>
+            <span class="winctl">— ▢ ✕</span>
+          </div>
+          <div style="flex:1;display:flex;min-height:0">
+            <div style="flex:1;padding:14px;opacity:.35;display:flex;flex-direction:column;gap:8px">
+              <div class="dropzone strip" style="font-size:10px"><span class="msym" style="font-size:13px">add</span>파일 추가</div>
+            </div>
+            <div style="width:250px;border-left:1px solid var(--ds-outline-variant);background:var(--ds-surface-container-low);display:flex;flex-direction:column">
+              <div style="display:flex;align-items:center;gap:6px;padding:10px 12px;border-bottom:1px solid var(--ds-outline-variant)">
+                <b style="font-size:12px;flex:1">최근 기록</b>
+                <span style="font-size:10px;color:var(--ds-error)">모두 삭제</span>
+                <span class="msym" style="font-size:15px;color:var(--ds-on-surface-variant)">close</span>
+              </div>
+              <div style="padding:8px 12px;font-size:9.5px;color:var(--ds-on-surface-variant);display:flex;gap:4px;align-items:center"><span class="msym" style="font-size:12px">shield</span>기록은 이 컴퓨터에만 저장됩니다</div>
+              <div style="flex:1;padding:6px 10px;display:flex;flex-direction:column;gap:6px">
+                <div class="filerow" style="padding:6px 8px">
+                  <span class="msym" style="font-size:13px;color:var(--ds-tertiary)">check</span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:10.5px;font-weight:600">공고문.hwp <span class="fmt" style="font-size:9px">→ PDF</span></div>
+                    <div class="mono" style="font-size:8.5px;color:var(--ds-on-surface-variant)">2026-07-29 11:39</div>
+                  </div>
+                  <span class="msym" style="font-size:13px;color:var(--ds-primary)">folder_open</span>
+                  <span class="msym" style="font-size:13px;color:var(--ds-on-surface-variant)">delete</span>
+                </div>
+                <div class="filerow" style="padding:6px 8px">
+                  <span class="msym" style="font-size:13px;color:var(--ds-tertiary)">check</span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:10.5px;font-weight:600">매출데이터.csv <span class="fmt" style="font-size:9px">→ XLSX</span></div>
+                    <div class="mono" style="font-size:8.5px;color:var(--ds-on-surface-variant)">2026-07-29 11:39</div>
+                  </div>
+                  <span class="msym" style="font-size:13px;color:var(--ds-primary)">folder_open</span>
+                  <span class="msym" style="font-size:13px;color:var(--ds-on-surface-variant)">delete</span>
+                </div>
+                <div style="padding:4px 2px">
+                  <div class="filerow" style="padding:6px 8px;border-color:var(--ds-outline-variant)">
+                    <span class="msym" style="font-size:13px;color:var(--ds-tertiary)">check</span>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-size:10.5px;font-weight:600">기획서.docx <span class="fmt" style="font-size:9px">→ PDF</span></div>
+                      <div style="font-size:9px;color:var(--ds-error)">파일을 찾을 수 없습니다</div>
+                    </div>
+                    <span class="msym" style="font-size:13px;color:var(--ds-on-surface-variant)">delete</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="hand">별도 화면이 아닌 오른쪽 패널 — 메인 흐름을 벗어나지 않음. 결과 파일이 지워졌으면 행 안에 인라인으로 알려줌. "모두 삭제"는 C-08 확인 다이얼로그 경유.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="s6" class="sec">
+    <div class="sec-h"><span class="sec-num">S-06</span><span class="sec-t">다이얼로그 — 종료 경고 · 기록 삭제</span><span class="tag">C-08 · FLOW-001 예외 · 파괴=outlined-error</span></div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <div class="frame">
+        <div class="tag">converting 중 창 닫기 시도</div>
+        <div class="win sm">
+          <div style="flex:1"></div>
+          <div class="scrim">
+            <div class="dialog" style="max-width:280px">
+              <div style="font-size:13px;font-weight:700">변환이 진행 중입니다</div>
+              <div class="note" style="font-size:11px">지금 종료하면 완료된 파일은 남고, 변환 중이던 파일은 취소됩니다.</div>
+              <div style="display:flex;gap:8px;justify-content:flex-end">
+                <span class="btn btn-fill" style="height:30px;font-size:11.5px;outline:2px solid var(--ds-primary);outline-offset:2px">계속 변환</span>
+                <span class="btn btn-err" style="height:30px;font-size:11.5px">종료</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="hand">기본 포커스 = 계속 변환(안전). Enter 치면 아무 일도 안 일어나는 쪽으로.</div>
+      </div>
+      <div class="frame">
+        <div class="tag">기록 모두 삭제</div>
+        <div class="win sm">
+          <div style="flex:1"></div>
+          <div class="scrim">
+            <div class="dialog" style="max-width:280px">
+              <div style="font-size:13px;font-weight:700">기록을 모두 삭제할까요?</div>
+              <div class="note" style="font-size:11px">변환 기록만 지워집니다. 변환된 파일은 그대로 남습니다. 이 동작은 되돌릴 수 없습니다.</div>
+              <div style="display:flex;gap:8px;justify-content:flex-end">
+                <span class="btn btn-fill" style="height:30px;font-size:11.5px;outline:2px solid var(--ds-primary);outline-offset:2px">취소</span>
+                <span class="btn btn-err" style="height:30px;font-size:11.5px">삭제</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="hand">유일한 파괴 행동. "파일은 그대로"를 문안으로 못박음(원본 보호 원칙).</div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="ds">← <a href="qt-mapping.html">4 · 구현 매핑 (PySide6)</a> · 인덱스: <a href="README.md">README</a> — 정본: <code>../02_ui_flow.md</code> · <code>../03_screen_contract.md</code>. 정본에 없는 화면은 그리지 않았다.</footer>
+</div>
+
+<script src="ds.js"></script>
+</body>
+</html>

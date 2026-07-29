@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>파일 변환기 DS · 2 컴포넌트</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <span class="brand">파일 변환기 DS <span class="mono" style="font-size:11px;font-weight:500">v0.1</span></span>
+  <a href="design-system.html">1 · 원칙 &amp; 파운데이션</a>
+  <span class="cur">2 · 컴포넌트</span>
+  <a href="patterns.html">3 · 상태 패턴 · 접근성</a>
+  <a href="qt-mapping.html">4 · 구현 매핑 (PySide6)</a>
+  <a href="wireframes.html">5 · 화면 · 와이어프레임</a>
+  <span class="spacer"></span>
+  <button data-theme-toggle>◐ 테마</button>
+</nav>
+
+<div class="wrap">
+
+  <header class="pagehead">
+    <div class="t">2 · 컴포넌트 라이브러리</div>
+    <div class="s">화면 계약(SCR)에 등장하는 컴포넌트만 정의한다 — 정본: <code>../03_screen_contract.md</code></div>
+    <div class="toc">
+      <a href="#c1">드롭존</a><a href="#c2">파일 행</a><a href="#c3">포맷 셀렉트</a><a href="#c4">버튼</a><a href="#c5">진행 표시</a><a href="#c6">결과 요약 패널</a><a href="#c7">기록 행</a><a href="#c8">다이얼로그</a><a href="#c9">제외 목록</a>
+    </div>
+  </header>
+
+  <section id="c1" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">C-01</span><span class="sec-t">드롭존 Dropzone</span><span class="tag">SCR-001 · REQ-F-001</span></div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
+      <div>
+        <div class="tag" style="margin-bottom:6px">기본 (empty — 화면 대부분 차지)</div>
+        <div class="dropzone" style="height:120px">
+          <span class="msym" style="font-size:28px">upload_file</span>
+          <div style="font-size:13px;font-weight:600;color:var(--ds-on-surface)">파일을 여기에 끌어다 놓으세요</div>
+          <div style="font-size:11px">또는 클릭해서 선택</div>
+        </div>
+      </div>
+      <div>
+        <div class="tag" style="margin-bottom:6px">드래그 진입 (active)</div>
+        <div class="dropzone active" style="height:120px">
+          <span class="msym" style="font-size:28px">place_item</span>
+          <div style="font-size:13px;font-weight:600">놓으면 목록에 추가됩니다</div>
+        </div>
+      </div>
+      <div>
+        <div class="tag" style="margin-bottom:6px">축소형 strip (list 상태 — 목록 상단)</div>
+        <div class="dropzone strip"><span class="msym" style="font-size:16px">add</span>파일 추가 또는 끌어다 놓기</div>
+        <div class="note" style="margin-top:8px">파일이 1개 이상 추가되면 드롭존은 strip으로 축소되고 목록이 주인공이 된다. 창 전체가 여전히 드롭 타깃.</div>
+      </div>
+    </div>
+    <div class="note">규칙: 지원하지 않는 확장자를 드롭하면 <b>드롭 자체는 받되</b> 해당 행을 비활성+사유로 표시(FLOW-001 분기). 드롭존에서 거절하지 않는다 — 사용자는 왜 안 되는지 행에서 배운다.</div>
+  </section>
+
+  <section id="c2" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">C-02</span><span class="sec-t">파일 행 FileRow</span><span class="tag">SCR-001 · ENT-002 · STATE-002</span></div>
+    <div style="display:flex;flex-direction:column;gap:8px;max-width:560px">
+      <div class="filerow">
+        <span class="msym" style="font-size:18px;color:var(--ds-secondary)">description</span>
+        <span class="fname">보고서_최종.docx</span>
+        <span class="fmt">DOCX →</span>
+        <span class="fmtsel">PDF <span class="msym" style="font-size:14px">arrow_drop_down</span></span>
+        <span class="msym" style="font-size:16px;color:var(--ds-on-surface-variant)">close</span>
+      </div>
+      <div class="filerow">
+        <span class="msym" style="font-size:18px;color:var(--ds-secondary)">table_chart</span>
+        <span class="fname">매출데이터.csv</span>
+        <span class="fmt">CSV →</span>
+        <span class="fmtsel">XLSX <span class="msym" style="font-size:14px">arrow_drop_down</span></span>
+        <span class="msym" style="font-size:16px;color:var(--ds-on-surface-variant)">close</span>
+      </div>
+      <div class="filerow" style="opacity:.55">
+        <span class="msym" style="font-size:18px">block</span>
+        <span class="fname">사진.png</span>
+        <span style="font-size:11px;color:var(--ds-on-surface-variant)">지원하지 않는 형식입니다</span>
+        <span class="msym" style="font-size:16px;color:var(--ds-on-surface-variant)">close</span>
+      </div>
+      <div class="filerow">
+        <span class="msym" style="font-size:18px;color:var(--ds-secondary)">description</span>
+        <span class="fname">공고문.hwp</span>
+        <span class="fmt">HWP →</span>
+        <span class="fmtsel">PDF <span class="msym" style="font-size:14px">arrow_drop_down</span></span>
+        <span class="badge" style="background:var(--ds-st-conv-bg);color:var(--ds-st-conv-fg)"><span class="spin" style="width:10px;height:10px;border-width:1.5px"></span>변환 중</span>
+      </div>
+    </div>
+    <div class="tblwrap" style="margin-top:10px"><table>
+      <tr><th>구성</th><th>규칙</th></tr>
+      <tr><td>파일 타입 아이콘</td><td>문서 <span class="mono">description</span> · 데이터 <span class="mono">table_chart</span> · 미지원 <span class="mono">block</span></td></tr>
+      <tr><td>파일명</td><td>SemiBold 600 · 넘치면 중간 말줄임. 확장자·포맷 표기는 mono</td></tr>
+      <tr><td>포맷 셀렉트</td><td>C-03. 변환 중(converting)에는 셀렉트·제거 버튼 대신 상태 배지로 교체(입력 잠금)</td></tr>
+      <tr><td>제거 ✕</td><td>목록에서 제거만. 원본 파일은 건드리지 않음(INV-01)</td></tr>
+    </table></div>
+  </section>
+
+  <section id="c3" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">C-03</span><span class="sec-t">포맷 셀렉트 FormatSelect</span><span class="tag">REQ-F-002 · 확장자별 가능 포맷만</span></div>
+    <div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+      <span class="fmtsel">PDF <span class="msym" style="font-size:14px">arrow_drop_down</span></span>
+      <div class="card" style="width:130px;padding:6px;box-shadow:var(--ds-elev-2);border-radius:8px">
+        <div class="mono" style="font-size:11px;padding:6px 10px;background:var(--ds-secondary-container);color:var(--ds-on-secondary-container);border-radius:5px;font-weight:700">PDF ✓</div>
+        <div class="mono" style="font-size:11px;padding:6px 10px">TXT</div>
+        <div class="mono" style="font-size:11px;padding:6px 10px">DOCX</div>
+      </div>
+      <div class="note" style="flex:1;min-width:220px">원본 확장자에서 변환 가능한 포맷만 나열한다(불가 포맷은 아예 표시하지 않음 — 비활성 항목 없음). 포맷명은 mono·대문자. 메뉴만 elev-2 그림자 허용.<br><br>포맷 매트릭스(정본 REQ-F-003~006): DOCX→PDF · PDF→TXT/DOCX · HWP→PDF/TXT/DOCX · CSV↔XLSX · CSV↔JSON · XLSX→CSV · JSON→CSV</div>
+    </div>
+  </section>
+
+  <section id="c4" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">C-04</span><span class="sec-t">버튼</span><span class="tag">M3 · filled/outlined/text · 파괴=outlined-error</span></div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+      <span class="btn btn-fill"><span class="msym" style="font-size:18px">play_arrow</span>변환하기</span>
+      <span class="btn btn-fill" style="opacity:.38">변환하기</span>
+      <span class="btn btn-out">취소</span>
+      <span class="btn btn-text">결과 폴더 열기</span>
+      <span class="btn btn-err"><span class="msym" style="font-size:16px">delete</span>기록 삭제</span>
+    </div>
+    <div class="tblwrap" style="margin-top:10px"><table>
+      <tr><th>변형</th><th>사용처</th><th>규칙</th></tr>
+      <tr><td>filled (primary)</td><td>변환하기 — 화면당 1개</td><td>파일 0건·포맷 미선택 존재 시 비활성(38%) + 비활성 사유를 버튼 옆 캡션으로</td></tr>
+      <tr><td>outlined</td><td>취소(변환 중) · 닫기</td><td>중립 행동</td></tr>
+      <tr><td>text</td><td>결과 폴더 열기 · 뒤로</td><td>낮은 강조</td></tr>
+      <tr><td><b>outlined-error</b></td><td>기록 삭제(유일한 파괴 행동)</td><td>filled 금지 · 확인 다이얼로그 경유(C-08) · 기본 포커스는 취소에</td></tr>
+    </table></div>
+  </section>
+
+  <section id="c5" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">C-05</span><span class="sec-t">진행 표시 Progress</span><span class="tag">SCR-001 converting · STATE-001 · 가짜 진행 금지</span></div>
+    <div style="max-width:560px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:space-between;font-size:12px"><span style="font-weight:600">변환 중…</span><span class="mono">3 / 5 완료</span></div>
+      <div class="progress"><span style="width:60%"></span></div>
+    </div>
+    <div class="note" style="margin-top:8px">전체 진행 바 = <b>완료 항목 수 / 전체 항목 수</b>만 사용(실측). 개별 파일 내부 진행률은 알 수 없으므로 행에는 회전 스피너만. 남은 시간 추정·부드러운 가짜 증가 금지. 수치는 mono.</div>
+  </section>
+
+  <section id="c6" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">C-06</span><span class="sec-t">결과 요약 패널 ResultSummary</span><span class="tag">SCR-002 · REQ-F-009 · OQ-005(오버레이로 제안)</span></div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap">
+      <div class="dialog" style="max-width:340px;position:static">
+        <div style="display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700"><span class="msym f" style="font-size:22px;color:var(--ds-tertiary)">check_circle</span>변환 완료</div>
+        <div class="mono" style="font-size:12px"><span style="color:var(--ds-tertiary);font-weight:700">성공 4</span> · <span style="color:var(--ds-error);font-weight:700">실패 1</span></div>
+        <div class="filerow" style="background:var(--ds-error-container);border-color:transparent">
+          <span class="msym" style="font-size:16px;color:var(--ds-on-error-container)">error</span>
+          <div style="flex:1;min-width:0">
+            <div class="fname" style="font-size:12px;color:var(--ds-on-error-container)">계약서.pdf</div>
+            <div style="font-size:11px;color:var(--ds-on-error-container)">암호가 걸린 파일입니다</div>
+          </div>
+        </div>
+        <div class="note">이름이 겹쳐 <span class="mono">보고서_최종 (1).pdf</span>로 저장했습니다.</div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <span class="btn btn-text" style="height:34px;font-size:13px">결과 폴더 열기</span>
+          <span class="btn btn-fill" style="height:34px;font-size:13px">확인</span>
+        </div>
+      </div>
+      <div class="note" style="flex:1;min-width:240px">SCR-001 위 <b>오버레이 카드</b>로 구현(OQ-005 제안 — Conflict List 참조). 변형 3종은 패턴 페이지 P-03.<br><br>· 실패 파일은 error-container 행 + 사람 언어 사유<br>· 자동 리네임 발생 시 한 줄 고지(질문이 아니라 사후 보고 — 원칙 F-01)<br>· 확인 → 전체 성공이면 목록 비움, 실패 존재 시 실패 파일만 남김(재시도 경로, INV-03)</div>
+    </div>
+  </section>
+
+  <section id="c7" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">C-07</span><span class="sec-t">기록 행 HistoryRow</span><span class="tag">SCR-003 · ENT-003 · REQ-F-010</span></div>
+    <div style="display:flex;flex-direction:column;gap:8px;max-width:560px">
+      <div class="filerow">
+        <span class="msym" style="font-size:16px;color:var(--ds-tertiary)">check</span>
+        <div style="flex:1;min-width:0">
+          <div class="fname" style="font-size:12px">공고문.hwp <span class="fmt">→ PDF</span></div>
+          <div class="mono" style="font-size:10px;color:var(--ds-on-surface-variant)">2026-07-29 11:39</div>
+        </div>
+        <span class="msym" style="font-size:16px;color:var(--ds-primary)" title="위치 열기">folder_open</span>
+        <span class="msym" style="font-size:16px;color:var(--ds-on-surface-variant)" title="기록 삭제">delete</span>
+      </div>
+      <div class="filerow" style="opacity:.7">
+        <span class="msym" style="font-size:16px;color:var(--ds-error)">error</span>
+        <div style="flex:1;min-width:0">
+          <div class="fname" style="font-size:12px">계약서.pdf <span class="fmt">→ DOCX</span></div>
+          <div class="mono" style="font-size:10px;color:var(--ds-on-surface-variant)">2026-07-29 11:12 · 실패</div>
+        </div>
+        <span class="msym" style="font-size:16px;color:var(--ds-on-surface-variant)">delete</span>
+      </div>
+    </div>
+    <div class="note" style="margin-top:8px">클릭 → OS 탐색기에서 결과 파일 위치 열기. 파일이 이미 삭제됐으면 "파일을 찾을 수 없습니다" 인라인 안내(행 아래, 토스트 금지). 삭제는 기록만 지움 — 파일은 건드리지 않음을 다이얼로그 문안에 명시.</div>
+  </section>
+
+  <section id="c8" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">C-08</span><span class="sec-t">다이얼로그</span><span class="tag">파괴 확인 · 변환 중 종료 경고 · elev-3</span></div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap">
+      <div class="dialog" style="max-width:300px;position:static">
+        <div style="font-size:14px;font-weight:700">기록을 모두 삭제할까요?</div>
+        <div class="note">변환 기록만 지워집니다. 변환된 파일은 그대로 남습니다. 이 동작은 되돌릴 수 없습니다.</div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <span class="btn btn-fill" style="height:32px;font-size:12.5px;outline:2px solid var(--ds-primary);outline-offset:2px">취소</span>
+          <span class="btn btn-err" style="height:32px;font-size:12.5px">삭제</span>
+        </div>
+      </div>
+      <div class="dialog" style="max-width:300px;position:static">
+        <div style="font-size:14px;font-weight:700">변환이 진행 중입니다</div>
+        <div class="note">지금 종료하면 완료된 파일은 남고, 변환 중이던 파일은 취소됩니다.</div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <span class="btn btn-fill" style="height:32px;font-size:12.5px;outline:2px solid var(--ds-primary);outline-offset:2px">계속 변환</span>
+          <span class="btn btn-err" style="height:32px;font-size:12.5px">종료</span>
+        </div>
+      </div>
+    </div>
+    <div class="note" style="margin-top:8px">규칙: 기본 포커스(파란 링)는 항상 <b>안전한 행동</b>에. 파괴/중단 행동은 outlined-error. 복구 불가는 문안에 명시. Esc = 안전 행동과 동일.</div>
+  </section>
+
+  <section id="c9" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">C-09</span><span class="sec-t">제외 목록 — 만들지 않는 것</span><span class="tag">발명 금지 · 근거 있는 것만</span></div>
+    <div class="tblwrap"><table>
+      <tr><th>제외 컴포넌트/패턴</th><th>사유</th></tr>
+      <tr><td>단계별 마법사(스테퍼)</td><td>DEC-006 — 원스크린 드롭존 확정, 마법사 배제</td></tr>
+      <tr><td>저장 위치 선택기</td><td>DEC-004 — 원본 폴더 고정 + 자동 리네임. MVP에 선택 UI 없음</td></tr>
+      <tr><td>덮어쓰기 확인 다이얼로그</td><td>INV-05 — 덮어쓰기 경로 자체가 없음</td></tr>
+      <tr><td>파일 미리보기 뷰어</td><td>01_requirements Won't — MVP 제외</td></tr>
+      <tr><td>토스트/스낵바</td><td>오류·안내는 대상 인접 인라인 표시(접근성 원칙). 사라지는 메시지에 중요한 정보 금지</td></tr>
+      <tr><td>로그인·프로필·클라우드 아이콘</td><td>REQ-NF-002·003 — 완전 로컬. 계정 개념 없음</td></tr>
+      <tr><td>FAB</td><td>데스크톱 앱 · 주요 행동은 하단 filled 버튼 1개로 충분</td></tr>
+      <tr><td>남은 시간 추정 표시</td><td>F-06 — 실측 불가한 수치 표시 금지</td></tr>
+    </table></div>
+  </section>
+
+  <footer class="ds">← <a href="design-system.html">1 · 원칙 &amp; 파운데이션</a> · 다음 → <a href="patterns.html">3 · 상태 패턴 · 접근성</a></footer>
+</div>
+
+<script src="ds.js"></script>
+</body>
+</html>

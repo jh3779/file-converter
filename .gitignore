@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Java build artifacts (spike)
+spike/hwplib/out/
+spike/hwplib/libs/
+spike/hwplib/output/
+spike/hwplib/sources.txt
+
+# External clone — hwplib upstream (재현: git clone https://github.com/neolord0/hwplib)
+spike/hwplib/repo/
+
+# IDE
+.idea/
+.vscode/

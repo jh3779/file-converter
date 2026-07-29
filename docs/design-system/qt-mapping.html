@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>파일 변환기 DS · 4 구현 매핑 (PySide6)</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <span class="brand">파일 변환기 DS <span class="mono" style="font-size:11px;font-weight:500">v0.1</span></span>
+  <a href="design-system.html">1 · 원칙 &amp; 파운데이션</a>
+  <a href="components.html">2 · 컴포넌트</a>
+  <a href="patterns.html">3 · 상태 패턴 · 접근성</a>
+  <span class="cur">4 · 구현 매핑 (PySide6)</span>
+  <a href="wireframes.html">5 · 화면 · 와이어프레임</a>
+  <span class="spacer"></span>
+  <button data-theme-toggle>◐ 테마</button>
+</nav>
+
+<div class="wrap">
+
+  <header class="pagehead">
+    <div class="t">4 · 구현 매핑 — PySide6 (Qt)</div>
+    <div class="s">토큰·컴포넌트를 Qt 위젯/QSS로 잇는다 — 정본: <code>../06_open_questions.md</code> DEC-001·007</div>
+    <div class="toc">
+      <a href="#m1">토큰 → QSS</a><a href="#m2">컴포넌트 → 위젯</a><a href="#m3">상태 머신 → 스레딩</a><a href="#m4">변환 엔진 연결</a><a href="#m5">Conflict List</a>
+    </div>
+  </header>
+
+  <section id="m1" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">M-01</span><span class="sec-t">토큰 → QSS / QPalette</span><span class="tag">DEC-001 · Windows 우선, mac 개발</span></div>
+    <div class="note">토큰은 <code>tokens.py</code> 단일 소스(Light/Dark dict)로 정의하고 QSS 템플릿에 주입한다. OS 다크 모드는 <code>QStyleHints.colorScheme</code>으로 감지해 스킴 전환. 하드코딩 HEX 금지 — 반드시 토큰 경유.</div>
+    <div class="tblwrap" style="margin-top:6px"><table>
+      <tr><th>DS 토큰</th><th>Qt 적용</th></tr>
+      <tr><td class="mono">--ds-surface-container-high</td><td>QMainWindow 배경</td></tr>
+      <tr><td class="mono">--ds-surface + outline-variant</td><td>카드/행: QFrame QSS <span class="mono">border:1px solid; border-radius:8~12px</span> (그림자 없음)</td></tr>
+      <tr><td class="mono">--ds-primary 계열</td><td>변환하기 QPushButton(filled) · QProgressBar chunk · 포커스 링</td></tr>
+      <tr><td class="mono">--ds-st-* 5종</td><td>상태 배지 위젯 배경/전경 (P-02 매핑 그대로)</td></tr>
+      <tr><td>Pretendard / Roboto Mono</td><td>QFontDatabase로 앱에 폰트 번들·등록(시스템 설치 의존 금지 — REQ-NF-005). 본문 Pretendard, 수치·포맷 라벨 Roboto Mono</td></tr>
+      <tr><td class="mono">radius-full 버튼</td><td>QSS <span class="mono">border-radius: height/2</span> · 높이 40(주요)/32(다이얼로그)</td></tr>
+    </table></div>
+  </section>
+
+  <section id="m2" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">M-02</span><span class="sec-t">컴포넌트 → 위젯</span><span class="tag">C-01~08 대응</span></div>
+    <div class="tblwrap"><table>
+      <tr><th>컴포넌트</th><th>Qt 구현</th><th>비고</th></tr>
+      <tr><td class="mono">C-01 Dropzone</td><td>QWidget + <span class="mono">setAcceptDrops(True)</span>, dragEnter/dropEvent</td><td>창 전체가 드롭 타깃(MainWindow에서 수신). 클릭 시 QFileDialog(다중 선택)</td></tr>
+      <tr><td class="mono">C-02 FileRow</td><td>QListView + QStyledItemDelegate (모델: FileItem)</td><td>행 수가 수백 개일 수 있음(일괄 변환) — 위젯 나열 대신 delegate 렌더</td></tr>
+      <tr><td class="mono">C-03 FormatSelect</td><td>QComboBox (행 에디터) 또는 delegate 내 팝업</td><td>모델이 확장자→가능 포맷 목록 제공(REQ-F-002)</td></tr>
+      <tr><td class="mono">C-04 버튼</td><td>QPushButton + QSS 변형 클래스(filled/outlined/text/error)</td><td><span class="mono">setProperty("variant","filled")</span> 방식</td></tr>
+      <tr><td class="mono">C-05 Progress</td><td>QProgressBar(전체) + 행 배지 스피너(QMovie 또는 delegate 회전)</td><td>value = 완료 수, max = 전체 수. busy 모드(minimum=maximum=0) 금지 — 실측 원칙</td></tr>
+      <tr><td class="mono">C-06 ResultSummary</td><td>부모 위 반투명 오버레이 QWidget + 중앙 QFrame(elev-3 그림자는 QGraphicsDropShadowEffect)</td><td>OQ-005 제안 구현. 별도 창 금지(단일 창 앱)</td></tr>
+      <tr><td class="mono">C-07 HistoryRow</td><td>QListView + delegate · 위치 열기: Windows <span class="mono">explorer /select,</span> · macOS <span class="mono">open -R</span></td><td>SQLite 로컬 저장(OQ-004)</td></tr>
+      <tr><td class="mono">C-08 다이얼로그</td><td>QDialog · <span class="mono">setDefaultButton</span>=안전 행동 · Esc=reject=안전</td><td>변환 중 closeEvent 가로채서 경고 다이얼로그</td></tr>
+    </table></div>
+  </section>
+
+  <section id="m3" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">M-03</span><span class="sec-t">상태 머신 → 스레딩 모델</span><span class="tag">STATE-001·002 · INV-01~05</span></div>
+    <div class="note">
+      · <b>UI 스레드는 변환하지 않는다.</b> ConversionJob = QThreadPool, FileItem 1개 = QRunnable 1개(동시 실행 수 = min(CPU-1, 4)).<br>
+      · 워커 → UI는 시그널로만: <span class="mono">itemStarted(id) · itemDone(id, outputPath) · itemFailed(id, reason) · jobFinished(summary)</span>. 모델 상태 전이는 UI 스레드에서만 수행(경합 방지).<br>
+      · 취소: Job에 취소 플래그 → 대기 QRunnable은 시작 시 확인 후 <span class="mono">skipped</span>, 실행 중 항목은 완료 후 결과 폐기 + 임시파일 삭제(<span class="mono">failed: 취소</span>).<br>
+      · 출력 절차(INV-01·02·05): OS 임시 폴더에 변환 → 성공 시 결말 위치로 원자적 이동(이름 충돌이면 <span class="mono">이름 (1).ext</span> 재계산) → 그때 done 전이. 원본은 읽기 전용으로만 연다.
+    </div>
+  </section>
+
+  <section id="m4" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">M-04</span><span class="sec-t">변환 엔진 연결</span><span class="tag">DEC-002·007 · spike/hwplib/RESULT.md</span></div>
+    <div class="tblwrap"><table>
+      <tr><th>변환</th><th>엔진</th><th>호출 방식</th></tr>
+      <tr><td class="mono">DOCX→PDF</td><td>번들 LibreOffice(headless)</td><td>subprocess <span class="mono">soffice --headless --convert-to pdf</span> · 프로필 디렉터리 앱 전용 분리</td></tr>
+      <tr><td class="mono">PDF→TXT/DOCX</td><td>pdfminer.six / pdf2docx</td><td>Python in-process</td></tr>
+      <tr><td class="mono">HWP→PDF/TXT/DOCX</td><td>hwplib(main 브랜치 빌드) + 번들 JRE 사이드카</td><td>subprocess(JSON 프로토콜) → 구조 추출 → DOCX 생성 → 필요 시 LibreOffice로 PDF</td></tr>
+      <tr><td class="mono">CSV↔XLSX · CSV↔JSON</td><td>openpyxl / pandas</td><td>Python in-process · 인코딩 자동 감지(EUC-KR/UTF-8, REQ-F-009 Should)</td></tr>
+    </table></div>
+    <div class="note">모든 엔진은 앱에 번들(REQ-NF-005) — 네트워크 호출 0(REQ-NF-002). 사이드카 프로세스는 파일 경로만 주고받고 파일 내용을 소켓/네트워크로 보내지 않는다.</div>
+  </section>
+
+  <section id="m5" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">M-05</span><span class="sec-t">Conflict List — 임의 해결 금지</span><span class="tag">../06_open_questions.md 동기화</span></div>
+    <div class="tblwrap"><table>
+      <tr><th>ID</th><th>내용</th><th>이 문서의 잠정안</th><th>상태</th></tr>
+      <tr><td class="mono">OQ-005</td><td>결과 화면: 별도 화면 vs 오버레이</td><td><b>오버레이 카드로 설계함</b>(C-06, S-04) — 단일 창 유지, 컨텍스트 보존</td><td>제안 — 사용자 승인 시 DEC 승격</td></tr>
+      <tr><td class="mono">OQ-002</td><td>자동 업데이트 여부(오프라인 원칙과 충돌)</td><td>UI에 업데이트 요소 없음(미포함 가정)</td><td>미결</td></tr>
+      <tr><td class="mono">OQ-003</td><td>PDF→DOCX 정확도 기대치 고지</td><td>포맷 셀렉트에서 DOCX 선택 시 1회 인라인 캡션 "레이아웃이 단순화될 수 있어요"</td><td>제안 — 문안 확정 필요</td></tr>
+      <tr><td class="mono">OQ-004</td><td>기록 보관 건수 N·저장 방식</td><td>N=50 · SQLite 가정(M-02)</td><td>미결</td></tr>
+      <tr><td class="mono">OQ-006</td><td>실사용 HWP 커버리지 검증</td><td>UI 영향 없음(실패 시 P-04 문안으로 수렴)</td><td>진행 예정</td></tr>
+    </table></div>
+  </section>
+
+  <footer class="ds">← <a href="patterns.html">3 · 상태 패턴 · 접근성</a> · 다음 → <a href="wireframes.html">5 · 화면 · 와이어프레임</a></footer>
+</div>
+
+<script src="ds.js"></script>
+</body>
+</html>

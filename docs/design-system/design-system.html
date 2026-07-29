@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>파일 변환기 DS · 1 원칙 &amp; 파운데이션</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<nav class="topnav">
+  <span class="brand">파일 변환기 DS <span class="mono" style="font-size:11px;font-weight:500">v0.1</span></span>
+  <span class="cur">1 · 원칙 &amp; 파운데이션</span>
+  <a href="components.html">2 · 컴포넌트</a>
+  <a href="patterns.html">3 · 상태 패턴 · 접근성</a>
+  <a href="qt-mapping.html">4 · 구현 매핑 (PySide6)</a>
+  <a href="wireframes.html">5 · 화면 · 와이어프레임</a>
+  <span class="spacer"></span>
+  <button data-theme-toggle>◐ 테마</button>
+</nav>
+
+<div class="wrap">
+
+  <header class="pagehead">
+    <div class="t">1 · 원칙 &amp; 파운데이션</div>
+    <div class="s">디자인 원칙 · ColorScheme "Vault Teal" · 타이포 · 간격/모양/고도 — 정본: <code>../00_project_brief.md</code> · <code>../01_requirements.md</code></div>
+    <div class="toc">
+      <a href="#f1">원칙</a><a href="#f2">ColorScheme</a><a href="#f3">도메인 상태색</a><a href="#f4">타이포그래피</a><a href="#f5">간격·모양·고도</a><a href="#f6">모션</a>
+    </div>
+  </header>
+
+  <section id="f1" class="sec">
+    <div class="sec-h"><span class="sec-num">F-01</span><span class="sec-t">디자인 원칙</span><span class="tag">00_project_brief · REQ-NF-006·007</span></div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
+      <div class="card pad">
+        <div style="display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700"><span class="msym" style="font-size:20px;color:var(--ds-primary)">lock</span>금고처럼 — 오프라인을 보이게</div>
+        <div class="note" style="margin-top:8px">핵심 가치는 "파일이 PC 밖으로 나가지 않는다". 이 사실을 UI에 명시적으로 보여준다(기록 화면의 로컬 저장 안내 등). 네트워크가 필요해 보이는 어떤 표현(클라우드 아이콘, 업로드 문구)도 쓰지 않는다.</div>
+        <div class="tag" style="margin-top:10px">REQ-NF-002·003</div>
+      </div>
+      <div class="card pad">
+        <div style="display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700"><span class="msym" style="font-size:20px;color:var(--ds-primary)">counter_3</span>3클릭 완결</div>
+        <div class="note" style="margin-top:8px">파일 넣기 → 포맷 선택 → 변환하기. 이 경로 위에 어떤 화면·다이얼로그도 추가하지 않는다. 저장 위치도 묻지 않는다(원본 폴더 고정, DEC-004). 설명서 없이 쓸 수 있어야 한다.</div>
+        <div class="tag" style="margin-top:10px">REQ-NF-006 · DEC-006</div>
+      </div>
+      <div class="card pad">
+        <div style="display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700"><span class="msym" style="font-size:20px;color:var(--ds-primary)">shield</span>원본은 신성불가침</div>
+        <div class="note" style="margin-top:8px">원본을 덮어쓰는 UI 경로 자체가 없다. 이름 충돌은 말없이 자동 리네임하고 결과에 표시만 한다. "덮어쓸까요?" 류의 질문은 금지 — 질문이 존재한다는 것 자체가 원본이 위험하다는 신호다.</div>
+        <div class="tag" style="margin-top:10px">REQ-F-008 · INV-01·05</div>
+      </div>
+      <div class="card pad">
+        <div style="display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700"><span class="msym" style="font-size:20px;color:var(--ds-primary)">fact_check</span>정직한 상태</div>
+        <div class="note" style="margin-top:8px">완료 전 성공 선표시 금지, 가짜 진행률 금지. 실패는 실패라고 말하고 사람이 읽을 수 있는 사유와 재시도 경로를 준다. 일부 실패는 숨기지 않고 요약에 병기한다.</div>
+        <div class="tag" style="margin-top:10px">REQ-F-009 · INV-02·03</div>
+      </div>
+      <div class="card pad">
+        <div style="display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700"><span class="msym" style="font-size:20px;color:var(--ds-primary)">palette</span>색은 역할로만</div>
+        <div class="note" style="margin-top:8px">primary(청록)는 진행·주요 행동, tertiary(녹색)는 <b>"변환 완료" 한 가지 의미에만</b> 쓴다. error는 실패·파괴 행동 전용. 상태는 색+아이콘+텍스트로 이중·삼중 부호화한다(색 단독 금지).</div>
+        <div class="tag" style="margin-top:10px">F-03 · P-02</div>
+      </div>
+      <div class="card pad">
+        <div style="display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700"><span class="msym" style="font-size:20px;color:var(--ds-primary)">person</span>비개발자 언어</div>
+        <div class="note" style="margin-top:8px">1차 사용자는 비개발자 일반인. 에러 코드·스택트레이스·기술 용어를 노출하지 않는다. "인코딩" 대신 "한글이 깨지지 않게", "파싱 실패" 대신 "파일을 읽을 수 없습니다"라고 쓴다.</div>
+        <div class="tag" style="margin-top:10px">00_project_brief · SCR-002 금지</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="f2" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">F-02</span><span class="sec-t">ColorScheme — "Vault Teal"</span><span class="tag">M3 tonal targets · Light/Dark 명시 정의</span></div>
+    <div class="note">청록(teal)은 신뢰·보안의 브랜드 축. 아래 스와치는 현재 테마 기준(우상단 토글로 Light/Dark 확인). 구현 시 이 HEX를 그대로 쓴다 — 자동 생성(fromSeed류)에 의존하지 않는다.</div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-top:6px">
+      <div class="swatch" style="background:var(--ds-primary);color:var(--ds-on-primary)">primary<span class="hex">L #00696D · D #80D4D9</span></div>
+      <div class="swatch" style="background:var(--ds-primary-container);color:var(--ds-on-primary-container)">primary-container<span class="hex">L #9CF1F6 · D #004F52</span></div>
+      <div class="swatch" style="background:var(--ds-secondary);color:var(--ds-on-secondary)">secondary<span class="hex">L #4A6365 · D #B1CBCD</span></div>
+      <div class="swatch" style="background:var(--ds-secondary-container);color:var(--ds-on-secondary-container)">secondary-container<span class="hex">L #CCE8E9 · D #324B4D</span></div>
+      <div class="swatch" style="background:var(--ds-tertiary);color:var(--ds-on-tertiary)">tertiary — 완료 전용<span class="hex">L #3B6939 · D #A1D399</span></div>
+      <div class="swatch" style="background:var(--ds-error);color:var(--ds-on-error)">error<span class="hex">L #BA1A1A · D #FFB4AB</span></div>
+      <div class="swatch" style="background:var(--ds-error-container);color:var(--ds-on-error-container)">error-container<span class="hex">L #FFDAD6 · D #93000A</span></div>
+      <div class="swatch" style="background:var(--ds-surface);color:var(--ds-on-surface);border:1px solid var(--ds-outline-variant)">surface<span class="hex">L #FAFDFC · D #101414</span></div>
+      <div class="swatch" style="background:var(--ds-surface-container-high);color:var(--ds-on-surface);border:1px solid var(--ds-outline-variant)">surface-container-high<span class="hex">창 배경</span></div>
+      <div class="swatch" style="background:var(--ds-surface-variant);color:var(--ds-on-surface-variant)">surface-variant<span class="hex">L #DAE4E5 · D #3F4949</span></div>
+    </div>
+    <div class="note">역할 규칙: <b>primary</b> = 변환하기 버튼·진행 표시·링크 · <b>secondary</b> = 보조 배지(대기) · <b>tertiary</b> = 완료 상태만 · <b>error</b> = 실패 상태 + 파괴 행동(기록 삭제) · surface 계열 = 배경/카드.</div>
+  </section>
+
+  <section id="f3" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">F-03</span><span class="sec-t">도메인 상태색 — FileItem 5상태</span><span class="tag">STATE-002 · ../05_state_machine.md</span></div>
+    <div class="note">파일 항목의 상태는 항상 <b>배지(색) + 아이콘 + 텍스트</b> 3중 부호화. 색만 바꾸는 상태 표현은 금지.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">
+      <span class="badge" style="background:var(--ds-st-queued-bg);color:var(--ds-st-queued-fg)"><span class="msym" style="font-size:14px">schedule</span>대기 중</span>
+      <span class="badge" style="background:var(--ds-st-conv-bg);color:var(--ds-st-conv-fg)"><span class="msym" style="font-size:14px">sync</span>변환 중</span>
+      <span class="badge" style="background:var(--ds-st-done-bg);color:var(--ds-st-done-fg)"><span class="msym" style="font-size:14px">check</span>완료</span>
+      <span class="badge" style="background:var(--ds-st-fail-bg);color:var(--ds-st-fail-fg)"><span class="msym" style="font-size:14px">error</span>실패</span>
+      <span class="badge" style="background:var(--ds-st-skip-bg);color:var(--ds-st-skip-fg)"><span class="msym" style="font-size:14px">skip_next</span>건너뜀</span>
+    </div>
+    <div class="tblwrap" style="margin-top:8px"><table>
+      <tr><th>상태(STATE-002)</th><th>토큰</th><th>아이콘</th><th>표시 문구</th></tr>
+      <tr><td class="mono">queued</td><td class="mono">--ds-st-queued-*</td><td class="mono">schedule</td><td>대기 중</td></tr>
+      <tr><td class="mono">converting</td><td class="mono">--ds-st-conv-*</td><td class="mono">sync (회전)</td><td>변환 중</td></tr>
+      <tr><td class="mono">done</td><td class="mono">--ds-st-done-* (tertiary)</td><td class="mono">check</td><td>완료</td></tr>
+      <tr><td class="mono">failed</td><td class="mono">--ds-st-fail-* (error)</td><td class="mono">error</td><td>실패 + 사유 한 줄</td></tr>
+      <tr><td class="mono">skipped</td><td class="mono">--ds-st-skip-*</td><td class="mono">skip_next</td><td>건너뜀</td></tr>
+    </table></div>
+  </section>
+
+  <section id="f4" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">F-04</span><span class="sec-t">타이포그래피 — 서체 이원화</span><span class="tag">Pretendard + Roboto Mono</span></div>
+    <div class="tblwrap"><table>
+      <tr><th>용도</th><th>서체</th><th>크기/굵기</th><th>비고</th></tr>
+      <tr><td>본문·라벨·버튼·안내</td><td>Pretendard</td><td>12~15px · Regular 400</td><td>한글 UI 전반</td></tr>
+      <tr><td>강조(제목·파일명·버튼)</td><td>Pretendard</td><td><b>SemiBold 600</b></td><td>한글 Medium(500)은 변별력 약함 — 600 사용</td></tr>
+      <tr><td>확장자·포맷명(PDF, DOCX…)</td><td class="mono">Roboto Mono</td><td>10.5~12px · 500</td><td>포맷 셀렉트·배지·화살표 표기</td></tr>
+      <tr><td>수치(건수·%·시간·용량)</td><td class="mono">Roboto Mono</td><td>화면 크기 따름</td><td>"성공 4 · 실패 1", "67%", "2026-07-29 11:39"</td></tr>
+      <tr><td>와이어프레임 주석</td><td>Nanum Pen Script</td><td>15px</td><td>문서 전용 — 앱에는 쓰지 않음</td></tr>
+    </table></div>
+    <div class="note">예: <b style="font-weight:600">보고서_최종.docx</b> <span class="mono" style="font-size:11px">DOCX → PDF</span> · <span class="mono" style="font-size:11px">성공 4 · 실패 1</span></div>
+  </section>
+
+  <section id="f5" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">F-05</span><span class="sec-t">간격 · 모양 · 고도</span><span class="tag">--ds-space-* · --ds-radius-* · --ds-elev-*</span></div>
+    <div class="tblwrap"><table>
+      <tr><th>토큰</th><th>값</th><th>사용처</th></tr>
+      <tr><td class="mono">space 4/8/12/16/20/24/32/40</td><td class="mono">--ds-space-1~8</td><td>행 내부 8 · 카드 패딩 16~18 · 섹션 간 22</td></tr>
+      <tr><td class="mono">radius-sm 8</td><td class="mono">8px</td><td>파일 행 · 포맷 셀렉트</td></tr>
+      <tr><td class="mono">radius-md 12</td><td class="mono">12px</td><td>카드 · 드롭존</td></tr>
+      <tr><td class="mono">radius-lg 16</td><td class="mono">16px</td><td>다이얼로그 · 결과 패널</td></tr>
+      <tr><td class="mono">radius-full</td><td class="mono">999px</td><td>버튼 · 배지 · 진행 바</td></tr>
+      <tr><td class="mono">elev-1~3</td><td>그림자</td><td><b>다이얼로그·결과 오버레이·메뉴에만.</b> 카드는 그림자 없이 1px outline-variant 헤어라인</td></tr>
+    </table></div>
+  </section>
+
+  <section id="f6" class="sec card pad">
+    <div class="sec-h"><span class="sec-num">F-06</span><span class="sec-t">모션</span><span class="tag">최소·기능적</span></div>
+    <div class="note">
+      · <b>변환 중 스피너</b>: 0.9s 등속 회전. 진행률을 알 수 없는 개별 파일 변환에 사용.<br>
+      · <b>전체 진행 바</b>: 완료 파일 수 / 전체 파일 수 기반의 실제 값만. 시간 추정 가짜 진행 금지(INV 원칙).<br>
+      · <b>드롭존 활성</b>: 드래그 진입 시 배경 <span class="mono">primary-container</span>·테두리 <span class="mono">primary</span>로 120ms 전환.<br>
+      · 화면 전환 애니메이션 없음(단일 창 앱). 결과 오버레이는 150ms 페이드만.
+    </div>
+  </section>
+
+  <footer class="ds">정본: <code>../00_project_brief.md</code> · <code>../01_requirements.md</code> — 이 문서는 시각 토큰만 소유한다. · 다음 → <a href="components.html">2 · 컴포넌트</a></footer>
+</div>
+
+<script src="ds.js"></script>
+</body>
+</html>
