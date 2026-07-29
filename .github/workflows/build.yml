@@ -136,7 +136,7 @@ jobs:
       - name: Build exe
         run: >
           pyinstaller --noconfirm --clean --windowed --name FileConverter
-          --collect-submodules app run.py
+          --icon packaging/icon.ico --collect-submodules app run.py
       - name: Bundle engine into dist (+ 제3자 라이선스 고지)
         shell: pwsh
         run: |
@@ -180,8 +180,65 @@ jobs:
           Start-Sleep -Seconds 8
           if ($p.HasExited) { Write-Error "app exited early (code $($p.ExitCode))"; exit 1 }
           Stop-Process -Id $p.Id -Force
+      - name: Install Inno Setup (인스톨러 빌드 도구 — v0.3c·DEC-013)
+        run: choco install innosetup --no-progress -y
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $version = (Get-Content packaging/VERSION -Raw).Trim()
+          $distAbs = (Resolve-Path dist/FileConverter).Path
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\installer.iss `
+            "/DMyAppVersion=$version" "/DDistDir=$distAbs"
+          if ($LASTEXITCODE -ne 0) { Write-Error "인스톨러 컴파일 실패"; exit 1 }
+          $exe = Get-ChildItem packaging/installer-out -Filter *.exe | Select-Object -First 1
+          if (-not $exe) { Write-Error "인스톨러 산출물을 찾을 수 없습니다"; exit 1 }
+          Write-Host "빌드됨: $($exe.FullName) ($([math]::Round($exe.Length/1MB)) MB)"
+      - name: Installer smoke (무설치 폴더에 실치→실행→제거 전 과정 검증)
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem packaging/installer-out -Filter *.exe | Select-Object -First 1
+          $installDir = "$PWD\installer-smoke-target"
+
+          # 무인 설치 — PrivilegesRequired=lowest가 기본이라 사용자 폴더 설치에
+          # 별도 권한 override 플래그가 필요 없다(installer.iss 참고)
+          Start-Process -FilePath $exe.FullName -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART',
+            "/DIR=$installDir"
+          ) -Wait
+          $installedExe = "$installDir\FileConverter.exe"
+          if (-not (Test-Path $installedExe)) {
+            Write-Error "설치 후 FileConverter.exe가 없습니다: $installedExe"; exit 1
+          }
+          if (-not (Test-Path "$installDir\engine\libreoffice\program\soffice.exe")) {
+            Write-Error "설치된 위치에 번들 엔진이 없습니다"; exit 1
+          }
+          Write-Host "설치 확인 완료: $installedExe"
+
+          # 설치된 실제 위치에서 실행까지 확인 (아이콘·바로가기가 아닌 exe 자체)
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $p = Start-Process -FilePath $installedExe -PassThru
+          Start-Sleep -Seconds 8
+          if ($p.HasExited) { Write-Error "설치된 exe 실행 실패 (code $($p.ExitCode))"; exit 1 }
+          Stop-Process -Id $p.Id -Force
+
+          # 무인 제거 — 언인스톨러가 깨끗하게 지우는지 확인 (REQ-NF-003 정신: 흔적 안 남기기)
+          $uninstaller = Get-ChildItem $installDir -Filter "unins*.exe" | Select-Object -First 1
+          if (-not $uninstaller) { Write-Error "언인스톨러를 찾을 수 없습니다"; exit 1 }
+          Start-Process -FilePath $uninstaller.FullName -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          ) -Wait
+          Start-Sleep -Seconds 2
+          if (Test-Path $installedExe) {
+            Write-Error "제거 후에도 FileConverter.exe가 남아 있습니다"; exit 1
+          }
+          Write-Host "제거 확인 완료"
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'
         with:
-          name: FileConverter-windows
+          name: FileConverter-windows-portable
           path: dist/FileConverter/
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: FileConverter-windows-installer
+          path: packaging/installer-out/*.exe
