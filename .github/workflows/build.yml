@@ -42,8 +42,13 @@ jobs:
       - run: pip install -r requirements.txt pyinstaller
       - name: Build HWP engine (hwplib + sidecar + jlink JRE)
         shell: pwsh
+        env:
+          # 스파이크로 검증된 hwplib 리비전 (spike/hwplib/RESULT.md · DEC-007).
+          # 갱신은 별도 PR에서 스파이크/스모크 결과와 함께 진행할 것.
+          HWPLIB_REV: d9e073d6899d947f8f583492e00a5e1062381d7e
         run: |
-          git clone --depth 1 https://github.com/neolord0/hwplib.git hwplib-src
+          git clone https://github.com/neolord0/hwplib.git hwplib-src
+          git -C hwplib-src checkout $env:HWPLIB_REV
           python scripts/patch_hwplib.py hwplib-src
           Get-ChildItem -Recurse hwplib-src/src/main/java -Filter *.java |
             ForEach-Object { $_.FullName } | Set-Content -Encoding utf8 sources.txt
@@ -52,21 +57,45 @@ jobs:
             sidecar/hwp/HwpToText.java sidecar/hwp/HwpToJson.java
           jlink --add-modules java.base,java.desktop,java.xml,java.logging `
             --strip-debug --no-header-files --no-man-pages --output engine-build/jre
-      - name: HWP engine smoke (bundled JRE + sample)
+      - name: HWP engine smoke (bundled JRE + 한글 텍스트 샘플)
         shell: pwsh
         run: |
           & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToText `
-            hwplib-src/sample_hwp/merging-cell.hwp out.txt
-          if (-not (Select-String -Path out.txt -Pattern "0,0" -Quiet)) {
-            Write-Error "HWP engine smoke failed"
+            hwplib-src/sample_hwp/big_file.hwp out.txt
+          if (-not (Get-Content out.txt -Encoding utf8 | Select-String -Pattern "테스트" -Quiet)) {
+            Write-Error "HWP engine smoke failed: 한글 텍스트 추출 불일치"
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToText `
+            hwplib-src/sample_hwp/merging-cell.hwp out2.txt
+          if (-not (Select-String -Path out2.txt -Pattern "0,0" -Quiet)) {
+            Write-Error "HWP engine smoke failed: 표 추출 불일치"
           }
       - name: Build exe
         run: >
           pyinstaller --noconfirm --clean --windowed --name FileConverter
           --collect-submodules app run.py
-      - name: Bundle engine into dist
+      - name: Bundle engine into dist (+ 제3자 라이선스 고지)
         shell: pwsh
-        run: Copy-Item -Recurse engine-build dist/FileConverter/engine
+        run: |
+          Copy-Item -Recurse engine-build dist/FileConverter/engine
+          New-Item -ItemType Directory -Force dist/FileConverter/engine/licenses | Out-Null
+          Copy-Item hwplib-src/license.txt dist/FileConverter/engine/licenses/hwplib-LICENSE.txt
+          Copy-Item packaging/THIRD_PARTY_NOTICES.txt dist/FileConverter/THIRD_PARTY_NOTICES.txt
+      - name: Verify bundled artifact (엔진 실행·라이선스·JRE legal)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist/FileConverter/engine/jre/legal)) {
+            Write-Error "jlink JRE legal 디렉터리가 아티팩트에 없습니다"
+          }
+          if (-not (Test-Path dist/FileConverter/THIRD_PARTY_NOTICES.txt)) {
+            Write-Error "THIRD_PARTY_NOTICES.txt 누락"
+          }
+          # 패키징 후 실제 배포 경로에서 사이드카 실행 검증
+          & dist/FileConverter/engine/jre/bin/java.exe -cp dist/FileConverter/engine/hwp `
+            HwpToText hwplib-src/sample_hwp/merging-cell.hwp out3.txt
+          if (-not (Select-String -Path out3.txt -Pattern "0,0" -Quiet)) {
+            Write-Error "패키징 경로 사이드카 스모크 실패"
+          }
       - name: Smoke run (offscreen)
         env:
           QT_QPA_PLATFORM: offscreen

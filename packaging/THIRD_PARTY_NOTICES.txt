@@ -1,0 +1,22 @@
+THIRD-PARTY NOTICES — File Converter (파일 변환기)
+====================================================
+
+이 배포판에는 아래 제3자 소프트웨어가 포함되어 있습니다.
+
+1. hwplib
+   - 경로: engine/hwp/ (컴파일된 클래스)
+   - 저작권: Park.sungkyon (neolord0) — https://github.com/neolord0/hwplib
+   - 라이선스: Apache License 2.0 — 전문은 engine/licenses/hwplib-LICENSE.txt 참조
+   - 번들 리비전: spike/hwplib/RESULT.md에 기록된 검증 커밋 (CI에서 고정 체크아웃)
+   - 참고: hwplib에는 Apache POI(Apache-2.0)의 POIFS가
+     kr.dogfoot.hwplib.org.apache.poi 패키지로 shading되어 포함됩니다.
+
+2. Eclipse Temurin JRE (jlink 최소 런타임)
+   - 경로: engine/jre/
+   - 라이선스: GNU GPL v2 with Classpath Exception
+   - 라이선스·고지 전문: engine/jre/legal/ 디렉터리 참조
+
+3. Python 런타임 및 라이브러리 (PySide6/Qt는 LGPLv3, openpyxl MIT,
+   pdfminer.six MIT, python-docx MIT)
+   - PyInstaller 번들 내 포함. PySide6(Qt) LGPLv3 고지:
+     https://www.qt.io/licensing — 동적 링크 사용.

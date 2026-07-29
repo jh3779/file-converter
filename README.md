@@ -44,7 +44,7 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] MVP 앱 스캐폴드 — PySide6 UI(3화면·오버레이·기록·i18n), CSV↔XLSX/CSV↔JSON/PDF→TXT/DOCX→PDF/HWP→TXT 동작
 - [x] v0.2 파이프라인 — HWP→DOCX(구조 JSON, 표 보존)·HWP→PDF(DOCX→LibreOffice)·PDF→DOCX(텍스트 기반, DEC-010 고지)
 - [x] CI — GitHub Actions: ubuntu 테스트 + Windows exe 빌드(아티팩트)
-- [x] v0.3a — Windows 빌드에 HWP 엔진 번들(jlink JRE + hwplib 클래스): HWP 변환이 설치 없이 동작
+- [x] v0.3a — Windows 빌드에 HWP 엔진 번들(jlink JRE + hwplib 클래스): **HWP→TXT/DOCX가 Java 설치 없이 동작** (HWP→PDF·DOCX→PDF는 v0.3b 전까지 시스템 LibreOffice 자동 탐지 필요)
 - [ ] v0.3b — LibreOffice 번들 + 설치 파일(인스톨러)
 - [ ] 실사용 HWP 커버리지 검증 (OQ-006)
 
