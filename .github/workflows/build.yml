@@ -251,9 +251,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $versioned = Get-ChildItem packaging/installer-out -Filter *.exe | Select-Object -First 1
-          # README의 "최신 버전 바로 다운로드" 링크가 매 릴리스마다 파일명이 바뀌지
-          # 않도록, 버전 파일명과 별개로 고정 파일명 사본도 함께 올린다
-          # (.../releases/latest/download/FileConverter-Setup-latest.exe로 항상 접근 가능).
+          # 파일명이 고정된 사본도 함께 올린다(FileConverter-Setup-latest.exe).
+          # 주의: GitHub의 releases/latest/download/... 단축 URL은 pre-release를
+          # "latest"로 인정하지 않는다 — 0.x라 --prerelease로 발행하는 한 이 단축 URL은
+          # 쓸 수 없다. README는 태그가 박힌 직접 링크(.../releases/download/vX.Y.Z/...)를
+          # 쓰고 버전 태그 시 함께 갱신한다. 이 고정 파일명은 "파일명 자체는 안 바뀐다"는
+          # 사소한 편의만 준다 — URL의 태그 부분은 어차피 매번 갱신해야 한다.
           $latest = Join-Path $versioned.DirectoryName "FileConverter-Setup-latest.exe"
           Copy-Item $versioned.FullName $latest
           gh release create "${{ github.ref_name }}" $versioned.FullName $latest `

@@ -8,11 +8,16 @@
 
 | 플랫폼 | 방법 |
 |---|---|
-| 🪟 **Windows** | **[최신 버전 다운로드](https://github.com/jh3779/file-converter/releases/latest/download/FileConverter-Setup-latest.exe)** — 관리자 권한 불요, 인스톨러 실행 후 안내만 따라가면 끝 (v0.3c·DEC-013). 이전 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
+| 🪟 **Windows** | **[v0.3.0 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.0/FileConverter-Setup-latest.exe)** — 관리자 권한 불요, 인스톨러 실행 후 안내만 따라가면 끝 (v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
 | 🍎 macOS | 아직 배포판이 없습니다(REQ-NF-001: macOS는 현재 개발 환경 전용). 아래 "실행 방법(개발)"로 소스에서 바로 실행할 수 있습니다 |
 | 🐧 Linux | 지원 계획 없음 |
 
 > 이 저장소는 비공개(private)라 다운로드 링크는 저장소에 접근 권한이 있는 계정으로 로그인한 상태에서만 열립니다.
+>
+> 유지보수 메모: `.../releases/latest/download/...` 단축 링크는 GitHub이 **pre-release를
+> "latest"로 인정하지 않아** 쓸 수 없다(0.x라 `--prerelease`로 발행 — DEC-014). 그래서 위
+> 링크는 태그 버전이 URL에 고정되어 있다 — **새 버전을 태그할 때마다 이 표의 URL도 함께
+> 갱신할 것**(파일명은 `FileConverter-Setup-latest.exe`로 고정이라 태그 부분만 바꾸면 됨).
 
 ## 무엇을 하나
 - **문서**: DOCX→PDF · PDF→TXT/DOCX · HWP→PDF/TXT/DOCX (읽기 전용)
