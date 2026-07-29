@@ -26,6 +26,7 @@ docs/                  정본 스펙 문서 (기획 인터뷰 산출물)
   design-system/         UI 디자인 시스템 v0.1 (HTML — 브라우저로 열람)
 spike/hwplib/          HWP 라이브러리 기술 검증 (결과: RESULT.md)
 research/hwp-coverage/ 실사용 HWP 문서 커버리지 검증 (결과: RESULT.md)
+packaging/              배포 자산 — 아이콘, 인스톨러 스크립트, 버전, 제3자 고지
 ```
 
 ## 실행 방법 (개발)
@@ -49,7 +50,7 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] v0.3a — Windows 빌드에 HWP 엔진 번들(jlink JRE + hwplib 클래스): **HWP→TXT/DOCX가 Java 설치 없이 동작** (HWP→PDF·DOCX→PDF는 v0.3b 전까지 시스템 LibreOffice 자동 탐지 필요)
 - [x] 실사용 HWP 커버리지 검증(TXT·DOCX) — 공공기관 서식 5건 + 배포용 문서 1건, 6/6 성공. **HWP→PDF는 미검증**(LibreOffice 필요, v0.3b 이후) ([research/hwp-coverage/RESULT.md](research/hwp-coverage/RESULT.md))
 - [x] v0.3b — Windows 빌드에 **LibreOffice 26.2.5 번들**(버전 고정·SHA256 검증·MPL 2.0 고지): **DOCX→PDF·HWP→PDF가 Java·LibreOffice 설치 없이 동작**. CI가 매 PR마다 실제 exe 위치를 흉내낸 프로즌 모드 자동 탐색(환경변수 없음) + 두 파이프라인 전체 변환 + PDF 내용(pdfminer)까지 검증(DEC-012) — [PR #4 CI 통과 기록](https://github.com/jh3779/file-converter/actions/runs/30458685792)
-- [ ] v0.3c — 설치 파일(인스톨러), 완전 클린 Windows 실기기 검증(VC++ 런타임 부재 환경)
+- [x] v0.3c — **Inno Setup 인스톨러**(관리자 권한 불요·한/영 지원·전용 아이콘, 394MB): CI가 무인 설치→설치된 실경로에서 exe 실행→무인 제거까지 전 과정을 매 PR 게이트로 검증하고 통과(DEC-013) — [PR #5 CI 통과 기록](https://github.com/jh3779/file-converter/actions/runs/30461638374). 완전 클린 Windows(VC++ 런타임 부재) 실기기 검증만 별도로 남음
 
 ## 라이선스 고지
 - HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)

@@ -24,3 +24,6 @@ sidecar/hwp/out/
 
 # 실사용 HWP 검증 샘플 — 제3자 문서, 재현: research/hwp-coverage/fetch_samples.sh
 research/hwp-coverage/samples/
+
+# 인스톨러 빌드 산출물 (재현: ISCC packaging/installer.iss — CI에서 매번 생성)
+packaging/installer-out/
