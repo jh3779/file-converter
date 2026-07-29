@@ -144,6 +144,7 @@ class MainWindow(QMainWindow):
         self._build()
         self.retranslate()
         self._refresh_state()
+        self.drop_big.setFocus()
 
     # ---------- UI 구성 ----------
     def _build(self):
@@ -210,9 +211,8 @@ class MainWindow(QMainWindow):
 
         # 기록 패널 (S-05)
         self.history_panel = QFrame()
+        self.history_panel.setObjectName("historyPanel")
         self.history_panel.setFixedWidth(260)
-        self.history_panel.setStyleSheet(
-            f"background:{t['surfaceContainerLow']};border-left:1px solid {t['outlineVariant']};")
         hp = QVBoxLayout(self.history_panel)
         hp.setContentsMargins(12, 10, 12, 10)
         hp.setSpacing(6)
@@ -243,7 +243,7 @@ class MainWindow(QMainWindow):
 
         # 푸터 (P-05 상시 고지 + 변환하기 / converting: 진행+취소)
         footer = QFrame()
-        footer.setStyleSheet(f"border-top:1px solid {t['outlineVariant']};")
+        footer.setObjectName("footer")
         f = QVBoxLayout(footer)
         f.setContentsMargins(16, 8, 16, 12)
         f.setSpacing(6)
@@ -283,13 +283,15 @@ class MainWindow(QMainWindow):
 
         # 결과 오버레이 (DEC-008 · S-04)
         self.overlay = QFrame(central)
-        self.overlay.setStyleSheet("background:rgba(0,0,0,0.35);")
+        self.overlay.setObjectName("overlay")
+        self.overlay.setStyleSheet("QFrame#overlay{background:rgba(0,0,0,0.35);}")
         ov = QVBoxLayout(self.overlay)
         ov.setAlignment(Qt.AlignCenter)
         self.result_card = QFrame()
-        self.result_card.setObjectName("card")
+        self.result_card.setObjectName("resultCard")
         self.result_card.setStyleSheet(
-            f"background:{t['surfaceContainerLow']};border-radius:16px;")
+            f"QFrame#resultCard{{background:{t['surfaceContainerLow']};border-radius:16px;}}"
+            "QFrame#resultCard QLabel{background:transparent;}")
         self.result_card.setFixedWidth(360)
         rc = QVBoxLayout(self.result_card)
         rc.setContentsMargins(18, 16, 18, 14)
@@ -431,11 +433,12 @@ class MainWindow(QMainWindow):
         for it in targets:
             it.state = ItemState.QUEUED
             it.error_key = None
-        for it in targets:
-            row = self.rows[it.id]
-            row.set_locked(True)
-            row.badge.show()
-            row.refresh()
+        target_ids = {it.id for it in targets}
+        for item_id, row in self.rows.items():
+            row.set_locked(True)          # 미참여 행 포함 전체 입력 잠금 (SCR-001 converting)
+            if item_id in target_ids:
+                row.badge.show()
+                row.refresh()
         self.drop_strip.hide()
         self._done_count = 0
         self._total = len(targets)

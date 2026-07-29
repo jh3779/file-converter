@@ -57,7 +57,7 @@ QLabel#hint {{ color: {t['error']}; font-size: 11px; }}
 QLabel#reason {{ color: {t['error']}; font-size: 11px; }}
 
 QPushButton[variant="filled"] {{
-  background: {t['primary']}; color: {t['onPrimary']}; border: none;
+  background: {t['primary']}; color: {t['onPrimary']}; border: 2px solid transparent;
   border-radius: 18px; height: 36px; padding: 0 22px; font-weight: 600; }}
 QPushButton[variant="filled"]:disabled {{ background: {t['surfaceVariant']}; color: {t['onSurfaceVariant']}; }}
 QPushButton[variant="outlined"] {{
@@ -72,7 +72,15 @@ QPushButton[variant="error"] {{
 QPushButton[variant="icon"] {{
   background: transparent; border: none; border-radius: 8px; padding: 4px 8px; font-size: 15px; }}
 QPushButton[variant="icon"]:hover {{ background: {t['surfaceContainer']}; }}
-QPushButton:focus {{ outline: none; border: 2px solid {t['primary']}; }}
+QPushButton[variant="filled"]:focus {{ border-color: {t['onPrimaryContainer']}; }}
+QPushButton[variant="outlined"]:focus, QPushButton[variant="text"]:focus {{ border: 2px solid {t['primary']}; }}
+QPushButton[variant="error"]:focus {{ border: 2px solid {t['error']}; }}
+QPushButton[variant="icon"]:focus {{ border: 1px solid {t['primary']}; }}
+
+QFrame#footer {{ border-top: 1px solid {t['outlineVariant']}; }}
+QFrame#footer QLabel, QFrame#footer QProgressBar {{ border: none; }}
+QFrame#historyPanel {{ background: {t['surfaceContainerLow']}; border-left: 1px solid {t['outlineVariant']}; }}
+QFrame#historyPanel QLabel {{ border: none; background: transparent; }}
 
 QComboBox {{
   border: 1px solid {t['outline']}; border-radius: 8px; padding: 3px 8px;
