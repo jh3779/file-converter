@@ -48,17 +48,27 @@ def _run_sidecar(main_class: str, src: Path, out: Path):
     cp = _classpath()
     if java is None or cp is None:
         raise ConversionError("err.hwp_missing")
+    # JVM의 네이티브 argv 디코딩(sun.jnu.encoding)은 OS 로캘의 기본 코드페이지를
+    # 따른다. 영어 로캘 Windows(코드페이지 1252)에서 한글이 포함된 경로를 그대로
+    # 넘기면 표현 불가 문자가 '?'로 뭉개져 JVM이 다른 파일을 찾게 된다 — 실제
+    # CI(en-US 러너)에서 "표.hwp" 입력으로 재현됨. ASCII 별칭 경로로 완전히 우회한다.
+    safe_src = out.parent / f"_hwp_in{src.suffix}"
+    safe_out = out.parent / f"_hwp_out{out.suffix}"
+    shutil.copy(src, safe_src)
     try:
         proc = subprocess.run(
-            [java, "-cp", cp, main_class, str(src), str(out)],
+            [java, "-cp", cp, main_class, str(safe_src), str(safe_out)],
             capture_output=True, timeout=120,
         )
     except subprocess.TimeoutExpired:
         raise ConversionError("err.engine", "timeout")
-    if proc.returncode != 0 or not out.exists():
+    if proc.returncode != 0 or not safe_out.exists():
         stderr = proc.stderr.decode(errors="replace")
         key = "err.password" if "distribution" in stderr.lower() else "err.corrupted"
         raise ConversionError(key, stderr[:200])
+    # out으로의 이동은 순수 Python/OS 파일 API(Windows에서도 wide-char 경로 지원)라
+    # 한글 경로에 안전하다 — 문제는 오직 JVM argv 디코딩 구간에만 있었다.
+    shutil.move(str(safe_out), out)
 
 
 def hwp_to_txt(src: Path, tmpdir: Path) -> Path:
