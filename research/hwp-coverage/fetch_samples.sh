@@ -6,19 +6,29 @@ DIR="$(dirname "$0")/samples"
 mkdir -p "$DIR"
 cd "$DIR"
 
-curl -sL -o unikorea-contract.hwp \
+# 서명 검증 실패(HTTP 200 + 에러 HTML 응답 등 소프트 실패 포함) 시 즉시 중단.
+# OLE/HWP 5.x 컴파운드 파일 시그니처: D0 CF 11 E0
+fetch() {
+  name="$1"; url="$2"
+  curl -fsSL -o "$name" "$url"
+  sig=$(head -c 4 "$name" | xxd -p)
+  if [ "$sig" != "d0cf11e0" ]; then
+    echo "실패: $name 서명 불일치 ($sig) — HWP 파일이 아닌 응답을 받았습니다: $url" >&2
+    rm -f "$name"
+    exit 1
+  fi
+  echo "OK: $name ($sig)"
+}
+
+fetch unikorea-contract.hwp \
   "https://www.unikorea.go.kr/web/unikorea/file/download/uu/2020020316390107568.hwp"
-curl -sL -o kma-postcard.hwp \
+fetch kma-postcard.hwp \
   "https://www.kma.go.kr/kma/servlet/NeoboardProcess?mode=download&bid=gongzi&num=1192291&fno=2&callback=&ses=USER_SESSION&k=ATC201805021340272_89f4662d-75e6-4c33-b54a-7ffc16e0bcd8.hwp"
-curl -sL -o mois-hwpplan.hwp \
+fetch mois-hwpplan.hwp \
   "https://www.mois.go.kr/cmm/fms/FileDown.do?atchFileId=FILE_00088283D0m14VL&fileSn=0"
-curl -sL -o incheon-gongmun.hwp \
+fetch incheon-gongmun.hwp \
   "https://incheon.korcham.net/file/dext5uploaddata/2018/07/%EB%B0%9C%EC%86%A1%EA%B3%B5%EB%AC%B8(%EB%B9%84%EC%A6%88%EB%8B%88%EC%8A%A4%EB%94%94%EB%A0%89%ED%86%A0%EB%A6%AC).hwp"
-curl -sL -o jecheon-file2997.hwp \
+fetch jecheon-file2997.hwp \
   "https://www.jecheon.go.kr/site/www/download/file2997.hwp"
 
-echo "다운로드 완료. 서명 확인(D0CF11E0 = 정상 OLE/HWP):"
-for f in *.hwp; do
-  sig=$(head -c 4 "$f" | xxd -p)
-  echo "  $f: $sig"
-done
+echo "다운로드 및 서명 검증 완료: 5개 파일"

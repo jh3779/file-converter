@@ -46,7 +46,7 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] v0.2 파이프라인 — HWP→DOCX(구조 JSON, 표 보존)·HWP→PDF(DOCX→LibreOffice)·PDF→DOCX(텍스트 기반, DEC-010 고지)
 - [x] CI — GitHub Actions: ubuntu 테스트 + Windows exe 빌드(아티팩트)
 - [x] v0.3a — Windows 빌드에 HWP 엔진 번들(jlink JRE + hwplib 클래스): **HWP→TXT/DOCX가 Java 설치 없이 동작** (HWP→PDF·DOCX→PDF는 v0.3b 전까지 시스템 LibreOffice 자동 탐지 필요)
-- [x] 실사용 HWP 커버리지 검증 — 공공기관 서식 5건 + 배포용 문서 1건, 6/6 성공 ([research/hwp-coverage/RESULT.md](research/hwp-coverage/RESULT.md))
+- [x] 실사용 HWP 커버리지 검증(TXT·DOCX) — 공공기관 서식 5건 + 배포용 문서 1건, 6/6 성공. **HWP→PDF는 미검증**(LibreOffice 필요, v0.3b 이후) ([research/hwp-coverage/RESULT.md](research/hwp-coverage/RESULT.md))
 - [ ] v0.3b — LibreOffice 번들 + 설치 파일(인스톨러)
 
 ## 라이선스 고지
