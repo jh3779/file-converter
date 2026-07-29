@@ -12,6 +12,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Windows CI 콘솔 기본 인코딩(cp1252)은 화살표(→)·한글을 출력하지 못해
+# print()가 UnicodeEncodeError로 죽는다 — 실제 변환 결과와 무관한 순수 출력 버그이므로
+# 가장 먼저 UTF-8로 강제 재구성한다.
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 

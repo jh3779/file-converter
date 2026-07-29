@@ -127,6 +127,7 @@ jobs:
           FILECONV_SOFFICE: engine-build\libreoffice\program\soffice.exe
           FILECONV_JAVA: engine-build\jre\bin\java.exe
           FILECONV_HWP_CLASSPATH: engine-build\hwp
+          PYTHONIOENCODING: utf-8
         run: |
           python scripts/smoke_pdf_pipeline.py hwplib-src/sample_hwp/basic/표.hwp
           if ($LASTEXITCODE -ne 0) { Write-Error "PDF 파이프라인 스모크 실패"; exit 1 }
@@ -147,6 +148,7 @@ jobs:
           FILECONV_SOFFICE: dist\FileConverter\engine\libreoffice\program\soffice.exe
           FILECONV_JAVA: dist\FileConverter\engine\jre\bin\java.exe
           FILECONV_HWP_CLASSPATH: dist\FileConverter\engine\hwp
+          PYTHONIOENCODING: utf-8
         run: |
           if (-not (Test-Path dist/FileConverter/engine/jre/legal)) {
             Write-Error "jlink JRE legal 디렉터리가 아티팩트에 없습니다"; exit 1
