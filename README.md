@@ -25,6 +25,7 @@ docs/                  정본 스펙 문서 (기획 인터뷰 산출물)
   06_open_questions.md   미결정·가정·결정 로그·리스크
   design-system/         UI 디자인 시스템 v0.1 (HTML — 브라우저로 열람)
 spike/hwplib/          HWP 라이브러리 기술 검증 (결과: RESULT.md)
+research/hwp-coverage/ 실사용 HWP 문서 커버리지 검증 (결과: RESULT.md)
 ```
 
 ## 실행 방법 (개발)
@@ -45,8 +46,8 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] v0.2 파이프라인 — HWP→DOCX(구조 JSON, 표 보존)·HWP→PDF(DOCX→LibreOffice)·PDF→DOCX(텍스트 기반, DEC-010 고지)
 - [x] CI — GitHub Actions: ubuntu 테스트 + Windows exe 빌드(아티팩트)
 - [x] v0.3a — Windows 빌드에 HWP 엔진 번들(jlink JRE + hwplib 클래스): **HWP→TXT/DOCX가 Java 설치 없이 동작** (HWP→PDF·DOCX→PDF는 v0.3b 전까지 시스템 LibreOffice 자동 탐지 필요)
+- [x] 실사용 HWP 커버리지 검증 — 공공기관 서식 5건 + 배포용 문서 1건, 6/6 성공 ([research/hwp-coverage/RESULT.md](research/hwp-coverage/RESULT.md))
 - [ ] v0.3b — LibreOffice 번들 + 설치 파일(인스톨러)
-- [ ] 실사용 HWP 커버리지 검증 (OQ-006)
 
 ## 라이선스 고지
 HWP 처리는 [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)을 사용할 예정입니다.
