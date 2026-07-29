@@ -26,9 +26,9 @@ jobs:
   build-windows:
     # Windows 우선 배포 (REQ-NF-001). HWP 엔진(jlink JRE + hwplib)은 dist/engine에 번들.
     # LibreOffice 번들은 v0.3b — 현재는 설치본 자동 탐지로 동작한다.
-    # PR에서는 테스트만 수행하고, 빌드는 main/태그/수동 실행에서만 돈다.
+    # 빌드·스모크·라이선스 검증은 PR에서도 머지 게이트로 실행하고,
+    # 아티팩트 업로드만 main/태그/수동 실행으로 제한한다.
     needs: test
-    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,6 +70,11 @@ jobs:
           if (-not (Select-String -Path out2.txt -Pattern "0,0" -Quiet)) {
             Write-Error "HWP engine smoke failed: 표 추출 불일치"
           }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToJson `
+            hwplib-src/sample_hwp/merging-cell.hwp out.json
+          if (-not (Get-Content out.json -Encoding utf8 | Select-String -Pattern '"type":"table"' -Quiet)) {
+            Write-Error "HWP engine smoke failed: HwpToJson 표 구조 불일치"
+          }
       - name: Build exe
         run: >
           pyinstaller --noconfirm --clean --windowed --name FileConverter
@@ -106,6 +111,7 @@ jobs:
           if ($p.HasExited) { Write-Error "app exited early (code $($p.ExitCode))" }
           Stop-Process -Id $p.Id -Force
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           name: FileConverter-windows
           path: dist/FileConverter/

@@ -7,7 +7,8 @@ THIRD-PARTY NOTICES — File Converter (파일 변환기)
    - 경로: engine/hwp/ (컴파일된 클래스)
    - 저작권: Park.sungkyon (neolord0) — https://github.com/neolord0/hwplib
    - 라이선스: Apache License 2.0 — 전문은 engine/licenses/hwplib-LICENSE.txt 참조
-   - 번들 리비전: spike/hwplib/RESULT.md에 기록된 검증 커밋 (CI에서 고정 체크아웃)
+   - 번들 리비전: d9e073d6899d947f8f583492e00a5e1062381d7e
+     (스파이크 검증 커밋 — spike/hwplib/RESULT.md · CI에서 고정 체크아웃)
    - 참고: hwplib에는 Apache POI(Apache-2.0)의 POIFS가
      kr.dogfoot.hwplib.org.apache.poi 패키지로 shading되어 포함됩니다.
 
