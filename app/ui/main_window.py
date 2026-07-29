@@ -89,7 +89,18 @@ class FileRow(QFrame):
 
     def _format_picked(self, _):
         self.item.target_fmt = self.combo.currentData()
+        self._update_note()
         self._on_format_changed()
+
+    def _update_note(self):
+        """DEC-010: PDF/HWP → DOCX 선택 시 레이아웃 단순화 고지 (muted, 오류 아님)."""
+        if self.item.target_fmt == "docx" and self.item.source_fmt in ("pdf", "hwp"):
+            self.reason.setStyleSheet(
+                f"color:{self.tokens['onSurfaceVariant']};font-size:11px;")
+            self.reason.setText(tr("note.simplified"))
+            self.reason.show()
+        else:
+            self.reason.hide()
 
     def set_locked(self, locked: bool):
         self.combo.setVisible(not locked and converters.supported(self.item.source_fmt))
@@ -114,6 +125,7 @@ class FileRow(QFrame):
         self.style().unpolish(self)
         self.style().polish(self)
         if it.state == ItemState.FAILED and it.error_key:
+            self.reason.setStyleSheet(f"color:{t['error']};font-size:11px;")
             self.reason.setText(tr(it.error_key))
             self.reason.show()
         else:
@@ -126,6 +138,8 @@ class FileRow(QFrame):
             self.combo.setItemText(0, tr("pick.placeholder"))
         if self.badge.isVisible():
             self.refresh()
+        elif self.item.state == ItemState.QUEUED:
+            self._update_note()
 
 
 class MainWindow(QMainWindow):

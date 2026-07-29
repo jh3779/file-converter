@@ -42,8 +42,10 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] hwplib 기술 스파이크 — 통과 ([spike/hwplib/RESULT.md](spike/hwplib/RESULT.md))
 - [x] UI 디자인 시스템 v0.1 ([docs/design-system/](docs/design-system/README.md))
 - [x] MVP 앱 스캐폴드 — PySide6 UI(3화면·오버레이·기록·i18n), CSV↔XLSX/CSV↔JSON/PDF→TXT/DOCX→PDF/HWP→TXT 동작
-- [ ] PDF→DOCX · HWP→PDF/DOCX 파이프라인 (v0.2)
-- [ ] Windows 패키징 (PyInstaller + 엔진 번들)
+- [x] v0.2 파이프라인 — HWP→DOCX(구조 JSON, 표 보존)·HWP→PDF(DOCX→LibreOffice)·PDF→DOCX(텍스트 기반, DEC-010 고지)
+- [x] CI — GitHub Actions: ubuntu 테스트 + Windows exe 빌드(아티팩트)
+- [ ] 엔진 번들(LibreOffice·JRE) + 설치 파일 (v0.3)
+- [ ] 실사용 HWP 커버리지 검증 (OQ-006)
 
 ## 라이선스 고지
 HWP 처리는 [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)을 사용할 예정입니다.

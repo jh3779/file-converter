@@ -1,0 +1,52 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install system libs for Qt (headless)
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1
+      - run: pip install -r requirements.txt
+      - name: Run tests (offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m unittest discover tests -v
+
+  build-windows:
+    # Windows 우선 배포 (REQ-NF-001). LibreOffice·JRE 엔진 번들은 v0.3 과제 —
+    # 이 빌드는 앱 본체만 포함하며, 엔진은 설치 경로 자동 탐지로 동작한다.
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pyinstaller
+      - name: Build exe
+        run: >
+          pyinstaller --noconfirm --clean --windowed --name FileConverter
+          --collect-submodules app run.py
+      - name: Smoke run (offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist/FileConverter/FileConverter.exe -PassThru
+          Start-Sleep -Seconds 8
+          if ($p.HasExited) { Write-Error "app exited early (code $($p.ExitCode))" }
+          Stop-Process -Id $p.Id -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FileConverter-windows
+          path: dist/FileConverter/

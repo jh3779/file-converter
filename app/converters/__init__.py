@@ -23,11 +23,11 @@ _DISPATCH = {
     ("csv", "json"): data.csv_to_json,
     ("json", "csv"): data.json_to_csv,
     ("pdf", "txt"): pdf.pdf_to_txt,
-    ("pdf", "docx"): pdf.pdf_to_docx,      # v0.2 예정 (err.notyet)
+    ("pdf", "docx"): pdf.pdf_to_docx,      # 텍스트 기반 (DEC-010 고지)
     ("docx", "pdf"): office.docx_to_pdf,
     ("hwp", "txt"): hwp.hwp_to_txt,
-    ("hwp", "pdf"): hwp.hwp_to_pdf,        # v0.2 예정
-    ("hwp", "docx"): hwp.hwp_to_docx,      # v0.2 예정
+    ("hwp", "pdf"): hwp.hwp_to_pdf,        # DOCX 경유 → LibreOffice
+    ("hwp", "docx"): hwp.hwp_to_docx,      # 구조 JSON → python-docx
 }
 
 

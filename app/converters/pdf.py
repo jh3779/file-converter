@@ -20,4 +20,11 @@ def pdf_to_txt(src: Path, tmpdir: Path) -> Path:
 
 
 def pdf_to_docx(src: Path, tmpdir: Path) -> Path:
-    raise ConversionError("err.notyet")
+    """PDF → 텍스트 추출 → DOCX (레이아웃 단순화 — DEC-010 고지 문안과 연동).
+
+    pdf2docx(PyMuPDF)는 AGPL이라 사용 금지(DEC-007과 동일한 라이선스 원칙).
+    """
+    from .docx_build import blocks_to_docx, text_to_blocks
+    txt = pdf_to_txt(src, tmpdir)
+    blocks = text_to_blocks(txt.read_text(encoding="utf-8"))
+    return blocks_to_docx(blocks, tmpdir / (src.stem + ".docx"))

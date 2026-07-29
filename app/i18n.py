@@ -82,6 +82,8 @@ _S = {
     "err.jsonshape": ("이 JSON은 표로 바꿀 수 없는 구조입니다. 목록 형태의 JSON만 지원해요.",
                       "This JSON has no tabular shape. Only list-style JSON is supported."),
     "err.cancelled": ("취소되었습니다", "Cancelled"),
+    "note.simplified": ("레이아웃이 단순화될 수 있어요 — 텍스트·표 내용은 유지됩니다",
+                        "Layout may be simplified — text and table contents are kept"),
     "err.notyet": ("이 변환은 다음 버전에서 지원될 예정입니다.",
                    "This conversion is coming in a future update."),
 }
