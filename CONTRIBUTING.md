@@ -44,3 +44,12 @@ PR 제목은 squash merge 후 main의 커밋 메시지가 되므로 위 형식 �
 - **Squash merge만 허용** (merge commit/rebase merge 금지) · linear history 유지
 - PR의 머지/close 결정은 리뷰어(저장소 소유자)가 수행 — 작성자는 자기 PR을 직접 close하지 않는다
 - 머지 후 원격 브랜치 삭제, 로컬은 정리(clean up)
+
+## 저장소 설정으로 강제되는 것 (적용 완료)
+| 정책 | 강제 수단 | 상태 |
+|---|---|---|
+| squash merge만 허용 | 저장소 설정: merge commit·rebase merge 비활성 | ✅ 적용됨 (2026-07-29) |
+| 머지 후 원격 브랜치 삭제 | 저장소 설정: `delete_branch_on_merge` | ✅ 적용됨 (2026-07-29) |
+| 브랜치명·PR 제목 규칙 | CI (`branch-name-check` · `pr-title-check`) | ✅ 적용됨 |
+| PR 단계 테스트 게이트 | CI `build.yml`의 `pull_request` 트리거 (test job) | ✅ 적용됨 |
+| main 직접 push 차단 | Branch protection/Rulesets — **private 저장소 무료 플랜에서는 미지원** | ⚠️ 설정 불가 — 규율로 준수. 저장소가 public 전환되거나 플랜 업그레이드 시 즉시 설정할 것 |
