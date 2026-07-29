@@ -18,7 +18,8 @@ jobs:
         with:
           # 타입 한 줄 요약 — sequence 형식에서 '#' 이후는 YAML 주석으로 무시된다.
           # (주의: `types: |` literal block scalar 안의 '#' 은 리터럴 문자이므로 절대 사용 금지.)
-          # 목록을 수정할 때 scripts/new-branch.sh의 ALLOWED_TYPE_DESCS도 함께 갱신할 것.
+          # 목록을 수정할 때 CONTRIBUTING.md 브랜치 네이밍 표와
+          # branch-name-check.yml의 PATTERN도 함께 갱신할 것.
           types: |-
             feat
             fix
