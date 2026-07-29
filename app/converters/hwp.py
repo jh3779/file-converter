@@ -9,18 +9,33 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
+from ..bundle import engine_dir
 from .base import ConversionError
 from .docx_build import blocks_to_docx
 
 _REPO = Path(__file__).resolve().parents[2]
 
 
+def _java() -> str | None:
+    env = os.environ.get("FILECONV_JAVA")
+    if env and Path(env).exists():
+        return env
+    bundled = engine_dir() / "jre" / "bin" / ("java.exe" if sys.platform == "win32" else "java")
+    if bundled.exists():
+        return str(bundled)
+    return shutil.which("java")
+
+
 def _classpath() -> str | None:
     env = os.environ.get("FILECONV_HWP_CLASSPATH")
     if env:
         return env
+    bundled = engine_dir() / "hwp"          # 배포판: hwplib+사이드카 클래스 단일 폴더
+    if bundled.exists():
+        return str(bundled)
     hwplib = _REPO / "spike" / "hwplib" / "libs" / "hwplib-main"
     sidecar = _REPO / "sidecar" / "hwp" / "out"
     if hwplib.exists() and sidecar.exists():
@@ -29,7 +44,7 @@ def _classpath() -> str | None:
 
 
 def _run_sidecar(main_class: str, src: Path, out: Path):
-    java = os.environ.get("FILECONV_JAVA") or shutil.which("java")
+    java = _java()
     cp = _classpath()
     if java is None or cp is None:
         raise ConversionError("err.hwp_missing")

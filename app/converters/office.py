@@ -6,26 +6,32 @@ FILECONV_SOFFICE 환경변수로 위치를 지정한다.
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
+from ..bundle import engine_dir
 from .base import ConversionError
 
-_MAC_DEFAULT = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
+_DEFAULTS = (
+    "/Applications/LibreOffice.app/Contents/MacOS/soffice",             # macOS
+    r"C:\Program Files\LibreOffice\program\soffice.exe",                 # Windows
+    r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+)
 
 
 def find_soffice() -> str | None:
     env = os.environ.get("FILECONV_SOFFICE")
     if env and Path(env).exists():
         return env
-    bundled = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "engine" / "soffice"
-    if bundled.exists():
-        return str(bundled)
+    for bundled in (engine_dir() / "libreoffice" / "program" / "soffice.exe",
+                    engine_dir() / "libreoffice" / "program" / "soffice"):
+        if bundled.exists():                # v0.3b: LibreOffice 번들 시 사용
+            return str(bundled)
     found = shutil.which("soffice")
     if found:
         return found
-    if Path(_MAC_DEFAULT).exists():
-        return _MAC_DEFAULT
+    for candidate in _DEFAULTS:
+        if Path(candidate).exists():
+            return candidate
     return None
 
 
