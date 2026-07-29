@@ -48,8 +48,8 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] CI — GitHub Actions: ubuntu 테스트 + Windows exe 빌드(아티팩트)
 - [x] v0.3a — Windows 빌드에 HWP 엔진 번들(jlink JRE + hwplib 클래스): **HWP→TXT/DOCX가 Java 설치 없이 동작** (HWP→PDF·DOCX→PDF는 v0.3b 전까지 시스템 LibreOffice 자동 탐지 필요)
 - [x] 실사용 HWP 커버리지 검증(TXT·DOCX) — 공공기관 서식 5건 + 배포용 문서 1건, 6/6 성공. **HWP→PDF는 미검증**(LibreOffice 필요, v0.3b 이후) ([research/hwp-coverage/RESULT.md](research/hwp-coverage/RESULT.md))
-- [~] v0.3b — Windows 빌드에 **LibreOffice 26.2.5 번들**(버전 고정·SHA256 검증·MPL 2.0 고지) 구현 완료: **DOCX→PDF·HWP→PDF가 Java·LibreOffice 설치 없이 동작하도록 설계**, CI가 매 PR마다 두 파이프라인 전체를 실제로 변환해 검증(DEC-012). *CI 그린 확인 후 완료로 갱신 예정*
-- [ ] v0.3c — 설치 파일(인스톨러), 완전 클린 Windows 실기기 검증
+- [x] v0.3b — Windows 빌드에 **LibreOffice 26.2.5 번들**(버전 고정·SHA256 검증·MPL 2.0 고지): **DOCX→PDF·HWP→PDF가 Java·LibreOffice 설치 없이 동작**. CI가 매 PR마다 실제 exe 위치를 흉내낸 프로즌 모드 자동 탐색(환경변수 없음) + 두 파이프라인 전체 변환 + PDF 내용(pdfminer)까지 검증(DEC-012) — [PR #4 CI 통과 기록](https://github.com/jh3779/file-converter/actions/runs/30458685792)
+- [ ] v0.3c — 설치 파일(인스톨러), 완전 클린 Windows 실기기 검증(VC++ 런타임 부재 환경)
 
 ## 라이선스 고지
 - HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)
