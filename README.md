@@ -27,11 +27,23 @@ docs/                  정본 스펙 문서 (기획 인터뷰 산출물)
 spike/hwplib/          HWP 라이브러리 기술 검증 (결과: RESULT.md)
 ```
 
+## 실행 방법 (개발)
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m app.main          # 앱 실행
+.venv/bin/python -m unittest discover tests   # 테스트
+sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌드 필요)
+```
+- UI 언어: 한국어/영어 (⚙ 메뉴에서 전환, 기본은 시스템 언어 — DEC-009)
+- DOCX→PDF는 LibreOffice 필요(개발: 시스템 설치본 자동 탐지, 배포: 번들 예정)
+
 ## 현재 상태
 - [x] 제품 기획·요구사항 정의 (discovery 인터뷰)
 - [x] hwplib 기술 스파이크 — 통과 ([spike/hwplib/RESULT.md](spike/hwplib/RESULT.md))
 - [x] UI 디자인 시스템 v0.1 ([docs/design-system/](docs/design-system/README.md))
-- [ ] 앱 구현 (MVP)
+- [x] MVP 앱 스캐폴드 — PySide6 UI(3화면·오버레이·기록·i18n), CSV↔XLSX/CSV↔JSON/PDF→TXT/DOCX→PDF/HWP→TXT 동작
+- [ ] PDF→DOCX · HWP→PDF/DOCX 파이프라인 (v0.2)
+- [ ] Windows 패키징 (PyInstaller + 엔진 번들)
 
 ## 라이선스 고지
 HWP 처리는 [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)을 사용할 예정입니다.

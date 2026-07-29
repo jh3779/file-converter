@@ -15,6 +15,9 @@ spike/hwplib/sources.txt
 # External clone — hwplib upstream (재현: git clone https://github.com/neolord0/hwplib)
 spike/hwplib/repo/
 
+# Sidecar build output (재현: sh sidecar/hwp/build.sh)
+sidecar/hwp/out/
+
 # IDE
 .idea/
 .vscode/
