@@ -11,7 +11,15 @@
 `err.engine_missing`으로 즉시 실패했고, 이는 HWP 파싱 품질과 무관한 환경 제약이다
 (v0.3b 엔진 번들 완료 후 별도 검증 필요 — 아래 "남은 제약" 참고).
 
-## 검증 대상 (재현: `sh fetch_samples.sh`)
+## 검증 대상 (재현)
+
+공공기관 5건과 hwplib 배포용 샘플 1건은 확보 경로가 다르므로 재현 시 **두 단계 모두** 필요하다.
+
+1. 공공기관 5건: `sh fetch_samples.sh` (서명 검증 포함, `samples/`에 저장)
+2. hwplib 배포용 1건(`distribution.hwp`): 스파이크에서 사용한 hwplib 소스 클론이 필요하다 —
+   `git clone https://github.com/neolord0/hwplib spike/hwplib/repo` (별도 커밋되지 않는
+   외부 클론, [spike/hwplib/RESULT.md](../../spike/hwplib/RESULT.md) 참고). 클론 후
+   `spike/hwplib/repo/sample_hwp/distribution.hwp` 경로에 샘플이 생긴다.
 
 | 파일 | 출처 | 크기 | 특징 |
 |---|---|---:|---|
@@ -20,7 +28,7 @@
 | mois-hwpplan.hwp | 행정안전부 검토보고 | 76KB | 1×1 제목 표 + 12×8 비교표(현행/개선) |
 | incheon-gongmun.hwp | 인천상공회의소 공문 서식 | 124KB | 10×6 레터헤드 표(주소·전화 등) |
 | jecheon-file2997.hwp | 제천시 법정 서식(별지 서식) | 17KB | **문단 0개, 표 2개** — 전체가 표 레이아웃 |
-| spike distribution.hwp | hwplib 샘플(복사방지 문서) | — | "배포용" 보호 플래그 문서 |
+| spike distribution.hwp | hwplib 샘플(복사방지 문서), 위 2단계로 별도 확보 | — | "배포용" 보호 플래그 문서 |
 
 ## 결과
 

@@ -2,7 +2,8 @@
 # OQ-006 실사용 HWP 샘플 확보 — 공공기관이 웹에 공개 배포 중인 서식/문서.
 # 실제 .hwp 파일은 저장소에 커밋하지 않는다(제3자 문서, 재배포 불필요) — 이 스크립트로 재현.
 set -e
-DIR="$(dirname "$0")/samples"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DIR="$SCRIPT_DIR/samples"
 mkdir -p "$DIR"
 cd "$DIR"
 
@@ -32,3 +33,13 @@ fetch jecheon-file2997.hwp \
   "https://www.jecheon.go.kr/site/www/download/file2997.hwp"
 
 echo "다운로드 및 서명 검증 완료: 5개 파일"
+
+# 6번째 샘플(distribution.hwp)은 공공기관 배포 파일이 아니라 hwplib 저장소의
+# 자체 샘플이라 별도 클론이 필요하다 — 이 스크립트로는 받지 않는다.
+DIST_SAMPLE="$SCRIPT_DIR/../../spike/hwplib/repo/sample_hwp/distribution.hwp"
+if [ -f "$DIST_SAMPLE" ]; then
+  echo "OK: distribution.hwp 확인됨 ($DIST_SAMPLE)"
+else
+  echo "안내: distribution.hwp가 없습니다. 다음으로 별도 확보하세요:" >&2
+  echo "  git clone https://github.com/neolord0/hwplib spike/hwplib/repo" >&2
+fi
