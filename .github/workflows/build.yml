@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -23,9 +24,11 @@ jobs:
         run: python -m unittest discover tests -v
 
   build-windows:
-    # Windows 우선 배포 (REQ-NF-001). LibreOffice·JRE 엔진 번들은 v0.3 과제 —
-    # 이 빌드는 앱 본체만 포함하며, 엔진은 설치 경로 자동 탐지로 동작한다.
+    # Windows 우선 배포 (REQ-NF-001). HWP 엔진(jlink JRE + hwplib)은 dist/engine에 번들.
+    # LibreOffice 번들은 v0.3b — 현재는 설치본 자동 탐지로 동작한다.
+    # PR에서는 테스트만 수행하고, 빌드는 main/태그/수동 실행에서만 돈다.
     needs: test
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
