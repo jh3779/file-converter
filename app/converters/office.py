@@ -42,7 +42,10 @@ def docx_to_pdf(src: Path, tmpdir: Path) -> Path:
     profile = tmpdir / "lo-profile"
     cmd = [
         soffice, "--headless", "--norestore",
-        f"-env:UserInstallation=file://{profile}",
+        # Path.as_uri()로 생성 — Windows에서 f"file://{profile}"은 역슬래시가
+        # 섞인 잘못된 URI가 되어 프로필 격리가 깨지고, 동시 변환 시 서로 다른
+        # soffice 프로세스가 같은 기본 프로필을 두고 충돌할 수 있다.
+        f"-env:UserInstallation={profile.as_uri()}",
         "--convert-to", "pdf", "--outdir", str(tmpdir), str(src),
     ]
     try:

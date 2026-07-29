@@ -24,12 +24,20 @@ jobs:
         run: python -m unittest discover tests -v
 
   build-windows:
-    # Windows 우선 배포 (REQ-NF-001). HWP 엔진(jlink JRE + hwplib)은 dist/engine에 번들.
-    # LibreOffice 번들은 v0.3b — 현재는 설치본 자동 탐지로 동작한다.
+    # Windows 우선 배포 (REQ-NF-001). HWP 엔진(jlink JRE + hwplib) + LibreOffice(DOCX/HWP→PDF)를
+    # dist/engine에 번들 — v0.3a·v0.3b(DEC-007·DEC-012).
     # 빌드·스모크·라이선스 검증은 PR에서도 머지 게이트로 실행하고,
     # 아티팩트 업로드만 main/태그/수동 실행으로 제한한다.
     needs: test
     runs-on: windows-latest
+    env:
+      # 스파이크로 검증된 hwplib 리비전 (spike/hwplib/RESULT.md · DEC-007).
+      # 갱신은 별도 PR에서 스파이크/스모크 결과와 함께 진행할 것.
+      HWPLIB_REV: d9e073d6899d947f8f583492e00a5e1062381d7e
+      # 공식 배포 서버에서 curl로 직접 확인한 SHA256 (DEC-012). 버전 갱신 시
+      # download.documentfoundation.org의 <파일명>.sha256을 다시 확인해 갱신할 것.
+      LO_VERSION: "26.2.5"
+      LO_SHA256: f15ba07bfcb0186986cf3171063506f5d207c11f8cc051ba0d135209e9e915f9
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -42,10 +50,6 @@ jobs:
       - run: pip install -r requirements.txt pyinstaller
       - name: Build HWP engine (hwplib + sidecar + jlink JRE)
         shell: pwsh
-        env:
-          # 스파이크로 검증된 hwplib 리비전 (spike/hwplib/RESULT.md · DEC-007).
-          # 갱신은 별도 PR에서 스파이크/스모크 결과와 함께 진행할 것.
-          HWPLIB_REV: d9e073d6899d947f8f583492e00a5e1062381d7e
         run: |
           git clone https://github.com/neolord0/hwplib.git hwplib-src
           git -C hwplib-src checkout $env:HWPLIB_REV
@@ -63,18 +67,69 @@ jobs:
           & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToText `
             hwplib-src/sample_hwp/big_file.hwp out.txt
           if (-not (Get-Content out.txt -Encoding utf8 | Select-String -Pattern "테스트" -Quiet)) {
-            Write-Error "HWP engine smoke failed: 한글 텍스트 추출 불일치"
+            Write-Error "HWP engine smoke failed: 한글 텍스트 추출 불일치"; exit 1
           }
           & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToText `
             hwplib-src/sample_hwp/merging-cell.hwp out2.txt
           if (-not (Select-String -Path out2.txt -Pattern "0,0" -Quiet)) {
-            Write-Error "HWP engine smoke failed: 표 추출 불일치"
+            Write-Error "HWP engine smoke failed: 표 추출 불일치"; exit 1
           }
           & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToJson `
             hwplib-src/sample_hwp/merging-cell.hwp out.json
           if (-not (Get-Content out.json -Encoding utf8 | Select-String -Pattern '"type":"table"' -Quiet)) {
-            Write-Error "HWP engine smoke failed: HwpToJson 표 구조 불일치"
+            Write-Error "HWP engine smoke failed: HwpToJson 표 구조 불일치"; exit 1
           }
+      - name: Cache LibreOffice installer
+        uses: actions/cache@v4
+        with:
+          path: lo-installer
+          key: libreoffice-installer-${{ env.LO_VERSION }}-win-x86_64
+      - name: Download + verify LibreOffice installer (고정 버전·SHA256)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force lo-installer | Out-Null
+          $msi = "lo-installer/LibreOffice.msi"
+          if (-not (Test-Path $msi)) {
+            $url = "https://download.documentfoundation.org/libreoffice/stable/$env:LO_VERSION/win/x86_64/LibreOffice_${env:LO_VERSION}_Win_x86-64.msi"
+            curl.exe -fsSL -o $msi $url
+          }
+          $hash = (Get-FileHash $msi -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:LO_SHA256) {
+            Write-Error "LibreOffice 설치파일 체크섬 불일치: $hash (기대값 $env:LO_SHA256)"
+            Remove-Item $msi -Force
+            exit 1
+          }
+          Write-Host "체크섬 확인 완료: $hash"
+      - name: Extract LibreOffice (administrative install — 시스템 설치 없이 파일만 추출)
+        shell: pwsh
+        run: |
+          $target = "$PWD\lo-extract"
+          $p = Start-Process msiexec.exe -ArgumentList @('/a', 'lo-installer\LibreOffice.msi', '/qn', "TARGETDIR=$target") -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            Write-Error "LibreOffice 관리자 설치(추출) 실패 (exit $($p.ExitCode))"; exit 1
+          }
+          $soffice = Get-ChildItem -Path $target -Recurse -Filter soffice.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $soffice) {
+            Write-Error "추출 결과에서 soffice.exe를 찾을 수 없습니다"; exit 1
+          }
+          $loRoot = Split-Path $soffice.DirectoryName -Parent
+          New-Item -ItemType Directory -Force engine-build/libreoffice | Out-Null
+          Copy-Item -Recurse "$loRoot\*" engine-build/libreoffice/
+          if (-not (Test-Path engine-build/libreoffice/program/soffice.exe)) {
+            Write-Error "정규화 경로(engine-build/libreoffice/program/soffice.exe)에 파일이 없습니다"; exit 1
+          }
+          New-Item -ItemType Directory -Force engine-build/licenses/libreoffice | Out-Null
+          Get-ChildItem -Path $loRoot -Filter "LICENSE*" | Copy-Item -Destination engine-build/licenses/libreoffice/
+          Get-ChildItem -Path $loRoot -Filter "NOTICE*" -ErrorAction SilentlyContinue | Copy-Item -Destination engine-build/licenses/libreoffice/
+      - name: LibreOffice + HWP→PDF 파이프라인 스모크 (사전 빌드 경로)
+        shell: pwsh
+        env:
+          FILECONV_SOFFICE: engine-build\libreoffice\program\soffice.exe
+          FILECONV_JAVA: engine-build\jre\bin\java.exe
+          FILECONV_HWP_CLASSPATH: engine-build\hwp
+        run: |
+          python scripts/smoke_pdf_pipeline.py hwplib-src/sample_hwp/basic/표.hwp
+          if ($LASTEXITCODE -ne 0) { Write-Error "PDF 파이프라인 스모크 실패"; exit 1 }
       - name: Build exe
         run: >
           pyinstaller --noconfirm --clean --windowed --name FileConverter
@@ -88,19 +143,29 @@ jobs:
           Copy-Item packaging/THIRD_PARTY_NOTICES.txt dist/FileConverter/THIRD_PARTY_NOTICES.txt
       - name: Verify bundled artifact (엔진 실행·라이선스·JRE legal)
         shell: pwsh
+        env:
+          FILECONV_SOFFICE: dist\FileConverter\engine\libreoffice\program\soffice.exe
+          FILECONV_JAVA: dist\FileConverter\engine\jre\bin\java.exe
+          FILECONV_HWP_CLASSPATH: dist\FileConverter\engine\hwp
         run: |
           if (-not (Test-Path dist/FileConverter/engine/jre/legal)) {
-            Write-Error "jlink JRE legal 디렉터리가 아티팩트에 없습니다"
+            Write-Error "jlink JRE legal 디렉터리가 아티팩트에 없습니다"; exit 1
           }
           if (-not (Test-Path dist/FileConverter/THIRD_PARTY_NOTICES.txt)) {
-            Write-Error "THIRD_PARTY_NOTICES.txt 누락"
+            Write-Error "THIRD_PARTY_NOTICES.txt 누락"; exit 1
+          }
+          if (-not (Get-ChildItem dist/FileConverter/engine/licenses/libreoffice -Filter "LICENSE*" -ErrorAction SilentlyContinue)) {
+            Write-Error "LibreOffice 라이선스 파일이 아티팩트에 없습니다"; exit 1
           }
           # 패키징 후 실제 배포 경로에서 사이드카 실행 검증
           & dist/FileConverter/engine/jre/bin/java.exe -cp dist/FileConverter/engine/hwp `
             HwpToText hwplib-src/sample_hwp/merging-cell.hwp out3.txt
           if (-not (Select-String -Path out3.txt -Pattern "0,0" -Quiet)) {
-            Write-Error "패키징 경로 사이드카 스모크 실패"
+            Write-Error "패키징 경로 사이드카 스모크 실패"; exit 1
           }
+          # 패키징 후 실제 배포 경로에서 DOCX/HWP→PDF 전체 파이프라인 재검증
+          python scripts/smoke_pdf_pipeline.py hwplib-src/sample_hwp/basic/표.hwp
+          if ($LASTEXITCODE -ne 0) { Write-Error "패키징 경로 PDF 파이프라인 스모크 실패"; exit 1 }
       - name: Smoke run (offscreen)
         env:
           QT_QPA_PLATFORM: offscreen
@@ -108,7 +173,7 @@ jobs:
         run: |
           $p = Start-Process -FilePath dist/FileConverter/FileConverter.exe -PassThru
           Start-Sleep -Seconds 8
-          if ($p.HasExited) { Write-Error "app exited early (code $($p.ExitCode))" }
+          if ($p.HasExited) { Write-Error "app exited early (code $($p.ExitCode))"; exit 1 }
           Stop-Process -Id $p.Id -Force
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'

@@ -11,7 +11,7 @@
 - **원본 절대 보호**: 원본 폴더에 새 파일로 저장, 이름 충돌 시 자동 리네임 — 덮어쓰기 경로 없음
 
 ## 기술 스택 (확정)
-Python + PySide6(Qt) · PyInstaller 패키징 · LibreOffice 엔진 번들(DOCX→PDF) · **hwplib**(Apache-2.0) + JRE 사이드카(HWP) — 근거는 [docs/06_open_questions.md](docs/06_open_questions.md) 결정 로그(DEC) 참조.
+Python + PySide6(Qt) · PyInstaller 패키징 · **LibreOffice 26.2.5 엔진 번들**(DOCX→PDF·HWP→PDF, SHA256 검증) · **hwplib**(Apache-2.0) + JRE 사이드카(HWP) — 근거는 [docs/06_open_questions.md](docs/06_open_questions.md) 결정 로그(DEC) 참조.
 
 ## 저장소 구조
 ```
@@ -36,7 +36,8 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌드 필요)
 ```
 - UI 언어: 한국어/영어 (⚙ 메뉴에서 전환, 기본은 시스템 언어 — DEC-009)
-- DOCX→PDF는 LibreOffice 필요(개발: 시스템 설치본 자동 탐지, 배포: 번들 예정)
+- DOCX→PDF·HWP→PDF는 LibreOffice 필요 — 개발 환경은 시스템 설치본 자동 탐지
+  (`FILECONV_SOFFICE` 환경변수로 위치 지정 가능), Windows 배포판은 `engine/libreoffice/`에 번들(DEC-012)
 
 ## 현재 상태
 - [x] 제품 기획·요구사항 정의 (discovery 인터뷰)
@@ -47,7 +48,9 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] CI — GitHub Actions: ubuntu 테스트 + Windows exe 빌드(아티팩트)
 - [x] v0.3a — Windows 빌드에 HWP 엔진 번들(jlink JRE + hwplib 클래스): **HWP→TXT/DOCX가 Java 설치 없이 동작** (HWP→PDF·DOCX→PDF는 v0.3b 전까지 시스템 LibreOffice 자동 탐지 필요)
 - [x] 실사용 HWP 커버리지 검증(TXT·DOCX) — 공공기관 서식 5건 + 배포용 문서 1건, 6/6 성공. **HWP→PDF는 미검증**(LibreOffice 필요, v0.3b 이후) ([research/hwp-coverage/RESULT.md](research/hwp-coverage/RESULT.md))
-- [ ] v0.3b — LibreOffice 번들 + 설치 파일(인스톨러)
+- [~] v0.3b — Windows 빌드에 **LibreOffice 26.2.5 번들**(버전 고정·SHA256 검증·MPL 2.0 고지) 구현 완료: **DOCX→PDF·HWP→PDF가 Java·LibreOffice 설치 없이 동작하도록 설계**, CI가 매 PR마다 두 파이프라인 전체를 실제로 변환해 검증(DEC-012). *CI 그린 확인 후 완료로 갱신 예정*
+- [ ] v0.3c — 설치 파일(인스톨러), 완전 클린 Windows 실기기 검증
 
 ## 라이선스 고지
-HWP 처리는 [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)을 사용할 예정입니다.
+- HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)
+- 문서 변환 엔진: [LibreOffice](https://www.libreoffice.org) 26.2.5 (Mozilla Public License 2.0) — 전문은 배포판 `THIRD_PARTY_NOTICES.txt` 참조
