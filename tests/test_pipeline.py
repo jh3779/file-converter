@@ -8,6 +8,7 @@ from app import converters
 
 REPO = Path(__file__).resolve().parents[1]
 HWP_SAMPLE = REPO / "spike" / "hwplib" / "repo" / "sample_hwp" / "basic" / "표.hwp"
+HWP_DISTRIBUTION = REPO / "spike" / "hwplib" / "repo" / "sample_hwp" / "distribution.hwp"
 
 
 def _mini_pdf(path: Path):
@@ -74,6 +75,15 @@ class TestHwp(Base):
     def test_hwp_to_txt(self):
         out = converters.convert(HWP_SAMPLE, "txt", self.tmp)
         self.assertIn("ABC", out.read_text(encoding="utf-8"))
+
+    @unittest.skipUnless(HWP_DISTRIBUTION.exists(), "distribution.hwp 샘플 없음")
+    def test_distribution_protected_hwp_still_readable(self):
+        """OQ-006: '배포용(복사방지)' 문서는 편집·인쇄 제한이지 텍스트 암호화가
+        아니므로 일반 경로로 정상 추출된다 — err.password로 오분류하지 않는다."""
+        out = converters.convert(HWP_DISTRIBUTION, "txt", self.tmp)
+        text = out.read_text(encoding="utf-8")
+        self.assertTrue(text.strip())
+        self.assertNotIn("�", text)
 
 
 if __name__ == "__main__":

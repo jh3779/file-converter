@@ -1,0 +1,74 @@
+# OQ-006 — 실사용 HWP 커버리지 검증 결과
+
+> 2026-07-29 · 대상: docs/06_open_questions.md OQ-006 · 근거 스파이크: [spike/hwplib/RESULT.md](../../spike/hwplib/RESULT.md)
+> 환경: macOS(Apple Silicon), OpenJDK 26, hwplib 1.1.10-main(d9e073d) — spike 빌드 그대로 사용
+
+## 결론: **통과(TXT·DOCX 한정)** — 실사용 문서에서도 hwplib 경로가 안정적으로 동작
+
+공식 샘플(spike)만이 아니라, 공공기관이 웹에 실제 배포 중인 HWP 5건 + hwplib 자체
+"배포용(복사방지)" 보호 문서 1건, 총 **6건 전부 TXT·DOCX 변환 성공**, 인코딩 깨짐 0건.
+**HWP→PDF 경로는 이번 검증 대상이 아니다** — 로컬 환경에 LibreOffice가 없어 6건 전부
+`err.engine_missing`으로 즉시 실패했고, 이는 HWP 파싱 품질과 무관한 환경 제약이다
+(v0.3b 엔진 번들 완료 후 별도 검증 필요 — 아래 "남은 제약" 참고).
+
+## 검증 대상 (재현)
+
+공공기관 5건과 hwplib 배포용 샘플 1건은 확보 경로가 다르므로 재현 시 **두 단계 모두** 필요하다.
+
+1. 공공기관 5건: `sh fetch_samples.sh` (서명 검증 포함, `samples/`에 저장)
+2. hwplib 배포용 1건(`distribution.hwp`): 스파이크에서 사용한 hwplib 소스 클론이 필요하다 —
+   `git clone https://github.com/neolord0/hwplib spike/hwplib/repo` (별도 커밋되지 않는
+   외부 클론, [spike/hwplib/RESULT.md](../../spike/hwplib/RESULT.md) 참고). 클론 후
+   `spike/hwplib/repo/sample_hwp/distribution.hwp` 경로에 샘플이 생긴다.
+
+| 파일 | 출처 | 크기 | 특징 |
+|---|---|---:|---|
+| unikorea-contract.hwp | 통일부 제안요청서(공모) | 189KB | 표 26개, 문단 476개 — 대형 실무 문서 |
+| kma-postcard.hwp | 기상청 공모 안내문 | 21KB | 표 3개(1×1 표지 + 시상 표) |
+| mois-hwpplan.hwp | 행정안전부 검토보고 | 76KB | 1×1 제목 표 + 12×8 비교표(현행/개선) |
+| incheon-gongmun.hwp | 인천상공회의소 공문 서식 | 124KB | 10×6 레터헤드 표(주소·전화 등) |
+| jecheon-file2997.hwp | 제천시 법정 서식(별지 서식) | 17KB | **문단 0개, 표 2개** — 전체가 표 레이아웃 |
+| spike distribution.hwp | hwplib 샘플(복사방지 문서), 위 2단계로 별도 확보 | — | "배포용" 보호 플래그 문서 |
+
+## 결과
+
+| 파일 | TXT | DOCX(표 보존) | PDF | 비고 |
+|---|:---:|:---:|:---:|---|
+| unikorea-contract | ✅ 33,213자 | ✅ 표 26개 | ⚠️ err.engine_missing | PDF는 LibreOffice 부재로 실패 — HWP 파싱과 무관 |
+| kma-postcard | ✅ 2,673자 | ✅ 표 3개 | ⚠️ 〃 | |
+| mois-hwpplan | ✅ 1,460자 | ✅ 표 2개 | ⚠️ 〃 | |
+| incheon-gongmun | ✅ 1,173자 | ✅ 표 1개(10×6) | ⚠️ 〃 | |
+| jecheon-file2997 | ✅ 1,053자 | ✅ 표 2개(20×6) | ⚠️ 〃 | 문단 0 — 전체가 표. HwpToJson이 표만 추출해도 정상 처리 |
+| distribution.hwp | ✅ 정상 텍스트 | ✅ 문단 47개, 표 1개 | — (미검증) | 아래 발견 참고 |
+
+- **인코딩**: 6개 파일 전부 치환 문자(�) 0건 — 한글 완전 보존.
+- **표 구조**: 병합 셀 포함 레이아웃(제천 서식의 앞/뒤쪽 양식, 행안부 비교표)도 셀 텍스트 순서·개수가 원본과 일치.
+
+## 예상 밖 발견 — "배포용(복사방지)" 문서도 일반 경로로 읽힘
+
+`hwp.py`는 배포용 문서 실패 시 `err.password`로 안내하도록 stderr에서 `"distribution"` 키워드를
+찾는 방어 로직을 갖고 있었다(스파이크 당시 가정). 그러나 hwplib 샘플 `distribution.hwp`를
+일반 `HWPReader.fromFile()` + `TextExtractor` 경로로 시도한 결과 **정상적으로 텍스트가
+추출됐다** — "배포용" 플래그는 한컴오피스 내에서의 편집·인쇄 제한이지, 텍스트 스트림
+자체의 암호화가 아니기 때문으로 보인다(순수 비밀번호 암호화 HWP는 별도 케이스이며 이번
+검증 대상에는 포함되지 않음 — 실제 암호 파일 표본을 구하지 못함).
+
+**영향**: `err.password` 분기는 여전히 방어적으로 유지하되(진짜 암호화 파일 대비),
+"배포용 문서라서 실패"라는 가정은 근거가 약하다는 것을 확인. 사용자에게는 오히려
+긍정적 소식 — 공공기관이 배포하는 복사방지 문서도 이 앱에서 열린다.
+
+## OQ-006 판단
+
+**TXT·DOCX 경로에 한해 해결.** 실사용 문서 커버리지는 스파이크 결과(공식 샘플 11/11)와
+일관되게 높다 — DOCX/TXT 경로는 Must 유지에 추가 근거 확보(DEC-011).
+**HWP→PDF는 이번 라운드에서 검증되지 않은 채로 남는다** — 로컬에 LibreOffice가 없어
+hwp_to_pdf()가 DOCX 생성 단계를 통과하기 전에 `err.engine_missing`으로 조기 실패했고,
+이는 hwplib 파싱 품질이 아니라 순수 환경 제약이다. 다만 "검증 안 됨"과 "품질 낮음"은
+다른 말이므로, HWP→PDF의 실사용 커버리지는 **여전히 별도 잔여 리스크**로 남긴다
+(v0.3b LibreOffice 번들 완료 후 이번과 동일한 6개 샘플로 재검증 예정).
+
+## 남은 제약 (참고)
+- 이번 6건은 모두 텍스트/표 중심 서식이다. 사진·차트가 많은 문서, 진짜 암호 설정 문서,
+  구버전(HWP 3.x) 문서는 표본에 없어 커버리지 밖이다. 필요 시 별도 라운드로 확장 가능.
+- **HWP→PDF 경로는 검증 안 됨** — LibreOffice가 설치된 환경(Windows CI 등)에서 별도 확인 필요.
+  이 라운드의 "통과" 판정은 TXT·DOCX에만 적용된다.
