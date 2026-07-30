@@ -146,6 +146,29 @@ class TestHwp(Base):
         self.assertIn("김철수", text)
         self.assertIn("영업1팀", text)
 
+    def test_docx_to_hwp_preserves_numbered_and_bullet_markers(self):
+        """코드 리뷰 지적: DOCX 자동 번호·불릿은 문단 텍스트(w:t)가 아니라
+        numbering.xml 서식으로 화면에만 그려지므로, item.text만 추출하면
+        눈에 보이는 마커가 조용히 사라진다 — docx_extract가 numbering.xml을
+        해석해 마커를 문단 앞에 붙이는지 전체 파이프라인으로 검증."""
+        from docx import Document
+        src = self.tmp / "목록.docx"
+        doc = Document()
+        doc.add_paragraph("첫 번째 항목", style="List Number")
+        doc.add_paragraph("두 번째 항목", style="List Number")
+        doc.add_paragraph("불릿 항목", style="List Bullet")
+        doc.save(src)
+
+        out = converters.convert(src, "hwp", self.tmp)
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "txt", back_dir)
+        text = back.read_text(encoding="utf-8")
+        self.assertIn("1. 첫 번째 항목", text)
+        self.assertIn("2. 두 번째 항목", text)
+        self.assertIn("불릿 항목", text)
+        self.assertIn("•", text)
+
 
 if __name__ == "__main__":
     unittest.main()
