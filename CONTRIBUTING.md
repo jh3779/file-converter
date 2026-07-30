@@ -51,5 +51,5 @@ PR 제목은 squash merge 후 main의 커밋 메시지가 되므로 위 형식 �
 | squash merge만 허용 | 저장소 설정: merge commit·rebase merge 비활성 | ✅ 적용됨 (2026-07-29) |
 | 머지 후 원격 브랜치 삭제 | 저장소 설정: `delete_branch_on_merge` | ✅ 적용됨 (2026-07-29) |
 | 브랜치명·PR 제목 규칙 | CI (`branch-name-check` · `pr-title-check`) | ✅ 적용됨 |
-| PR 단계 테스트·빌드 게이트 | CI `build.yml`의 `pull_request` 트리거 | ⏳ PR #2(`chore/bundle-hwp-sidecar`)에 포함 — 해당 PR 머지 시 유효 (이 브랜치의 build.yml에는 미포함) |
-| main 직접 push 차단 | Branch protection/Rulesets — **private 저장소 무료 플랜에서는 미지원** | ⚠️ 설정 불가 — 규율로 준수. 저장소가 public 전환되거나 플랜 업그레이드 시 즉시 설정할 것 |
+| PR 단계 테스트·빌드 게이트 | CI `build.yml`의 `pull_request` 트리거 | ✅ 적용됨 (PR #2 머지 이후) |
+| main 직접 push 차단 + 필수 상태 체크(4개) | Branch protection (`main`) | ✅ 적용됨 (2026-07-30, 저장소 public 전환과 함께 설정 — private 무료 플랜에서는 미지원이라 보류돼 있던 항목) |
