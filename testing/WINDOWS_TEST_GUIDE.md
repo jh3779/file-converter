@@ -1,4 +1,4 @@
-# 파일 변환기 — Windows 테스트 가이드 (v0.3.1)
+# 파일 변환기 — Windows 테스트 가이드 (v0.3.2)
 
 테스트해 주셔서 감사합니다! 지난번 발견해 주신 두 가지 문제(PDF→DOCX 글자 깨짐,
 DOCX→PDF 일부 글자 삭제)를 원인을 찾아 고쳤고, PPTX(파워포인트) 변환도 새로 추가했습니다.
@@ -8,7 +8,7 @@ DOCX→PDF 일부 글자 삭제)를 원인을 찾아 고쳤고, PPTX(파워포�
 
 - `testing/samples/` 폴더의 샘플 파일 3개(아래 표) — 이번에 고친 문제를 정확히 겨냥해 만든
   테스트용 파일입니다. 본인이 가진 실제 문서로도 자유롭게 테스트해 주시면 더 좋습니다.
-- 설치 파일 바로 다운로드: **[FileConverter-Setup-v0.3.1.exe](https://github.com/jh3779/file-converter/releases/download/v0.3.1/FileConverter-Setup-latest.exe)**
+- 설치 파일 바로 다운로드: **[FileConverter-Setup-v0.3.2.exe](https://github.com/jh3779/file-converter/releases/download/v0.3.2/FileConverter-Setup-latest.exe)**
   (저장소가 공개 전환되어 로그인 없이 바로 받으실 수 있습니다)
 
 | 파일 | 용도 |
