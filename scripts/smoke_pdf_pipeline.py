@@ -43,6 +43,43 @@ def check(label: str, cond: bool, detail: str = ""):
         sys.exit(1)
 
 
+def _font_actually_embedded(path: Path, font_substr: str) -> bool:
+    """FontDescriptor 객체를 실제로 파싱해 /FontFile(2/3) 스트림 참조가 있는지 확인한다.
+
+    단순 'b"NotoSansKR" in raw' 문자열 검사는 폰트가 실제 내장되지 않고
+    이름만 참조된 경우(/BaseFont 등)도 통과시킬 수 있어 불충분하다 —
+    pdfminer로 PDF 객체를 순회해 /Type /FontDescriptor 이면서 /FontName에
+    font_substr이 포함된 항목에 /FontFile·/FontFile2·/FontFile3 중 하나가
+    실제로 있는지 확인해야 '내장'의 증거가 된다.
+    """
+    from pdfminer.pdfparser import PDFParser
+    from pdfminer.pdfdocument import PDFDocument
+    from pdfminer.pdftypes import resolve1, PDFObjRef
+
+    with path.open("rb") as f:
+        doc = PDFDocument(PDFParser(f))
+        xref = doc.xrefs[0] if doc.xrefs else None
+        obj_ids = set()
+        for x in doc.xrefs:
+            obj_ids.update(x.get_objids())
+        for objid in obj_ids:
+            try:
+                obj = resolve1(doc.getobj(objid))
+            except Exception:
+                continue
+            if not isinstance(obj, dict) or obj.get("Type") is None:
+                continue
+            type_name = str(obj.get("Type"))
+            if "FontDescriptor" not in type_name:
+                continue
+            font_name = str(obj.get("FontName", ""))
+            if font_substr not in font_name:
+                continue
+            if any(k in obj for k in ("FontFile", "FontFile2", "FontFile3")):
+                return True
+    return False
+
+
 def verify_pdf_content(path: Path, must_contain: str, must_embed_font: bool = False) -> None:
     raw = path.read_bytes()
     check(f"{path.name}: %PDF- 매직바이트", raw[:5] == b"%PDF-")
@@ -52,10 +89,11 @@ def verify_pdf_content(path: Path, must_contain: str, must_embed_font: bool = Fa
           must_contain in text, repr(text[:120]))
     if must_embed_font:
         # 텍스트 추출은 ToUnicode CMap만 보므로 코드값이 맞아도 실제 렌더링
-        # 글리프가 깨질 수 있다(DEC-015 재현 당시 직접 확인) — 폰트가 실제로
-        # PDF에 내장됐는지 원시 바이트에서 직접 확인해야 의미가 있다.
-        check(f"{path.name}: NotoSansKR 폰트 실제 내장",
-              b"NotoSansKR" in raw)
+        # 글리프가 깨질 수 있다(DEC-015 재현 당시 직접 확인) — 폰트 이름이
+        # 문자열로 등장하는 것만으론 부족하고, FontDescriptor에 실제
+        # /FontFile* 스트림이 물려 있는지까지 객체 단위로 확인해야 한다.
+        check(f"{path.name}: NotoSansKR 폰트 실제 내장(FontDescriptor/FontFile* 확인)",
+              _font_actually_embedded(path, "NotoSansKR"))
 
 
 def simulate_frozen(exe_path: str):
@@ -115,6 +153,8 @@ def main():
             check("DOCX→PDF 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
         # 2) PPTX -> PDF (DEC-016 — office_to_pdf 경로 재사용)
+        #    글꼴 미지정 — 실사용자 문서와 동일 조건, 텍스트 정확도까지만 검증
+        #    (위 1번 DOCX와 같은 이유로 폰트 내장은 여기서 보장 대상이 아니다).
         try:
             from pptx import Presentation
             src_pptx = tmp / "smoke.pptx"
@@ -133,6 +173,38 @@ def main():
             check("PPTX→PDF 변환 완료", False, f"{e.key}: {e.detail}")
         except Exception as e:
             check("PPTX→PDF 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
+
+        # 2-1) PPTX에 Noto Sans KR을 명시 지정한 경우 — 이 경로는 우리가
+        #      통제 가능하므로(사용자가 PPTX 안에서 이 폰트를 직접 골랐거나,
+        #      향후 우리가 PPTX를 생성하게 될 경우와 동일 조건) 폰트 내장까지
+        #      엄격 검증한다. python-pptx의 동아시아 글꼴(a:ea)도 DOCX의
+        #      eastAsia와 동일한 OOXML 구조라 같은 방식으로 지정한다.
+        try:
+            from pptx import Presentation
+            from pptx.oxml.ns import qn
+            src_pptx2 = tmp / "smoke_font.pptx"
+            prs = Presentation()
+            slide = prs.slides.add_slide(prs.slide_layouts[1])
+            slide.shapes.title.text = "폰트 지정 PPTX 테스트"
+            tf = slide.placeholders[1].text_frame
+            tf.text = "드문 자모: 뷁 밟 닳 넋 앎 옳"
+            for paragraph in tf.paragraphs:
+                for run in paragraph.runs:
+                    run.font.name = "Noto Sans KR"
+                    rpr = run._r.get_or_add_rPr()
+                    ea = rpr.makeelement(qn("a:ea"), {"typeface": "Noto Sans KR"})
+                    rpr.append(ea)
+            prs.save(src_pptx2)
+
+            out = converters.convert(src_pptx2, "pdf", tmp)
+            check("PPTX(폰트 지정)→PDF 변환 완료", out.exists())
+            verify_pdf_content(out, "뷁 밟 닳 넋 앎 옳", must_embed_font=True)
+        except ImportError:
+            print("[SKIP] PPTX(폰트 지정)→PDF — python-pptx 없음")
+        except ConversionError as e:
+            check("PPTX(폰트 지정)→PDF 변환 완료", False, f"{e.key}: {e.detail}")
+        except Exception as e:
+            check("PPTX(폰트 지정)→PDF 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
         # 3) 우리 자신이 생성하는 DOCX(PDF→DOCX·HWP→DOCX 출력, docx_build.py)는
         #    Noto Sans KR을 항상 명시적으로 지정한다(DEC-015) — 이 경로는 100%
