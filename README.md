@@ -18,7 +18,7 @@
 > 갱신할 것**(파일명은 `FileConverter-Setup-latest.exe`로 고정이라 태그 부분만 바꾸면 됨).
 
 ## 무엇을 하나
-- **문서**: DOCX→PDF · PPTX→PDF · PDF→TXT/DOCX · HWP→PDF/TXT/DOCX (읽기 전용)
+- **문서**: DOCX→PDF · PPTX→PDF · PDF→TXT/DOCX · HWP→PDF/TXT/DOCX · DOCX→HWP (문단 텍스트, 표는 텍스트로 단순화 — DEC-017)
 - **데이터**: CSV↔XLSX · CSV↔JSON (한글 인코딩 깨짐 방지)
 - **일괄 변환**: 여러 파일을 드래그앤드롭 → 포맷 선택 → 변환, 3클릭 완결
 - **원본 절대 보호**: 원본 폴더에 새 파일로 저장, 이름 충돌 시 자동 리네임 — 덮어쓰기 경로 없음
@@ -69,6 +69,8 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] v0.3b — Windows 빌드에 **LibreOffice 26.2.5 번들**(버전 고정·SHA256 검증·MPL 2.0 고지): **DOCX→PDF·HWP→PDF가 Java·LibreOffice 설치 없이 동작**. CI가 매 PR마다 실제 exe 위치를 흉내낸 프로즌 모드 자동 탐색(환경변수 없음) + 두 파이프라인 전체 변환 + PDF 내용(pdfminer)까지 검증(DEC-012) — [PR #4 CI 통과 기록](https://github.com/jh3779/file-converter/actions/runs/30458685792)
 - [x] v0.3c — **Inno Setup 인스톨러**(관리자 권한 불요·한/영 지원·전용 아이콘, 394MB): CI가 무인 설치→설치된 실경로에서 exe 실행→무인 제거까지 전 과정을 매 PR 게이트로 검증하고 통과(DEC-013) — [PR #5 CI 통과 기록](https://github.com/jh3779/file-converter/actions/runs/30461638374). 완전 클린 Windows(VC++ 런타임 부재) 실기기 검증만 별도로 남음
 - [x] v0.3.1 — **실사용 Windows 테스트 피드백 반영**: PDF/HWP→DOCX 글자 깨짐·DOCX→PDF 일부 문자 삭제의 근본 원인(한글 글꼴 미지정 + 번들 LibreOffice의 CJK 글꼴 0개)을 확정해 수정, Noto Sans KR 글꼴 번들(DEC-015). **보장 범위는 우리 앱 자신의 렌더링 경로(DOCX/HWP→PDF)로 한정** — 실사용자가 결과 DOCX를 자신의 Word/한글(HWP)에서 직접 열 때의 렌더링은 그 프로그램의 글꼴 대체 로직에 의존하는 잔여 리스크로 문서화됨(대체 글꼴명 지정 시도는 로컬 검증에서 회귀가 발견돼 채택하지 않음). **PPTX→PDF 신규 지원**(DEC-016)
+- [x] CSV→JSON 변환 시 셀 안 줄바꿈·이스케이프된 큰따옴표가 있으면 값이 잘리던 버그 수정(`csv.Sniffer`가 인용 규칙까지 오탐하던 것이 원인) — 재현 테스트 추가
+- [x] **DOCX→HWP 신규 지원**(DEC-017, DEC-003 일부 번복) — hwplib로 HWP 파일을 새로 생성하는 사이드카(`JsonToHwp.java`) 추가. 문단 텍스트는 그대로 보존되고, 자동 번호("1.")·불릿("•")도 numbering.xml을 해석해 마커로 보존(코드 리뷰 지적 반영). 표는 hwplib에 신규 생성 도구가 없어 각 행을 텍스트 한 줄로 안전하게 단순화(내용 유실 없음, 변환 전 UI 고지)
 
 ## 라이선스 고지
 - HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)

@@ -9,7 +9,7 @@ from .base import ConversionError
 from . import data, pdf, office, hwp
 
 TARGETS: dict[str, list[str]] = {
-    "docx": ["pdf"],
+    "docx": ["pdf", "hwp"],  # DEC-017 — 표는 텍스트로 단순화되어 저장됨
     "pptx": ["pdf"],   # DEC-016
     "pdf": ["txt", "docx"],
     "hwp": ["txt", "pdf", "docx"],
@@ -27,6 +27,7 @@ _DISPATCH = {
     ("pdf", "docx"): pdf.pdf_to_docx,      # 텍스트 기반 (DEC-010 고지)
     ("docx", "pdf"): office.office_to_pdf,
     ("pptx", "pdf"): office.office_to_pdf,  # DEC-016 — 동일 LibreOffice 경로 재사용
+    ("docx", "hwp"): hwp.docx_to_hwp,      # DEC-017 — 문단 텍스트만, 표는 텍스트로 단순화
     ("hwp", "txt"): hwp.hwp_to_txt,
     ("hwp", "pdf"): hwp.hwp_to_pdf,        # DOCX 경유 → LibreOffice
     ("hwp", "docx"): hwp.hwp_to_docx,      # 구조 JSON → python-docx

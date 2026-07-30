@@ -9,6 +9,7 @@ from pathlib import Path
 from app.converters import data
 from app.converters.base import ConversionError
 from app.converters.docx_build import EAST_ASIAN_FONT, blocks_to_docx
+from app.converters.docx_extract import docx_to_blocks
 from app.output import unique_output_path
 
 
@@ -85,6 +86,67 @@ class TestCsvJson(Base):
         src.write_text("a;b\n1;2\n", encoding="utf-8")
         out = data.csv_to_json(src, self.tmp)
         self.assertEqual(json.loads(out.read_text()), [{"a": "1", "b": "2"}])
+
+
+class TestDocxExtractNumbering(Base):
+    """코드 리뷰 지적: DOCX 자동 번호·불릿은 numbering.xml 서식일 뿐 문단
+    텍스트가 아니므로, item.text만 추출하면 눈에 보이는 마커가 사라진다."""
+
+    def test_style_based_numbered_and_bullet_list(self):
+        from docx import Document
+        src = self.tmp / "d.docx"
+        doc = Document()
+        doc.add_paragraph("일반 문단")
+        doc.add_paragraph("첫 항목", style="List Number")
+        doc.add_paragraph("둘째 항목", style="List Number")
+        doc.add_paragraph("불릿 항목", style="List Bullet")
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        texts = [b["text"] for b in blocks]
+        self.assertEqual(texts, [
+            "일반 문단", "1. 첫 항목", "2. 둘째 항목", "• 불릿 항목",
+        ])
+
+    def test_direct_numpr_without_named_style(self):
+        """사용자가 툴바로 번호 매기기를 켠 경우 — 문단 자신의 pPr에 numPr이
+        직접 있고(스타일 경유 아님), 목록 사이 일반 문단이 있어도 같은 numId의
+        카운터는 이어진다."""
+        from docx import Document
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+
+        def add_numbered(doc, text, num_id="1", ilvl="0"):
+            p = doc.add_paragraph(text)
+            ppr = p._p.get_or_add_pPr()
+            numpr = OxmlElement("w:numPr")
+            e_ilvl = OxmlElement("w:ilvl")
+            e_ilvl.set(qn("w:val"), ilvl)
+            e_num = OxmlElement("w:numId")
+            e_num.set(qn("w:val"), num_id)
+            numpr.append(e_ilvl)
+            numpr.append(e_num)
+            ppr.append(numpr)
+            return p
+
+        src = self.tmp / "d.docx"
+        doc = Document()
+        add_numbered(doc, "목록 1")
+        add_numbered(doc, "목록 2")
+        doc.add_paragraph("목록 사이 일반 문단")
+        add_numbered(doc, "목록 3")
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        texts = [b["text"] for b in blocks]
+        self.assertEqual(texts[2], "목록 사이 일반 문단")
+        # numId=1의 서식(decimal/bullet 등)은 기본 템플릿에 따라 달라질 수
+        # 있으므로 마커 문자 자체보다 "일반 문단은 그대로, 목록 항목에는
+        # (스타일 경유 없이도) 접두어가 붙는다"는 불변식을 확인한다.
+        self.assertNotEqual(texts[0], "목록 1")
+        self.assertTrue(texts[0].endswith("목록 1"))
+        self.assertNotEqual(texts[3], "목록 3")
+        self.assertTrue(texts[3].endswith("목록 3"))
 
 
 class TestDocxBuildFont(Base):

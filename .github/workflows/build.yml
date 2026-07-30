@@ -67,7 +67,7 @@ jobs:
             ForEach-Object { $_.FullName } | Set-Content -Encoding utf8 sources.txt
           javac -encoding UTF-8 -nowarn "@sources.txt" -d engine-build/hwp
           javac -encoding UTF-8 -cp engine-build/hwp -d engine-build/hwp `
-            sidecar/hwp/HwpToText.java sidecar/hwp/HwpToJson.java
+            sidecar/hwp/HwpToText.java sidecar/hwp/HwpToJson.java sidecar/hwp/JsonToHwp.java
           jlink --add-modules java.base,java.desktop,java.xml,java.logging `
             --strip-debug --no-header-files --no-man-pages --output engine-build/jre
       - name: HWP engine smoke (bundled JRE + 한글 텍스트 샘플)
@@ -87,6 +87,19 @@ jobs:
             hwplib-src/sample_hwp/merging-cell.hwp out.json
           if (-not (Get-Content out.json -Encoding utf8 | Select-String -Pattern '"type":"table"' -Quiet)) {
             Write-Error "HWP engine smoke failed: HwpToJson 표 구조 불일치"; exit 1
+          }
+          # DEC-017: DOCX→HWP 사이드카(JsonToHwp) — 구조 JSON → HWP 생성 → 재읽기 왕복 검증.
+          Set-Content -Encoding utf8 blocks.json '{"blocks":[{"type":"p","text":"뷁 밟 닳 넋 한글 생성 테스트"},{"type":"table","rows":[["이름","부서"],["김철수","영업1팀"]]}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwp blocks.json created.hwp
+          if (-not (Test-Path created.hwp)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 HWP 파일을 생성하지 못함"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToText created.hwp created.txt
+          if (-not (Get-Content created.txt -Encoding utf8 | Select-String -Pattern "뷁 밟 닳 넋 한글 생성 테스트" -Quiet)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp 생성 문서 재읽기 텍스트 불일치"; exit 1
+          }
+          if (-not (Get-Content created.txt -Encoding utf8 | Select-String -Pattern "김철수" -Quiet)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp 표→텍스트 단순화 내용 불일치"; exit 1
           }
       - name: Cache LibreOffice installer
         uses: actions/cache@v4
