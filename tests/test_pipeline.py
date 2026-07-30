@@ -117,6 +117,35 @@ class TestHwp(Base):
         self.assertTrue(text.strip())
         self.assertNotIn("�", text)
 
+    def test_docx_to_hwp_roundtrip(self):
+        """DEC-017: DOCX→HWP는 문단 텍스트를 보존하고, 표는 " | "로 이어붙인
+        텍스트 문단으로 단순화한다. 결과 HWP를 다시 hwp_to_txt로 읽어 왕복
+        검증한다(희귀 한글 자모·한자 포함)."""
+        from docx import Document
+        src = self.tmp / "한글.docx"
+        doc = Document()
+        doc.add_paragraph("뷁 밟 닳 넋 앎 옳 훑 흙 삵 값 넓 얹 앉 닭 없")
+        doc.add_paragraph("大韓民國 韓國語 漢字 契約書 委任狀")
+        table = doc.add_table(rows=2, cols=2)
+        table.cell(0, 0).text = "이름"
+        table.cell(0, 1).text = "부서"
+        table.cell(1, 0).text = "김철수"
+        table.cell(1, 1).text = "영업1팀"
+        doc.save(src)
+
+        out = converters.convert(src, "hwp", self.tmp)
+        self.assertTrue(out.exists())
+
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "txt", back_dir)
+        text = back.read_text(encoding="utf-8")
+        self.assertIn("뷁 밟 닳 넋 앎 옳 훑 흙 삵 값 넓 얹 앉 닭 없", text)
+        self.assertIn("大韓民國 韓國語 漢字 契約書 委任狀", text)
+        self.assertIn("이름", text)
+        self.assertIn("김철수", text)
+        self.assertIn("영업1팀", text)
+
 
 if __name__ == "__main__":
     unittest.main()

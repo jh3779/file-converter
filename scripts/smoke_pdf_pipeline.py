@@ -1,4 +1,4 @@
-"""LibreOffice 번들 스모크 — 실제 앱 코드 경로로 DOCX/PPTX→PDF, HWP→PDF 전체 파이프라인 검증.
+"""LibreOffice 번들 스모크 — 실제 앱 코드 경로로 DOCX/PPTX→PDF, HWP→PDF, DOCX→HWP 전체 파이프라인 검증.
 
 CI(Windows)에서 사용. 기본은 FILECONV_SOFFICE / FILECONV_JAVA / FILECONV_HWP_CLASSPATH
 환경변수로 엔진 위치를 지정(사전 빌드 경로 검증용 — dist가 아직 없는 시점).
@@ -238,6 +238,21 @@ def main():
             except Exception as e:
                 check("HWP→PDF 변환 완료(전체 파이프라인)", False,
                       f"예상 밖 예외 {type(e).__name__}: {e}")
+
+        # 5) DOCX -> HWP (DEC-017: hwplib 신규 생성 — 문단 텍스트 보존, 표는
+        #    " | " 텍스트로 단순화). 생성된 HWP를 다시 TXT로 읽어 왕복 검증한다.
+        if not skip_hwp:
+            try:
+                out = converters.convert(src_docx, "hwp", tmp)
+                check("DOCX→HWP 변환 완료", out.exists())
+                back = converters.convert(out, "txt", tmp)
+                back_text = back.read_text(encoding="utf-8")
+                check("DOCX→HWP: 문단 텍스트 보존", "뷁 밟 닳 넋 앎 옳" in back_text, repr(back_text[:120]))
+                check("DOCX→HWP: 표→텍스트 단순화 내용 보존", "결과" in back_text and "성공" in back_text)
+            except ConversionError as e:
+                check("DOCX→HWP 변환 완료", False, f"{e.key}: {e.detail}")
+            except Exception as e:
+                check("DOCX→HWP 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
         print("스모크 전체 통과")
     finally:
