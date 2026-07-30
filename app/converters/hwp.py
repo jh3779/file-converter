@@ -92,4 +92,4 @@ def hwp_to_pdf(src: Path, tmpdir: Path) -> Path:
     """HWP → DOCX → LibreOffice → PDF (DEC-007 파이프라인)."""
     from . import office
     intermediate = hwp_to_docx(src, tmpdir)
-    return office.docx_to_pdf(intermediate, tmpdir)
+    return office.office_to_pdf(intermediate, tmpdir)

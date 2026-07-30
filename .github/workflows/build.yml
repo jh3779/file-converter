@@ -40,6 +40,10 @@ jobs:
       # download.documentfoundation.org의 <파일명>.sha256을 다시 확인해 갱신할 것.
       LO_VERSION: "26.2.5"
       LO_SHA256: f15ba07bfcb0186986cf3171063506f5d207c11f8cc051ba0d135209e9e915f9
+      # Noto Sans KR(OFL-1.1) — 로컬에서 직접 다운로드해 확인한 zip SHA256 (DEC-015).
+      # 갱신 시 https://github.com/notofonts/noto-cjk/releases 에서 새 값을 다시 계산할 것.
+      NOTOKR_RELEASE_TAG: "Sans2.004"
+      NOTOKR_SHA256: ac7eeb4e2b0d41de8ff31b2d6e1e2a41caf253fd5cefb380bfa1f40f1747b612
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,7 +53,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - run: pip install -r requirements.txt pyinstaller
+      - run: pip install -r requirements.txt pyinstaller python-pptx
+        # python-pptx는 앱 런타임 의존성이 아니다 — PPTX→PDF는 LibreOffice가
+        # 직접 읽어 변환하므로 필요 없다. 여기서는 스모크용 테스트 픽스처
+        # (샘플 .pptx) 생성 목적으로만 설치한다.
       - name: Build HWP engine (hwplib + sidecar + jlink JRE)
         shell: pwsh
         run: |
@@ -125,6 +132,38 @@ jobs:
           New-Item -ItemType Directory -Force engine-build/licenses/libreoffice | Out-Null
           Get-ChildItem -Path $loRoot -Filter "LICENSE*" | Copy-Item -Destination engine-build/licenses/libreoffice/
           Get-ChildItem -Path $loRoot -Filter "NOTICE*" -ErrorAction SilentlyContinue | Copy-Item -Destination engine-build/licenses/libreoffice/
+      - name: Cache Noto Sans KR font
+        uses: actions/cache@v4
+        with:
+          path: notokr.zip
+          key: notosanskr-${{ env.NOTOKR_RELEASE_TAG }}-${{ env.NOTOKR_SHA256 }}
+      - name: 한글 글꼴 번들 (Noto Sans KR — DEC-015)
+        shell: pwsh
+        run: |
+          # 배경: 번들 LibreOffice 자체 글꼴엔 한글이 전혀 없어(0/118) 호스트 Windows에
+          # 설치된 글꼴에만 의존하면 드문 한글 자모·한자가 누락될 수 있음이 실사용 중
+          # 확인됨(DEC-015). LibreOffice는 program 폴더뿐 아니라 share/fonts/truetype도
+          # 자체 스캔하므로, 그 안에 넣기만 하면 시스템 글꼴 설치 없이도 항상 사용된다.
+          if (-not (Test-Path notokr.zip)) {
+            $url = "https://github.com/notofonts/noto-cjk/releases/download/$env:NOTOKR_RELEASE_TAG/17_NotoSansKR.zip"
+            curl.exe -fsSL -o notokr.zip $url
+          }
+          $hash = (Get-FileHash notokr.zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:NOTOKR_SHA256) {
+            Write-Error "Noto Sans KR 체크섬 불일치: $hash (기대값 $env:NOTOKR_SHA256)"
+            Remove-Item notokr.zip -Force
+            exit 1
+          }
+          $fontDir = "engine-build/libreoffice/share/fonts/truetype"
+          New-Item -ItemType Directory -Force $fontDir | Out-Null
+          Expand-Archive notokr.zip -DestinationPath notokr-extract -Force
+          Copy-Item notokr-extract/NotoSansKR-Regular.otf $fontDir/
+          Copy-Item notokr-extract/NotoSansKR-Bold.otf $fontDir/
+          New-Item -ItemType Directory -Force engine-build/licenses/notosanskr | Out-Null
+          Copy-Item notokr-extract/LICENSE engine-build/licenses/notosanskr/LICENSE.txt
+          if (-not (Test-Path "$fontDir/NotoSansKR-Regular.otf")) {
+            Write-Error "글꼴 번들 실패: $fontDir/NotoSansKR-Regular.otf 없음"; exit 1
+          }
       - name: LibreOffice + HWP→PDF 파이프라인 스모크 (사전 빌드 경로)
         shell: pwsh
         env:
@@ -159,6 +198,12 @@ jobs:
           }
           if (-not (Get-ChildItem dist/FileConverter/engine/licenses/libreoffice -Filter "LICENSE*" -ErrorAction SilentlyContinue)) {
             Write-Error "LibreOffice 라이선스 파일이 아티팩트에 없습니다"; exit 1
+          }
+          if (-not (Test-Path dist/FileConverter/engine/libreoffice/share/fonts/truetype/NotoSansKR-Regular.otf)) {
+            Write-Error "Noto Sans KR 글꼴이 아티팩트에 없습니다 (DEC-015)"; exit 1
+          }
+          if (-not (Test-Path dist/FileConverter/engine/licenses/notosanskr/LICENSE.txt)) {
+            Write-Error "Noto Sans KR 라이선스 파일이 아티팩트에 없습니다"; exit 1
           }
           # 패키징 후 실제 배포 경로에서 사이드카 실행 검증
           & dist/FileConverter/engine/jre/bin/java.exe -cp dist/FileConverter/engine/hwp `

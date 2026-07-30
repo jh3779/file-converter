@@ -29,7 +29,19 @@ THIRD-PARTY NOTICES — File Converter (파일 변환기)
    - 알려진 제약: Microsoft Visual C++ 런타임이 전혀 없는 완전히 새 Windows
      환경에서는 soffice.exe 실행이 실패할 수 있다(별도 검증 필요 — DEC-012).
 
-4. Python 런타임 및 라이브러리 (PySide6/Qt는 LGPLv3, openpyxl MIT,
+4. Noto Sans KR (한글 글꼴 — DOCX/HWP→DOCX 생성 문서 및 LibreOffice 렌더링용)
+   - 경로: engine/libreoffice/share/fonts/truetype/NotoSansKR-{Regular,Bold}.otf
+   - 저작권: Google — https://github.com/notofonts/noto-cjk
+   - 라이선스: SIL Open Font License 1.1 — 전문은
+     engine/licenses/notosanskr/LICENSE.txt 참조
+   - 번들 릴리스: Sans2.004 (17_NotoSansKR.zip, SHA256 검증)
+   - 포함 이유(DEC-015): 번들 LibreOffice 자체에는 한글 글꼴이 전혀 없어
+     호스트 Windows에 설치된 글꼴에만 의존하면 일부 문자가 누락될 수 있음이
+     실사용 중 확인됨. hwplib/PDF에서 생성하는 DOCX는 이 글꼴을 모든 run에
+     명시적으로 지정한다. 사용자가 직접 제공한 DOCX/PPTX(글꼴 미지정)의
+     DOCX→PDF 렌더링은 호스트 글꼴 가용성에 여전히 일부 의존한다(잔여 리스크).
+
+5. Python 런타임 및 라이브러리 (PySide6/Qt는 LGPLv3, openpyxl MIT,
    pdfminer.six MIT, python-docx MIT)
    - PyInstaller 번들 내 포함. PySide6(Qt) LGPLv3 고지:
      https://www.qt.io/licensing — 동적 링크 사용.

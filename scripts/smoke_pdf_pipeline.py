@@ -1,4 +1,4 @@
-"""LibreOffice 번들 스모크 — 실제 앱 코드 경로로 DOCX→PDF, HWP→PDF 전체 파이프라인 검증.
+"""LibreOffice 번들 스모크 — 실제 앱 코드 경로로 DOCX/PPTX→PDF, HWP→PDF 전체 파이프라인 검증.
 
 CI(Windows)에서 사용. 기본은 FILECONV_SOFFICE / FILECONV_JAVA / FILECONV_HWP_CLASSPATH
 환경변수로 엔진 위치를 지정(사전 빌드 경로 검증용 — dist가 아직 없는 시점).
@@ -43,12 +43,57 @@ def check(label: str, cond: bool, detail: str = ""):
         sys.exit(1)
 
 
-def verify_pdf_content(path: Path, must_contain: str) -> None:
-    check(f"{path.name}: %PDF- 매직바이트", path.read_bytes()[:5] == b"%PDF-")
+def _font_actually_embedded(path: Path, font_substr: str) -> bool:
+    """FontDescriptor 객체를 실제로 파싱해 /FontFile(2/3) 스트림 참조가 있는지 확인한다.
+
+    단순 'b"NotoSansKR" in raw' 문자열 검사는 폰트가 실제 내장되지 않고
+    이름만 참조된 경우(/BaseFont 등)도 통과시킬 수 있어 불충분하다 —
+    pdfminer로 PDF 객체를 순회해 /Type /FontDescriptor 이면서 /FontName에
+    font_substr이 포함된 항목에 /FontFile·/FontFile2·/FontFile3 중 하나가
+    실제로 있는지 확인해야 '내장'의 증거가 된다.
+    """
+    from pdfminer.pdfparser import PDFParser
+    from pdfminer.pdfdocument import PDFDocument
+    from pdfminer.pdftypes import resolve1, PDFObjRef
+
+    with path.open("rb") as f:
+        doc = PDFDocument(PDFParser(f))
+        xref = doc.xrefs[0] if doc.xrefs else None
+        obj_ids = set()
+        for x in doc.xrefs:
+            obj_ids.update(x.get_objids())
+        for objid in obj_ids:
+            try:
+                obj = resolve1(doc.getobj(objid))
+            except Exception:
+                continue
+            if not isinstance(obj, dict) or obj.get("Type") is None:
+                continue
+            type_name = str(obj.get("Type"))
+            if "FontDescriptor" not in type_name:
+                continue
+            font_name = str(obj.get("FontName", ""))
+            if font_substr not in font_name:
+                continue
+            if any(k in obj for k in ("FontFile", "FontFile2", "FontFile3")):
+                return True
+    return False
+
+
+def verify_pdf_content(path: Path, must_contain: str, must_embed_font: bool = False) -> None:
+    raw = path.read_bytes()
+    check(f"{path.name}: %PDF- 매직바이트", raw[:5] == b"%PDF-")
     from pdfminer.high_level import extract_text
     text = extract_text(str(path))
     check(f"{path.name}: 텍스트 내용('{must_contain}') 포함",
           must_contain in text, repr(text[:120]))
+    if must_embed_font:
+        # 텍스트 추출은 ToUnicode CMap만 보므로 코드값이 맞아도 실제 렌더링
+        # 글리프가 깨질 수 있다(DEC-015 재현 당시 직접 확인) — 폰트 이름이
+        # 문자열로 등장하는 것만으론 부족하고, FontDescriptor에 실제
+        # /FontFile* 스트림이 물려 있는지까지 객체 단위로 확인해야 한다.
+        check(f"{path.name}: NotoSansKR 폰트 실제 내장(FontDescriptor/FontFile* 확인)",
+              _font_actually_embedded(path, "NotoSansKR"))
 
 
 def simulate_frozen(exe_path: str):
@@ -83,10 +128,14 @@ def main():
     tmp = Path(tempfile.mkdtemp())
     try:
         # 1) DOCX -> PDF (번들 LibreOffice 실경로 검증 — DEC-002)
+        #    글꼴을 지정하지 않은, 실사용자 문서와 동일한 조건의 DOCX를 그대로
+        #    변환한다 — 여기서는 텍스트 정확도까지만 검증한다. 글꼴 미지정 문서의
+        #    최종 렌더링은 호스트에 설치된 글꼴에 좌우되며 우리가 보장할 수 있는
+        #    범위 밖이다(잔여 리스크, 아래 4번 참고).
         from docx import Document
         src_docx = tmp / "smoke.docx"
         doc = Document()
-        doc.add_paragraph("LibreOffice 번들 스모크 테스트 — 한글 포함 확인")
+        doc.add_paragraph("LibreOffice 번들 스모크 테스트 — 드문 자모: 뷁 밟 닳 넋 앎 옳")
         table = doc.add_table(rows=2, cols=2)
         table.cell(0, 0).text = "항목"
         table.cell(0, 1).text = "값"
@@ -97,20 +146,93 @@ def main():
         try:
             out = converters.convert(src_docx, "pdf", tmp)
             check("DOCX→PDF 변환 완료", out.exists())
-            verify_pdf_content(out, "번들 스모크 테스트")
+            verify_pdf_content(out, "뷁 밟 닳 넋 앎 옳")
         except ConversionError as e:
             check("DOCX→PDF 변환 완료", False, f"{e.key}: {e.detail}")
         except Exception as e:
             check("DOCX→PDF 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
-        # 2) HWP -> PDF (DEC-007 파이프라인: hwplib 구조 추출 → DOCX → LibreOffice)
+        # 2) PPTX -> PDF (DEC-016 — office_to_pdf 경로 재사용)
+        #    글꼴 미지정 — 실사용자 문서와 동일 조건, 텍스트 정확도까지만 검증
+        #    (위 1번 DOCX와 같은 이유로 폰트 내장은 여기서 보장 대상이 아니다).
+        try:
+            from pptx import Presentation
+            src_pptx = tmp / "smoke.pptx"
+            prs = Presentation()
+            slide = prs.slides.add_slide(prs.slide_layouts[1])
+            slide.shapes.title.text = "PPTX 스모크 테스트"
+            slide.placeholders[1].text = "드문 자모: 뷁 밟 닳 넋 앎 옳"
+            prs.save(src_pptx)
+
+            out = converters.convert(src_pptx, "pdf", tmp)
+            check("PPTX→PDF 변환 완료", out.exists())
+            verify_pdf_content(out, "뷁 밟 닳 넋 앎 옳")
+        except ImportError:
+            print("[SKIP] PPTX→PDF — python-pptx 없음(테스트 픽스처 전용 의존성)")
+        except ConversionError as e:
+            check("PPTX→PDF 변환 완료", False, f"{e.key}: {e.detail}")
+        except Exception as e:
+            check("PPTX→PDF 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
+
+        # 2-1) PPTX에 Noto Sans KR을 명시 지정한 경우 — 이 경로는 우리가
+        #      통제 가능하므로(사용자가 PPTX 안에서 이 폰트를 직접 골랐거나,
+        #      향후 우리가 PPTX를 생성하게 될 경우와 동일 조건) 폰트 내장까지
+        #      엄격 검증한다. python-pptx의 동아시아 글꼴(a:ea)도 DOCX의
+        #      eastAsia와 동일한 OOXML 구조라 같은 방식으로 지정한다.
+        try:
+            from pptx import Presentation
+            from pptx.oxml.ns import qn
+            src_pptx2 = tmp / "smoke_font.pptx"
+            prs = Presentation()
+            slide = prs.slides.add_slide(prs.slide_layouts[1])
+            slide.shapes.title.text = "폰트 지정 PPTX 테스트"
+            tf = slide.placeholders[1].text_frame
+            tf.text = "드문 자모: 뷁 밟 닳 넋 앎 옳"
+            for paragraph in tf.paragraphs:
+                for run in paragraph.runs:
+                    run.font.name = "Noto Sans KR"
+                    rpr = run._r.get_or_add_rPr()
+                    ea = rpr.makeelement(qn("a:ea"), {"typeface": "Noto Sans KR"})
+                    rpr.append(ea)
+            prs.save(src_pptx2)
+
+            out = converters.convert(src_pptx2, "pdf", tmp)
+            check("PPTX(폰트 지정)→PDF 변환 완료", out.exists())
+            verify_pdf_content(out, "뷁 밟 닳 넋 앎 옳", must_embed_font=True)
+        except ImportError:
+            print("[SKIP] PPTX(폰트 지정)→PDF — python-pptx 없음")
+        except ConversionError as e:
+            check("PPTX(폰트 지정)→PDF 변환 완료", False, f"{e.key}: {e.detail}")
+        except Exception as e:
+            check("PPTX(폰트 지정)→PDF 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
+
+        # 3) 우리 자신이 생성하는 DOCX(PDF→DOCX·HWP→DOCX 출력, docx_build.py)는
+        #    Noto Sans KR을 항상 명시적으로 지정한다(DEC-015) — 이 경로는 100%
+        #    우리 통제 안에 있으므로, 그 결과를 다시 PDF로 렌더링해 번들 폰트가
+        #    실제로 내장되는지까지 엄격하게 검증한다.
+        from app.converters.docx_build import blocks_to_docx
+        own_docx = blocks_to_docx(
+            [{"type": "p", "text": "자체 생성 DOCX 검증 — 드문 자모: 뷁 밟 닳 넋 앎 옳"}],
+            tmp / "own.docx",
+        )
+        try:
+            out = converters.convert(own_docx, "pdf", tmp)
+            check("자체 생성 DOCX→PDF 변환 완료", out.exists())
+            verify_pdf_content(out, "뷁 밟 닳 넋 앎 옳", must_embed_font=True)
+        except ConversionError as e:
+            check("자체 생성 DOCX→PDF 변환 완료", False, f"{e.key}: {e.detail}")
+        except Exception as e:
+            check("자체 생성 DOCX→PDF 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
+
+        # 4) HWP -> PDF (DEC-007 파이프라인: hwplib 구조 추출 → DOCX → LibreOffice)
+        #    중간 산출물이 blocks_to_docx를 거치므로 여기도 폰트 내장을 엄격 검증한다.
         if not skip_hwp:
             check("HWP 샘플 존재", hwp_sample is not None and hwp_sample.exists(),
                   str(hwp_sample))
             try:
                 out = converters.convert(hwp_sample, "pdf", tmp)
                 check("HWP→PDF 변환 완료(전체 파이프라인)", out.exists())
-                verify_pdf_content(out, "ABC")  # 표.hwp 알려진 내용 (spike/hwplib/RESULT.md)
+                verify_pdf_content(out, "ABC", must_embed_font=True)  # 표.hwp 알려진 내용
             except ConversionError as e:
                 check("HWP→PDF 변환 완료(전체 파이프라인)", False, f"{e.key}: {e.detail}")
             except Exception as e:

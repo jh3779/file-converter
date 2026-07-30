@@ -1,4 +1,4 @@
-"""변환기 레지스트리 — 정본: docs/01_requirements.md REQ-F-002~006.
+"""변환기 레지스트리 — 정본: docs/01_requirements.md REQ-F-002~006·REQ-F-012.
 
 TARGETS: 확장자별 선택 가능한 대상 포맷(가능한 것만 노출 — C-03).
 convert(src, dst_fmt, tmpdir) → 임시 산출물 Path. 실패 시 ConversionError(i18n 키).
@@ -10,6 +10,7 @@ from . import data, pdf, office, hwp
 
 TARGETS: dict[str, list[str]] = {
     "docx": ["pdf"],
+    "pptx": ["pdf"],   # DEC-016
     "pdf": ["txt", "docx"],
     "hwp": ["txt", "pdf", "docx"],
     "csv": ["xlsx", "json"],
@@ -24,7 +25,8 @@ _DISPATCH = {
     ("json", "csv"): data.json_to_csv,
     ("pdf", "txt"): pdf.pdf_to_txt,
     ("pdf", "docx"): pdf.pdf_to_docx,      # 텍스트 기반 (DEC-010 고지)
-    ("docx", "pdf"): office.docx_to_pdf,
+    ("docx", "pdf"): office.office_to_pdf,
+    ("pptx", "pdf"): office.office_to_pdf,  # DEC-016 — 동일 LibreOffice 경로 재사용
     ("hwp", "txt"): hwp.hwp_to_txt,
     ("hwp", "pdf"): hwp.hwp_to_pdf,        # DOCX 경유 → LibreOffice
     ("hwp", "docx"): hwp.hwp_to_docx,      # 구조 JSON → python-docx

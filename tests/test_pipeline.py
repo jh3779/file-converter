@@ -60,6 +60,38 @@ class TestPdf(Base):
         self.assertTrue(any("Hello Converter" in t for t in texts))
 
 
+def _find_soffice():
+    from app.converters import office
+    return office.find_soffice()
+
+
+@unittest.skipUnless(_find_soffice(), "LibreOffice(soffice) 없음 — 로컬/Windows CI에서만 실행")
+class TestOffice(Base):
+    """DEC-016: PPTX→PDF는 DOCX→PDF와 동일한 office_to_pdf 경로를 재사용한다."""
+
+    def test_docx_to_pdf(self):
+        from docx import Document
+        src = self.tmp / "한글.docx"
+        doc = Document()
+        doc.add_paragraph("한글 DOCX→PDF 테스트")
+        doc.save(src)
+        out = converters.convert(src, "pdf", self.tmp)
+        self.assertEqual(out.read_bytes()[:5], b"%PDF-")
+
+    def test_pptx_to_pdf(self):
+        try:
+            from pptx import Presentation
+        except ImportError:
+            self.skipTest("python-pptx 없음 — 테스트 전용 의존성(pip install python-pptx)")
+        src = self.tmp / "한글.pptx"
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[1])
+        slide.shapes.title.text = "한글 PPTX→PDF 테스트"
+        prs.save(src)
+        out = converters.convert(src, "pdf", self.tmp)
+        self.assertEqual(out.read_bytes()[:5], b"%PDF-")
+
+
 @unittest.skipUnless(
     HWP_SAMPLE.exists() and shutil.which("java"),
     "hwplib 샘플/JDK 없음 — spike 빌드 후 실행 (RESULT.md)")

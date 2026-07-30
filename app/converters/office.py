@@ -1,7 +1,8 @@
-"""문서 변환 — DOCX→PDF, 번들 LibreOffice headless (DEC-002 · M-04).
+"""문서 변환 — DOCX/PPTX→PDF, 번들 LibreOffice headless (DEC-002·DEC-016 · M-04).
 
 배포판은 엔진을 앱에 번들한다(REQ-NF-005). 개발 환경에서는 시스템 설치본 또는
-FILECONV_SOFFICE 환경변수로 위치를 지정한다.
+FILECONV_SOFFICE 환경변수로 위치를 지정한다. LibreOffice의 --convert-to는
+입력 포맷을 자동 감지하므로 DOCX·PPTX 모두 동일 경로로 처리한다.
 """
 import os
 import shutil
@@ -35,7 +36,7 @@ def find_soffice() -> str | None:
     return None
 
 
-def docx_to_pdf(src: Path, tmpdir: Path) -> Path:
+def office_to_pdf(src: Path, tmpdir: Path) -> Path:
     soffice = find_soffice()
     if soffice is None:
         raise ConversionError("err.engine_missing")
