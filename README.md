@@ -2,7 +2,7 @@
 
 비개발자를 위한 **완전 오프라인** 데스크톱 파일 포맷 변환기. 파일이 PC 밖으로 절대 나가지 않습니다.
 
-> Windows 우선 배포 · macOS 개발 환경 · 사이드 프로젝트 · 기획 단계
+> Windows 배포 (v0.3.0 프리릴리스) · macOS 개발 환경 · 사이드 프로젝트 · MVP 완성
 
 ## 다운로드
 
@@ -41,7 +41,7 @@ docs/                  정본 스펙 문서 (기획 인터뷰 산출물)
   design-system/         UI 디자인 시스템 v0.1 (HTML — 브라우저로 열람)
 spike/hwplib/          HWP 라이브러리 기술 검증 (결과: RESULT.md)
 research/hwp-coverage/ 실사용 HWP 문서 커버리지 검증 (결과: RESULT.md)
-packaging/              배포 자산 — 아이콘, 인스톨러 스크립트, 버전, 제3자 고지
+packaging/             배포 자산 — 아이콘, 인스톨러 스크립트, 버전, 제3자 고지
 ```
 
 ## 실행 방법 (개발)
