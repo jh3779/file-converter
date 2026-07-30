@@ -93,11 +93,18 @@ class FileRow(QFrame):
         self._on_format_changed()
 
     def _update_note(self):
-        """DEC-010: PDF/HWP → DOCX 선택 시 레이아웃 단순화 고지 (muted, 오류 아님)."""
+        """레이아웃/구조 단순화 고지 (muted, 오류 아님).
+        DEC-010: PDF/HWP → DOCX 선택 시. DEC-017: DOCX → HWP 선택 시(표 구조 손실 — 문단 텍스트로 단순화)."""
         if self.item.target_fmt == "docx" and self.item.source_fmt in ("pdf", "hwp"):
+            note_key = "note.simplified"
+        elif self.item.target_fmt == "hwp" and self.item.source_fmt == "docx":
+            note_key = "note.hwp_table_flatten"
+        else:
+            note_key = None
+        if note_key:
             self.reason.setStyleSheet(
                 f"color:{self.tokens['onSurfaceVariant']};font-size:11px;")
-            self.reason.setText(tr("note.simplified"))
+            self.reason.setText(tr(note_key))
             self.reason.show()
         else:
             self.reason.hide()

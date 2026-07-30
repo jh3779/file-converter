@@ -69,12 +69,13 @@
   </section>
 
   <section id="m4" class="sec card pad">
-    <div class="sec-h"><span class="sec-num">M-04</span><span class="sec-t">변환 엔진 연결</span><span class="tag">DEC-002·007 · spike/hwplib/RESULT.md</span></div>
+    <div class="sec-h"><span class="sec-num">M-04</span><span class="sec-t">변환 엔진 연결</span><span class="tag">DEC-002·007·016·017 · spike/hwplib/RESULT.md</span></div>
     <div class="tblwrap"><table>
       <tr><th>변환</th><th>엔진</th><th>호출 방식</th></tr>
-      <tr><td class="mono">DOCX→PDF</td><td>번들 LibreOffice(headless)</td><td>subprocess <span class="mono">soffice --headless --convert-to pdf</span> · 프로필 디렉터리 앱 전용 분리</td></tr>
+      <tr><td class="mono">DOCX→PDF · PPTX→PDF</td><td>번들 LibreOffice(headless)</td><td>subprocess <span class="mono">soffice --headless --convert-to pdf</span> · 프로필 디렉터리 앱 전용 분리(DEC-016: 동일 경로 재사용)</td></tr>
       <tr><td class="mono">PDF→TXT/DOCX</td><td>pdfminer.six / pdf2docx</td><td>Python in-process</td></tr>
       <tr><td class="mono">HWP→PDF/TXT/DOCX</td><td>hwplib(main 브랜치 빌드) + 번들 JRE 사이드카</td><td>subprocess(JSON 프로토콜) → 구조 추출 → DOCX 생성 → 필요 시 LibreOffice로 PDF</td></tr>
+      <tr><td class="mono">DOCX→HWP</td><td>hwplib(main 브랜치 빌드) + 번들 JRE 사이드카</td><td>python-docx로 구조 JSON 추출 → subprocess(JSON 프로토콜) → HWP 신규 생성(DEC-017: 표는 텍스트 문단으로 단순화)</td></tr>
       <tr><td class="mono">CSV↔XLSX · CSV↔JSON</td><td>openpyxl / pandas</td><td>Python in-process · 인코딩 자동 감지(EUC-KR/UTF-8, REQ-F-009 Should)</td></tr>
     </table></div>
     <div class="note">모든 엔진은 앱에 번들(REQ-NF-005) — 네트워크 호출 0(REQ-NF-002). 사이드카 프로세스는 파일 경로만 주고받고 파일 내용을 소켓/네트워크로 보내지 않는다.</div>
