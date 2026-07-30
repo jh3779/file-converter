@@ -8,6 +8,7 @@ from pathlib import Path
 
 from app.converters import data
 from app.converters.base import ConversionError
+from app.converters.docx_build import EAST_ASIAN_FONT, blocks_to_docx
 from app.output import unique_output_path
 
 
@@ -63,6 +64,36 @@ class TestCsvJson(Base):
         with self.assertRaises(ConversionError) as ctx:
             data.json_to_csv(src, self.tmp)
         self.assertEqual(ctx.exception.key, "err.jsonshape")
+
+
+class TestDocxBuildFont(Base):
+    """DEC-015: 생성 DOCX는 한글 글꼴을 모든 run에 명시해야 한다 — 실사용 중
+    글자 깨짐이 재현된 근본 원인(글꼴 미지정 → 뷰어별 대체 글꼴 불일치)."""
+
+    def test_paragraph_and_table_runs_declare_east_asian_font(self):
+        blocks = [
+            {"type": "p", "text": "한글 문단"},
+            {"type": "table", "rows": [["셀1", "셀2"]]},
+        ]
+        out = blocks_to_docx(blocks, self.tmp / "out.docx")
+
+        import zipfile
+        with zipfile.ZipFile(out) as z:
+            xml = z.read("word/document.xml").decode("utf-8")
+        self.assertIn(f'w:eastAsia="{EAST_ASIAN_FONT}"', xml)
+        self.assertIn(f'w:ascii="{EAST_ASIAN_FONT}"', xml)
+
+        from docx import Document
+        doc = Document(out)
+        for p in doc.paragraphs:
+            for run in p.runs:
+                self.assertEqual(run.font.name, EAST_ASIAN_FONT)
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for p in cell.paragraphs:
+                        for run in p.runs:
+                            self.assertEqual(run.font.name, EAST_ASIAN_FONT)
 
 
 class TestOutputNaming(Base):

@@ -5,7 +5,7 @@
 ## 범위 — MoSCoW
 | 구분 | 항목 | 근거 |
 |------|------|------|
-| **Must** | DOCX→PDF, PDF→TXT/DOCX, HWP→PDF/TXT/DOCX(읽기 전용), CSV↔XLSX, CSV↔JSON, 일괄 변환, 드래그앤드롭, 원본 보호 | REQ-F-001~008 |
+| **Must** | DOCX→PDF, PPTX→PDF, PDF→TXT/DOCX, HWP→PDF/TXT/DOCX(읽기 전용), CSV↔XLSX, CSV↔JSON, 일괄 변환, 드래그앤드롭, 원본 보호 | REQ-F-001~008·012 |
 | Should | 인코딩 자동 감지(EUC-KR/UTF-8, 한글 깨짐 방지), 최근 변환 기록 | REQ-F-009~010 |
 | Could | 이미지·미디어 변환 확장(구조만 열어둠), HWP 쓰기, TXT/MD/HTML 상호 변환 | — |
 | **Won't (MVP 제외)** | OCR(스캔 PDF 문자 인식), 파일 미리보기/편집, 클라우드·계정 기능 | 범위 통제 |
@@ -24,6 +24,7 @@
 | REQ-F-009 | 일괄 변환 중 일부 실패 시 나머지는 계속 진행하고, 완료 후 성공/실패 요약과 실패 사유를 보여준다 | Must | FLOW-001 · SCR-002 |
 | REQ-F-010 | 사용자는 최근 변환 기록(N건)을 보고 결과 파일 위치를 열 수 있으며, 기록을 삭제할 수 있다 | Should | SCR-003 |
 | REQ-F-011 | 사용자는 UI 언어를 한국어/영어 중 선택할 수 있다 (기본: 시스템 언어 감지, 그 외 언어는 영어) | Must | SCR-001 · DEC-009 |
+| REQ-F-012 | 사용자는 PPTX를 PDF로 변환할 수 있다 | Must | FLOW-001 · DEC-016 |
 
 ## 비기능 요구사항 (REQ-NF-*)
 | ID | 항목 | 기준 |
