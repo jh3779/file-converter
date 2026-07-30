@@ -65,6 +65,27 @@ class TestCsvJson(Base):
             data.json_to_csv(src, self.tmp)
         self.assertEqual(ctx.exception.key, "err.jsonshape")
 
+    def test_csv_to_json_preserves_embedded_newline_and_quotes(self):
+        """셀 안에 줄바꿈·이스케이프된 큰따옴표가 있으면 값이 잘리던 버그
+        (text.splitlines() 선분할 + Sniffer의 doublequote 오탐)."""
+        src = self.tmp / "d.csv"
+        with src.open("w", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerows([
+                ["이름", "메모"],
+                ["김철수", '비고: "특이사항, 있음"'],
+                ["이영희", "여러줄\n텍스트 포함"],
+            ])
+        out = data.csv_to_json(src, self.tmp)
+        payload = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(payload[0]["메모"], '비고: "특이사항, 있음"')
+        self.assertEqual(payload[1]["메모"], "여러줄\n텍스트 포함")
+
+    def test_csv_to_json_semicolon_delimiter(self):
+        src = self.tmp / "d.csv"
+        src.write_text("a;b\n1;2\n", encoding="utf-8")
+        out = data.csv_to_json(src, self.tmp)
+        self.assertEqual(json.loads(out.read_text()), [{"a": "1", "b": "2"}])
+
 
 class TestDocxBuildFont(Base):
     """DEC-015: 생성 DOCX는 한글 글꼴을 모든 run에 명시해야 한다 — 실사용 중

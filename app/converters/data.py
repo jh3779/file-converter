@@ -1,5 +1,6 @@
 """데이터 변환 — CSV↔XLSX, CSV↔JSON (REQ-F-006). 한글 인코딩 자동 감지 (REQ-F-009 Should)."""
 import csv
+import io
 import json
 from pathlib import Path
 
@@ -21,11 +22,17 @@ def _read_text(path: Path) -> str:
 
 def _read_csv_rows(path: Path) -> list[list[str]]:
     text = _read_text(path)
+    # 구분자(콤마/세미콜론/탭)만 자동 감지한다. 셀 안의 줄바꿈·이스케이프된
+    # 큰따옴표(")까지 함께 있는 실제 데이터에서 csv.Sniffer가 quotechar나
+    # doublequote까지 함께 추측하면 오탐이 잦아 값이 중간에서 잘리는 문제가
+    # 있었다 — 따옴표 규칙은 표준(RFC4180, csv.excel 기본값)으로 고정한다.
+    # text.splitlines()로 미리 줄 단위로 쪼개면 셀 안의 줄바꿈이 있는 필드가
+    # 별도 행으로 잘못 쪼개지므로, csv.reader에 원문 텍스트를 그대로 넘긴다.
     try:
-        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
+        delimiter = csv.Sniffer().sniff(text[:4096], delimiters=",;\t").delimiter
     except csv.Error:
-        dialect = csv.excel
-    return [row for row in csv.reader(text.splitlines(), dialect)]
+        delimiter = ","
+    return [row for row in csv.reader(io.StringIO(text), delimiter=delimiter)]
 
 
 def csv_to_xlsx(src: Path, tmpdir: Path) -> Path:
