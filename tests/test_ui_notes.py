@@ -11,6 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
+from app import i18n
 from app.models import FileItem
 from app.tokens import LIGHT as TOKENS
 from app.ui.main_window import FileRow
@@ -19,6 +20,16 @@ _app = QApplication.instance() or QApplication([])
 
 
 class TestFormatNote(unittest.TestCase):
+    def setUp(self):
+        # tr()은 시스템 로케일을 따른다(DEC-009) — CI 러너 로케일에 좌우되지
+        # 않도록 언어를 한국어로 고정한다. QSettings에 실제 저장되므로
+        # (로컬 실행 시 앱의 실제 언어 설정에 영향) 원래 값을 복원한다.
+        self._orig_lang_pref = i18n.saved_pref()
+        i18n.set_lang("ko")
+
+    def tearDown(self):
+        i18n.set_lang(self._orig_lang_pref or None)
+
     def _note_for(self, source_fmt: str, target_fmt: str):
         item = FileItem(id=1, source=Path(f"test.{source_fmt}"),
                          source_fmt=source_fmt, target_fmt=target_fmt)
