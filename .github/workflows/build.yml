@@ -106,7 +106,9 @@ jobs:
           # ConvertTo-Json 기본 -Depth(2)로는 이 중첩 구조를 다 못 펴서 값이
           # 깨질 수 있어(재현: 문자열이 아닌 System.Collections.Hashtable로
           # 직렬화됨), 이미 검증된 문자열 리터럴 방식을 그대로 쓴다.
-          $longText = "긴 문단 테스트 " * 15
+          # JsonToHwp는 각 문단 텍스트를 .trim()해서 저장한다(문자열 반복이
+          # 남기는 끝 공백을 여기서 미리 없애 기대값과 어긋나지 않게 한다).
+          $longText = ("긴 문단 테스트 " * 15).Trim()
           $longBlocksJson = '{"blocks":[{"type":"p","text":"' + $longText + '"},{"type":"p","text":"짧은 다음 문단"}]}'
           Set-Content -Encoding utf8 blocks-long.json $longBlocksJson
           & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwp blocks-long.json created-long.hwp
@@ -119,6 +121,7 @@ jobs:
           # 고정되는 회귀를 못 잡는다 — hwplib로 직접 열어 레이아웃 캐시
           # 구조까지 확인한다. LineSegDebug는 테스트 전용 도구라 배포용
           # engine-build/hwp가 아닌 별도 디렉터리에 컴파일한다.
+          New-Item -ItemType Directory -Force debug-tools | Out-Null
           javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/LineSegDebug.java
           & engine-build/jre/bin/java.exe -cp "debug-tools;engine-build/hwp" LineSegDebug created-long.hwp `
             | Set-Content -Encoding utf8 lineseg-debug.txt
