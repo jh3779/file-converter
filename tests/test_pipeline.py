@@ -146,6 +146,31 @@ class TestHwp(Base):
         self.assertIn("김철수", text)
         self.assertIn("영업1팀", text)
 
+    def test_docx_to_hwp_preserves_long_wrapped_paragraph(self):
+        """긴 문단(여러 줄로 감싸질 정도)이 HWP 레이아웃 캐시(LineSeg) 계산
+        누락으로 실제 뷰어에서 겹쳐 보이던 문제 — hwplib 샘플 문서(distribution.hwp)
+        구조를 근거로 sidecar/hwp/JsonToHwp.java가 줄바꿈을 계산하도록 수정.
+        여기서는 파이썬 쪽에서 확인 가능한 텍스트 보존만 검증(레이아웃 구조
+        자체는 로컬 스파이크로 별도 확인함)."""
+        from docx import Document
+        long_text = (
+            "이것은 여러 줄로 감싸질 만큼 긴 문단입니다. " * 8
+            + "뷁 밟 닳 넋 앎 옳 — 문단 끝 희귀 자모."
+        )
+        src = self.tmp / "긴문단.docx"
+        doc = Document()
+        doc.add_paragraph(long_text)
+        doc.add_paragraph("짧은 두 번째 문단.")
+        doc.save(src)
+
+        out = converters.convert(src, "hwp", self.tmp)
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "txt", back_dir)
+        text = back.read_text(encoding="utf-8")
+        self.assertIn(long_text, text)
+        self.assertIn("짧은 두 번째 문단.", text)
+
     def test_docx_to_hwp_preserves_numbered_and_bullet_markers(self):
         """코드 리뷰 지적: DOCX 자동 번호·불릿은 문단 텍스트(w:t)가 아니라
         numbering.xml 서식으로 화면에만 그려지므로, item.text만 추출하면

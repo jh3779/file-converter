@@ -101,6 +101,16 @@ jobs:
           if (-not (Get-Content created.txt -Encoding utf8 | Select-String -Pattern "김철수" -Quiet)) {
             Write-Error "HWP engine smoke failed: JsonToHwp 표→텍스트 단순화 내용 불일치"; exit 1
           }
+          # DEC-018: 긴 문단(여러 줄로 감싸질 정도)도 텍스트가 그대로 보존되는지 —
+          # LineSeg 줄바꿈 재계산이 텍스트 자체를 깨뜨리지 않는지 확인.
+          $longText = "긴 문단 테스트 " * 15
+          $longBlocks = @{blocks = @(@{type = "p"; text = $longText})} | ConvertTo-Json -Compress
+          Set-Content -Encoding utf8 blocks-long.json $longBlocks
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwp blocks-long.json created-long.hwp
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToText created-long.hwp created-long.txt
+          if (-not (Get-Content created-long.txt -Encoding utf8 -Raw).Trim().Equals($longText.Trim())) {
+            Write-Error "HWP engine smoke failed: 긴 문단(줄바꿈 재계산) 재읽기 텍스트 불일치"; exit 1
+          }
       - name: Cache LibreOffice installer
         uses: actions/cache@v4
         with:

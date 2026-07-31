@@ -36,6 +36,37 @@ class TestCsvXlsx(Base):
         self.assertIn("김철수", text)
         self.assertIn("이영희", text)
 
+    def test_xlsx_to_csv_formats_dates_and_whole_number_floats(self):
+        """엑셀에서 보던 모습(날짜 "2026-07-31", 정수 "3")과 다르게 파이썬
+        객체를 그대로 str()해서 "2026-07-31 00:00:00"·"3.0"처럼 나오던 문제."""
+        import datetime
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["날짜", "정수형태float", "일반소수", "문자열"])
+        ws.append([datetime.date(2026, 7, 31), 3.0, 3.5, "그대로"])
+        src = self.tmp / "d.xlsx"
+        wb.save(src)
+
+        out = data.xlsx_to_csv(src, self.tmp)
+        rows = list(csv.reader(out.read_text(encoding="utf-8-sig").splitlines()))
+        self.assertEqual(rows[1], ["2026-07-31", "3", "3.5", "그대로"])
+
+    def test_xlsx_sheet_count(self):
+        from openpyxl import Workbook
+        wb = Workbook()
+        wb.active.append(["a"])
+        wb.create_sheet("두번째")
+        src = self.tmp / "multi.xlsx"
+        wb.save(src)
+        self.assertEqual(data.xlsx_sheet_count(src), 2)
+
+        wb2 = Workbook()
+        wb2.active.append(["a"])
+        src2 = self.tmp / "single.xlsx"
+        wb2.save(src2)
+        self.assertEqual(data.xlsx_sheet_count(src2), 1)
+
     def test_cp949_read(self):
         src = self.tmp / "euckr.csv"
         src.write_bytes("제품,가격\n노트북,1200000\n".encode("cp949"))

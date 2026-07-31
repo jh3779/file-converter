@@ -26,6 +26,22 @@ import java.util.Map;
  * 텍스트 문단으로 안전하게 표현한다 — 내용은 보존되고, 구조만 단순화된다.
  */
 public class JsonToHwp {
+    // 줄바꿈 근사치 — 정확한 폰트 메트릭이 없어 실제 한글 문서 표본에서 역산한 값.
+    // segmentWidth=42520은 BlankFileMaker(EmptyParagraphAdder)가 이 문서의 페이지/여백
+    // 설정에서 실제로 쓰는 한 줄의 폭(HWP 내부 단위)이라 그대로 재사용한다. charWidth=945는
+    // hwplib 샘플 sample_hwp/distribution.hwp의 실제 문단(segmentWidth 48188에서 한 줄에
+    // 약 51자)을 역산해 얻은 평균 글자 폭 근사치 — 라틴 문자·구두점이 많이 섞이면 오차가
+    // 커질 수 있는 알려진 한계(문서화된 단순화, DEC-017과 같은 원칙).
+    private static final int SEGMENT_WIDTH = 42520;
+    private static final int CHAR_WIDTH = 945;
+    private static final int CHARS_PER_LINE = Math.max(1, SEGMENT_WIDTH / CHAR_WIDTH);
+    private static final int LINE_HEIGHT = 1000;
+    private static final int TEXT_PART_HEIGHT = 1000;
+    private static final int BASELINE_DISTANCE = 850;
+    private static final int LINE_SPACE = 600;
+    // 줄 간 세로 이동폭 — 정밀한 값이 없어 lineHeight와 동일하게 근사한다.
+    private static final int LINE_ADVANCE = LINE_HEIGHT;
+
     public static void main(String[] args) throws Exception {
         String json = new String(Files.readAllBytes(Paths.get(args[0])), StandardCharsets.UTF_8);
         List<Object> blocks = (List<Object>) ((Map<String, Object>) new JsonReader(json).readValue()).get("blocks");
@@ -66,15 +82,16 @@ public class JsonToHwp {
             first.getHeader().setCharacterCount(paragraphs.get(0).length() + 1 + 2);
             first.getHeader().setLastInList(paragraphs.size() == 1);
 
+            int vpos = applyLineSeg(first, paragraphs.get(0), 0);
             for (int i = 1; i < paragraphs.size(); i++) {
-                addTextParagraph(section, paragraphs.get(i), i == paragraphs.size() - 1);
+                vpos = addTextParagraph(section, paragraphs.get(i), i == paragraphs.size() - 1, vpos);
             }
         }
 
         HWPWriter.toFile(hwp, args[1]);
     }
 
-    private static void addTextParagraph(Section section, String content, boolean last) throws Exception {
+    private static int addTextParagraph(Section section, String content, boolean last, int startVpos) throws Exception {
         Paragraph paragraph = section.addNewParagraph();
 
         ParaHeader header = paragraph.getHeader();
@@ -86,7 +103,6 @@ public class JsonToHwp {
         header.getDivideSort().setValue((short) 0);
         header.setCharShapeCount(1);
         header.setRangeTagCount(0);
-        header.setLineAlignCount(1);
         header.setInstanceID(0);
         header.setIsMergedByTrack(0);
 
@@ -97,18 +113,53 @@ public class JsonToHwp {
         ParaCharShape charShape = paragraph.getCharShape();
         charShape.addParaCharShape(0, 0);
 
+        return applyLineSeg(paragraph, content, startVpos);
+    }
+
+    /**
+     * 문단 텍스트 길이에 맞춰 줄바꿈을 계산하고, 실제 문서처럼 줄마다 별도
+     * LineSegItem을 만든다(줄 세로 위치는 문서 전체에서 누적 — 문단이 이어질
+     * 때마다 0으로 리셋되지 않는다). 이전에는 문단 길이와 무관하게 항상
+     * LineSegItem 1개만 만들어서, 긴 문단이 실제 뷰어에서 한 줄로 뭉개져
+     * 보이는(형태가 깨지는) 원인이었다 — 실제 한글 문서 표본으로 재현·확인 후 수정.
+     *
+     * @return 다음 문단(또는 줄)이 이어질 세로 위치
+     */
+    private static int applyLineSeg(Paragraph paragraph, String content, int startVpos) {
+        List<String> lines = wrapLines(content);
+
         paragraph.createLineSeg();
         ParaLineSeg lineSeg = paragraph.getLineSeg();
-        LineSegItem item = lineSeg.addNewLineSegItem();
-        item.setTextStartPosition(0);
-        item.setLineVerticalPosition(0);
-        item.setLineHeight(1000);
-        item.setTextPartHeight(1000);
-        item.setDistanceBaseLineToLineVerticalPosition(850);
-        item.setLineSpace(600);
-        item.setStartPositionFromColumn(0);
-        item.setSegmentWidth(42520);
-        item.getTag().setValue(393216);
+        int vpos = startVpos;
+        int charOffset = 0;
+        for (String line : lines) {
+            LineSegItem item = lineSeg.addNewLineSegItem();
+            item.setTextStartPosition(charOffset);
+            item.setLineVerticalPosition(vpos);
+            item.setLineHeight(LINE_HEIGHT);
+            item.setTextPartHeight(TEXT_PART_HEIGHT);
+            item.setDistanceBaseLineToLineVerticalPosition(BASELINE_DISTANCE);
+            item.setLineSpace(LINE_SPACE);
+            item.setStartPositionFromColumn(0);
+            item.setSegmentWidth(SEGMENT_WIDTH);
+            item.getTag().setValue(393216);
+            charOffset += line.length();
+            vpos += LINE_ADVANCE;
+        }
+        paragraph.getHeader().setLineAlignCount(lines.size());
+        return vpos;
+    }
+
+    private static List<String> wrapLines(String content) {
+        List<String> lines = new ArrayList<>();
+        if (content.isEmpty()) {
+            lines.add("");
+            return lines;
+        }
+        for (int i = 0; i < content.length(); i += CHARS_PER_LINE) {
+            lines.add(content.substring(i, Math.min(content.length(), i + CHARS_PER_LINE)));
+        }
+        return lines;
     }
 
     /**
