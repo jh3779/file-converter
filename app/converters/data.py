@@ -49,13 +49,18 @@ def csv_to_xlsx(src: Path, tmpdir: Path) -> Path:
 
 
 def _format_cell_value(v):
-    """엑셀에서 보이는 모습에 맞춰 값을 문자열로 정규화한다.
+    """날짜·정수형 float의 파이썬 객체 표현을 정규화한다(값 기반, DEC-019).
 
     openpyxl은 날짜 셀을 datetime 객체로, 정수처럼 보이는 셀도 내부적으로
     float(예: 3.0)로 돌려줄 수 있다 — csv.writer가 그대로 str()하면
     "2026-07-31 00:00:00"·"3.0"처럼 엑셀에서 보던 모습과 달라져 "이상하게
     추출됐다"고 느끼기 쉽다. 날짜는 ISO 형식(시간이 자정이 아닐 때만 시간
     포함), 정수값 float은 소수점 없이 표시한다.
+
+    범위 밖(의도적): 통화·퍼센트·사용자 지정 날짜 서식 같은 셀의
+    number_format은 보지 않는다 — `read_only=True`로 값만 읽어 오는 현재
+    구조에서는 number_format 접근 자체가 더 무거운 로딩을 요구해, 이번
+    라운드에서는 "날짜/정수 기본값 정규화"로 범위를 좁혔다.
     """
     if v is None:
         return ""
@@ -92,11 +97,14 @@ def xlsx_to_csv(src: Path, tmpdir: Path) -> Path:
     except Exception as e:  # zip 손상, 암호화 등
         key = "err.password" if "encrypt" in str(e).lower() else "err.corrupted"
         raise ConversionError(key, str(e))
-    # 시트가 여러 개면 첫 번째(활성) 시트만 변환한다 — 나머지 시트를 조용히
+    # 시트가 여러 개면 첫 번째 시트만 변환한다 — 나머지 시트를 조용히
     # 버리지 않도록 변환 전 UI에 고지한다(note.xlsx_multisheet, main_window.py).
     # 여러 시트를 각각 파일로 출력하는 방안은 "입력 1개 → 출력 1개" 전제인
     # 현재 데이터 모델(FileItem.output)을 바꿔야 해서 별도 과제로 보류.
-    ws = wb.active
+    # wb.active는 "첫 번째 시트"가 아니라 "파일이 마지막 저장 시점에 열려
+    # 있던 탭"이다(엑셀은 어느 시트든 활성 탭으로 저장할 수 있음) — UI 고지
+    # 문구("첫 번째 시트만 변환돼요")와 실제 동작이 어긋나던 버그였다.
+    ws = wb.worksheets[0]
     out = tmpdir / (src.stem + ".csv")
     # utf-8-sig: 엑셀에서 한글 깨짐 없이 열리도록 BOM 포함
     with out.open("w", newline="", encoding="utf-8-sig") as f:
