@@ -1,5 +1,6 @@
 """v0.2 파이프라인 테스트 — HWP→DOCX(사이드카 필요 시 스킵), PDF→TXT/DOCX."""
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,30 @@ from app import converters
 REPO = Path(__file__).resolve().parents[1]
 HWP_SAMPLE = REPO / "spike" / "hwplib" / "repo" / "sample_hwp" / "basic" / "표.hwp"
 HWP_DISTRIBUTION = REPO / "spike" / "hwplib" / "repo" / "sample_hwp" / "distribution.hwp"
+
+
+def _run_linesegdebug(hwp_path: Path):
+    """LineSegDebug(테스트 전용 디버그 도구, sidecar/hwp/LineSegDebug.java)를
+    직접 실행해 문단별 (lineAlignCount, LineSegItem 개수, [(textStart, vpos), ...])를
+    돌려준다. 텍스트 왕복만으로는 DEC-018의 핵심 실패 모드(레이아웃 캐시가
+    문단 길이·순서와 무관하게 고정값으로 나오는 것)를 검증할 수 없어서
+    hwplib로 직접 열어 구조를 확인해야 한다."""
+    from app.converters import hwp as hwp_mod
+    java = hwp_mod._java()
+    cp = hwp_mod._classpath()
+    proc = subprocess.run([java, "-cp", cp, "LineSegDebug", str(hwp_path)],
+                           capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    rows = []
+    for line in proc.stdout.strip().splitlines():
+        idx, line_align_count, seg_count, items = line.split("\t")
+        pairs = []
+        if items:
+            for item in items.split(","):
+                start, vpos = item.split(":")
+                pairs.append((int(start), int(vpos)))
+        rows.append((int(idx), int(line_align_count), int(seg_count), pairs))
+    return rows
 
 
 def _mini_pdf(path: Path):
@@ -145,6 +170,61 @@ class TestHwp(Base):
         self.assertIn("이름", text)
         self.assertIn("김철수", text)
         self.assertIn("영업1팀", text)
+
+    def test_docx_to_hwp_preserves_long_wrapped_paragraph(self):
+        """긴 문단(여러 줄로 감싸질 정도)이 HWP 레이아웃 캐시(LineSeg) 계산
+        누락으로 실제 뷰어에서 겹쳐 보이던 문제 — hwplib 샘플 문서(distribution.hwp)
+        구조를 근거로 sidecar/hwp/JsonToHwp.java가 줄바꿈을 계산하도록 수정.
+        여기서는 파이썬 쪽에서 확인 가능한 텍스트 보존만 검증(레이아웃 구조
+        자체는 로컬 스파이크로 별도 확인함)."""
+        from docx import Document
+        long_text = (
+            "이것은 여러 줄로 감싸질 만큼 긴 문단입니다. " * 8
+            + "뷁 밟 닳 넋 앎 옳 — 문단 끝 희귀 자모."
+        )
+        src = self.tmp / "긴문단.docx"
+        doc = Document()
+        doc.add_paragraph(long_text)
+        doc.add_paragraph("짧은 두 번째 문단.")
+        doc.save(src)
+
+        out = converters.convert(src, "hwp", self.tmp)
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "txt", back_dir)
+        text = back.read_text(encoding="utf-8")
+        self.assertIn(long_text, text)
+        self.assertIn("짧은 두 번째 문단.", text)
+
+    def test_docx_to_hwp_lineseg_structure_matches_real_documents(self):
+        """코드 리뷰 지적: 텍스트 왕복 테스트만으로는 DEC-018의 핵심 실패
+        모드(LineSegItem이 문단 길이와 무관하게 항상 1개, 세로 위치가 모든
+        문단에서 0으로 고정)를 전혀 잡지 못한다 — hwplib로 직접 열어
+        레이아웃 캐시 구조(LineSegDebug, 테스트 전용 도구)까지 검증한다."""
+        from docx import Document
+        long_text = "구조 검증용 긴 문단입니다. " * 10
+        src = self.tmp / "긴문단2.docx"
+        doc = Document()
+        doc.add_paragraph(long_text)
+        doc.add_paragraph("짧은 두 번째 문단")
+        doc.save(src)
+
+        out = converters.convert(src, "hwp", self.tmp)
+        rows = _run_linesegdebug(out)
+        self.assertEqual(len(rows), 2)
+
+        _, line_align_count0, seg_count0, items0 = rows[0]
+        vpos0 = [v for _, v in items0]
+        self.assertGreater(line_align_count0, 1)  # 여러 줄로 감싸져야 함(예전엔 항상 1)
+        self.assertEqual(line_align_count0, seg_count0)  # 실제 문서 표본에서 확인된 불변식
+        self.assertEqual(vpos0, sorted(vpos0))  # 세로 위치가 줄마다 증가
+        self.assertEqual(len(set(vpos0)), len(vpos0))  # 모두 다른 값(0 고정 아님)
+
+        _, line_align_count1, _, items1 = rows[1]
+        self.assertEqual(line_align_count1, 1)
+        # 다음 문단은 이전 문단의 마지막 줄보다 아래에서 시작해야 함 —
+        # 예전 버그는 모든 문단이 vpos=0에서 시작해 서로 겹치는 것으로 기록됐음.
+        self.assertGreater(items1[0][1], vpos0[-1])
 
     def test_docx_to_hwp_preserves_numbered_and_bullet_markers(self):
         """코드 리뷰 지적: DOCX 자동 번호·불릿은 문단 텍스트(w:t)가 아니라

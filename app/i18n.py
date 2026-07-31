@@ -86,6 +86,8 @@ _S = {
                         "Layout may be simplified — text and table contents are kept"),
     "note.hwp_table_flatten": ("표는 칸 구분 없이 한 줄 텍스트로 저장돼요 — 내용은 유지됩니다",
                                "Tables are saved as plain text lines, without the grid — content is kept"),
+    "note.xlsx_multisheet": ("시트가 여러 개예요 — 첫 번째 시트만 변환돼요",
+                             "This workbook has multiple sheets — only the first one will be converted"),
     "err.notyet": ("이 변환은 다음 버전에서 지원될 예정입니다.",
                    "This conversion is coming in a future update."),
 }

@@ -1,9 +1,12 @@
-"""FileRow 단순화 고지 문구 테스트 — DEC-010(PDF/HWP→DOCX)·DEC-017(DOCX→HWP).
+"""FileRow 단순화 고지 문구 테스트 — DEC-010(PDF/HWP→DOCX)·DEC-017(DOCX→HWP)·
+XLSX→CSV 다중 시트.
 
 리뷰 지적(코드 리뷰): DOCX→HWP는 표 구조가 손실되는 신규 경로인데 변환 전
 UI 고지가 기존 DEC-010 범위로 확장되지 않았음 — 보완 후 회귀 방지용.
 """
 import os
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -26,12 +29,14 @@ class TestFormatNote(unittest.TestCase):
         # (로컬 실행 시 앱의 실제 언어 설정에 영향) 원래 값을 복원한다.
         self._orig_lang_pref = i18n.saved_pref()
         i18n.set_lang("ko")
+        self.tmp = Path(tempfile.mkdtemp())
 
     def tearDown(self):
         i18n.set_lang(self._orig_lang_pref or None)
+        shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _note_for(self, source_fmt: str, target_fmt: str):
-        item = FileItem(id=1, source=Path(f"test.{source_fmt}"),
+    def _note_for(self, source_fmt: str, target_fmt: str, source_path: Path | None = None):
+        item = FileItem(id=1, source=source_path or Path(f"test.{source_fmt}"),
                          source_fmt=source_fmt, target_fmt=target_fmt)
         row = FileRow(item, TOKENS, lambda i: None, lambda: None)
         row._update_note()
@@ -56,6 +61,26 @@ class TestFormatNote(unittest.TestCase):
 
     def test_hwp_to_pdf_shows_no_note(self):
         visible, _ = self._note_for("hwp", "pdf")
+        self.assertFalse(visible)
+
+    def test_xlsx_to_csv_multisheet_shows_note(self):
+        from openpyxl import Workbook
+        wb = Workbook()
+        wb.active.append(["a"])
+        wb.create_sheet("두번째")
+        src = self.tmp / "multi.xlsx"
+        wb.save(src)
+        visible, text = self._note_for("xlsx", "csv", source_path=src)
+        self.assertTrue(visible)
+        self.assertIn("시트", text)
+
+    def test_xlsx_to_csv_single_sheet_shows_no_note(self):
+        from openpyxl import Workbook
+        wb = Workbook()
+        wb.active.append(["a"])
+        src = self.tmp / "single.xlsx"
+        wb.save(src)
+        visible, _ = self._note_for("xlsx", "csv", source_path=src)
         self.assertFalse(visible)
 
 

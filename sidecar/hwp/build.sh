@@ -5,5 +5,5 @@ cd "$(dirname "$0")"
 HWPLIB=../../spike/hwplib/libs/hwplib-main
 [ -d "$HWPLIB" ] || { echo "hwplib 빌드가 없습니다: $HWPLIB (spike/hwplib/RESULT.md 참고)"; exit 1; }
 mkdir -p out
-javac -encoding UTF-8 -cp "$HWPLIB" -d out HwpToText.java HwpToJson.java JsonToHwp.java
+javac -encoding UTF-8 -cp "$HWPLIB" -d out HwpToText.java HwpToJson.java JsonToHwp.java LineSegDebug.java
 echo "OK: sidecar/hwp/out"

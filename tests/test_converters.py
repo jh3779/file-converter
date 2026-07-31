@@ -36,6 +36,58 @@ class TestCsvXlsx(Base):
         self.assertIn("김철수", text)
         self.assertIn("이영희", text)
 
+    def test_xlsx_to_csv_formats_dates_and_whole_number_floats(self):
+        """엑셀에서 보던 모습(날짜 "2026-07-31", 정수 "3")과 다르게 파이썬
+        객체를 그대로 str()해서 "2026-07-31 00:00:00"·"3.0"처럼 나오던 문제."""
+        import datetime
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["날짜", "정수형태float", "일반소수", "문자열"])
+        ws.append([datetime.date(2026, 7, 31), 3.0, 3.5, "그대로"])
+        src = self.tmp / "d.xlsx"
+        wb.save(src)
+
+        out = data.xlsx_to_csv(src, self.tmp)
+        rows = list(csv.reader(out.read_text(encoding="utf-8-sig").splitlines()))
+        self.assertEqual(rows[1], ["2026-07-31", "3", "3.5", "그대로"])
+
+    def test_xlsx_to_csv_uses_first_sheet_not_active_tab(self):
+        """코드 리뷰 지적: wb.active는 "첫 번째 시트"가 아니라 파일이 마지막
+        저장 시점에 열려 있던 탭이다. UI 고지 문구는 "첫 번째 시트만
+        변환돼요"이므로, 두 번째 시트가 활성 탭이어도 실제로는 첫 번째
+        시트가 나가야 한다."""
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws1 = wb.active
+        ws1.title = "첫번째"
+        ws1.append(["첫번째시트데이터"])
+        ws2 = wb.create_sheet("두번째")
+        ws2.append(["두번째시트데이터"])
+        wb.active = 1  # 두 번째 시트를 활성 탭으로 저장(실사용에서 흔한 상태)
+        src = self.tmp / "d.xlsx"
+        wb.save(src)
+
+        out = data.xlsx_to_csv(src, self.tmp)
+        text = out.read_text(encoding="utf-8-sig")
+        self.assertIn("첫번째시트데이터", text)
+        self.assertNotIn("두번째시트데이터", text)
+
+    def test_xlsx_sheet_count(self):
+        from openpyxl import Workbook
+        wb = Workbook()
+        wb.active.append(["a"])
+        wb.create_sheet("두번째")
+        src = self.tmp / "multi.xlsx"
+        wb.save(src)
+        self.assertEqual(data.xlsx_sheet_count(src), 2)
+
+        wb2 = Workbook()
+        wb2.active.append(["a"])
+        src2 = self.tmp / "single.xlsx"
+        wb2.save(src2)
+        self.assertEqual(data.xlsx_sheet_count(src2), 1)
+
     def test_cp949_read(self):
         src = self.tmp / "euckr.csv"
         src.write_bytes("제품,가격\n노트북,1200000\n".encode("cp949"))
