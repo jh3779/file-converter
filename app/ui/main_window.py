@@ -82,8 +82,15 @@ class FileRow(QFrame):
         lay.addWidget(self.remove_btn)
 
         if not converters.supported(item.source_fmt):
-            self.setEnabled(False)
-            self.remove_btn.setEnabled(True)
+            # 행 전체(self)를 setEnabled(False)하면 Qt에서는 부모가 비활성화된
+            # 자식에게 클릭이 전달되지 않는다 — remove_btn.setEnabled(True)를
+            # 뒤에 호출해도 무시된다(부모 비활성 상태가 우선). "✕" 버튼만은
+            # 계속 눌리게 해야 해서(파일 제거는 항상 가능해야 함) 회색으로
+            # 보여줄 요소들만 개별적으로 비활성화한다 — 실사용 테스트에서
+            # 재현된 버그: 지원 안 되는 파일을 X로 못 지움.
+            self.icon.setEnabled(False)
+            self.name.setEnabled(False)
+            self.fmt_label.setEnabled(False)
             self.combo.hide()
             self.fmt_label.setText(tr("unsupported"))
 
