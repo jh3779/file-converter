@@ -5,6 +5,7 @@ UI 스레드는 변환하지 않는다. FileItem 1개 = QRunnable 1개.
 """
 import os
 import shutil
+import threading
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
@@ -63,6 +64,12 @@ class Job:
         self.items = items
         self.cancelled = False
         self._remaining = len(items)
+        # _one_finished()는 최대 4개의 워커 스레드에서 동시에 호출된다.
+        # "읽고 1 빼고 쓰기"는 원자적이라는 보장이 없어(파이썬 GIL 구현
+        # 세부사항에 기대는 것일 뿐 언어 스펙이 아님), 마지막 항목이 끝나도
+        # job_finished가 안 울려 변환 중 화면에 영구히 멈출 이론적 위험이
+        # 있다 — 락으로 감싼다.
+        self._lock = threading.Lock()
         self._pool = QThreadPool()
         self._pool.setMaxThreadCount(max(1, min(4, (os.cpu_count() or 2) - 1)))
 
@@ -74,6 +81,8 @@ class Job:
         self.cancelled = True
 
     def _one_finished(self):
-        self._remaining -= 1
-        if self._remaining == 0:
+        with self._lock:
+            self._remaining -= 1
+            done = self._remaining == 0
+        if done:
             self.signals.job_finished.emit()

@@ -240,6 +240,40 @@ class TestOutputNaming(Base):
         p2 = unique_output_path(self.tmp, "r", "pdf")
         self.assertEqual(p2.name, "r (2).pdf")
 
+    def test_finalize_concurrent_same_stem_never_overwrites(self):
+        """숨은 버그(내부 감사): 같은 파일을 두 번 추가해 같은 포맷으로 동시
+        변환하면(QThreadPool, 최대 4개 동시 — workers.py) 두 워커가 거의
+        동시에 finalize()를 호출한다. "이름 충돌 확인 → 이동"이 원자적이지
+        않으면(TOCTOU) 둘 다 같은 "충돌 없음" 경로를 계산해 한쪽이 다른 쪽
+        결과물을 조용히 덮어쓴다 — 실제 스레드로 재현 확인 후 락으로 수정."""
+        import threading
+        from app.output import finalize
+
+        source = self.tmp / "r.docx"
+        source.write_text("원본")
+        tmp_root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp_root, ignore_errors=True)
+
+        results = []
+        barrier = threading.Barrier(4)
+
+        def worker(label):
+            tmp_out = tmp_root / f"produced_{label}.pdf"
+            tmp_out.write_text(label)
+            barrier.wait()
+            out, renamed = finalize(tmp_out, source, "pdf")
+            results.append(str(out))
+
+        threads = [threading.Thread(target=worker, args=(c,)) for c in "ABCD"]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(len(set(results)), 4)  # 네 결과 경로가 전부 달라야 함
+        pdfs = [p for p in self.tmp.iterdir() if p.suffix == ".pdf"]
+        self.assertEqual(len(pdfs), 4)  # 실제로 4개 파일 모두 생성(덮어쓰기 없음)
+
 
 if __name__ == "__main__":
     unittest.main()
