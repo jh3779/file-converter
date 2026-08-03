@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import QApplication
 
-from app import tokens, update_check
+from app import i18n, tokens, update_check
 from app.ui.main_window import MainWindow
 
 _app = QApplication.instance() or QApplication([])
@@ -17,9 +17,11 @@ class TestUpdateNotice(unittest.TestCase):
     def setUp(self):
         self._orig = update_check.is_enabled()
         update_check.set_enabled(False)  # 각 테스트는 꺼진 상태에서 시작
+        self._orig_lang_pref = i18n.saved_pref()
 
     def tearDown(self):
         update_check.set_enabled(self._orig)
+        i18n.set_lang(self._orig_lang_pref or None)
 
     def test_notice_hidden_by_default(self):
         win = MainWindow(tokens.LIGHT)
@@ -43,6 +45,18 @@ class TestUpdateNotice(unittest.TestCase):
         win._toggle_update_check(False)
         self.assertTrue(win.update_notice.isHidden())
         self.assertFalse(update_check.is_enabled())
+
+    def test_notice_retranslates_on_language_change(self):
+        """놓쳤던 부분: 알림이 떠 있는 상태에서 언어를 바꾸면 다음 확인
+        주기까지 옛 언어 그대로 남아 있던 문제."""
+        win = MainWindow(tokens.LIGHT)
+        win._on_update_found("9.9.9")
+        i18n.set_lang("en")
+        win.retranslate()
+        self.assertIn("Version 9.9.9", win.update_notice.text())
+        i18n.set_lang("ko")
+        win.retranslate()
+        self.assertIn("새 버전 9.9.9", win.update_notice.text())
 
     def test_toggle_on_persists_setting_without_real_network_call(self):
         # 토글을 켜면 즉시 백그라운드 스레드로 확인을 시작한다 — 테스트에서는

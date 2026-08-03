@@ -171,6 +171,7 @@ class MainWindow(QMainWindow):
         self._next_id = 1
         self.job: Job | None = None
         self.history = History()
+        self._latest_version = ""
         self.update_checker = UpdateChecker()
         self.update_checker.found.connect(self._on_update_found)
 
@@ -385,6 +386,8 @@ class MainWindow(QMainWindow):
         self.hist_local.setText("🔒 " + tr("history.local"))
         self.result_ok_btn.setText(tr("ok"))
         self.open_folder_btn.setText(tr("result.openfolder"))
+        if self._latest_version:
+            self.update_notice.setText(tr("update.available", version=self._latest_version))
         for row in self.rows.values():
             row.retranslate()
         if self.history_panel.isVisible():
@@ -415,9 +418,11 @@ class MainWindow(QMainWindow):
         if checked:
             self.update_checker.check()
         else:
+            self._latest_version = ""
             self.update_notice.hide()
 
     def _on_update_found(self, version: str):
+        self._latest_version = version
         if version:
             self.update_notice.setText(tr("update.available", version=version))
             self.update_notice.show()
