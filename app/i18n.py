@@ -64,6 +64,9 @@ _S = {
     "lang.ko": ("한국어", "한국어"),
     "lang.en": ("English", "English"),
 
+    "settings.update_check": ("업데이트 확인 (인터넷 필요)", "Check for updates (needs internet)"),
+    "update.available": ("새 버전 {version}이 있어요 →", "Version {version} is available →"),
+
     # 오류 문안 — P-04 (원인 1문장 + 복구 1문장)
     "err.password": ("암호가 걸린 파일입니다. 암호를 해제한 뒤 다시 시도해 주세요.",
                      "This file is password-protected. Remove the password and try again."),

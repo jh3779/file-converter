@@ -112,6 +112,11 @@ def simulate_frozen(exe_path: str):
     cp = hwp_mod._classpath()
     check("자동 탐색: hwp classpath (env 미사용)", cp is not None and str(engine) in cp, cp)
 
+    from app.version import current_version
+    version = current_version()
+    check("자동 탐색: 번들 VERSION 파일 (업데이트 확인 기능용)",
+          version != "0.0.0", version)
+
 
 def main():
     argv = sys.argv[1:]

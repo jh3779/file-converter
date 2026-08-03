@@ -12,10 +12,11 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from .. import converters, i18n
+from .. import converters, i18n, update_check
 from ..history import History
 from ..i18n import tr
 from ..models import FileItem, ItemState
+from ..update_check import UpdateChecker
 from ..workers import Job
 
 _ICONS = {"docx": "📄", "pdf": "📄", "hwp": "📄", "txt": "📄", "pptx": "📽",
@@ -170,6 +171,8 @@ class MainWindow(QMainWindow):
         self._next_id = 1
         self.job: Job | None = None
         self.history = History()
+        self.update_checker = UpdateChecker()
+        self.update_checker.found.connect(self._on_update_found)
 
         self.setAcceptDrops(True)
         self.setMinimumSize(640, 480)
@@ -178,6 +181,8 @@ class MainWindow(QMainWindow):
         self.retranslate()
         self._refresh_state()
         self.drop_big.setFocus()
+        if update_check.is_enabled():
+            self.update_checker.check()
 
     # ---------- UI 구성 ----------
     def _build(self):
@@ -299,6 +304,12 @@ class MainWindow(QMainWindow):
         self.shield = QLabel()
         self.shield.setObjectName("shield")
         bottom.addWidget(self.shield)
+        self.update_notice = QLabel()
+        self.update_notice.setObjectName("hint")
+        self.update_notice.setCursor(Qt.PointingHandCursor)
+        self.update_notice.hide()
+        self.update_notice.mousePressEvent = lambda e: self._open_release_page()
+        bottom.addWidget(self.update_notice)
         bottom.addStretch(1)
         self.hint = QLabel()
         self.hint.setObjectName("hint")
@@ -391,7 +402,30 @@ class MainWindow(QMainWindow):
             act.triggered.connect(lambda _, v=value: self._set_language(v))
             group.addAction(act)
             lang_menu.addAction(act)
+        update_act = QAction(tr("settings.update_check"), menu, checkable=True)
+        update_act.setChecked(update_check.is_enabled())
+        update_act.triggered.connect(self._toggle_update_check)
+        menu.addAction(update_act)
         menu.exec(self.settings_btn.mapToGlobal(self.settings_btn.rect().bottomLeft()))
+
+    def _toggle_update_check(self, checked: bool):
+        """OQ-002 해소(DEC-022): 옵트인, 기본 꺼짐. 버전 번호만 조회하고
+        파일은 전송하지 않는다 — 켜는 순간 즉시 한 번 확인해 피드백을 준다."""
+        update_check.set_enabled(checked)
+        if checked:
+            self.update_checker.check()
+        else:
+            self.update_notice.hide()
+
+    def _on_update_found(self, version: str):
+        if version:
+            self.update_notice.setText(tr("update.available", version=version))
+            self.update_notice.show()
+        else:
+            self.update_notice.hide()
+
+    def _open_release_page(self):
+        QDesktopServices.openUrl(QUrl(f"https://github.com/{update_check.REPO}/releases"))
 
     def _set_language(self, value: str):
         i18n.set_lang(value or None)
