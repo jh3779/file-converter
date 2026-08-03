@@ -238,6 +238,10 @@ jobs:
           New-Item -ItemType Directory -Force dist/FileConverter/engine/licenses | Out-Null
           Copy-Item hwplib-src/license.txt dist/FileConverter/engine/licenses/hwplib-LICENSE.txt
           Copy-Item packaging/THIRD_PARTY_NOTICES.txt dist/FileConverter/THIRD_PARTY_NOTICES.txt
+          # app/version.py가 배포판(frozen)에서 exe 옆의 이 파일로 현재 버전을
+          # 읽는다(OQ-002 업데이트 확인 기능 — DEC-022). packaging/VERSION이
+          # 유일한 정본이라 값을 복제하지 않고 그대로 복사만 한다.
+          Copy-Item packaging/VERSION dist/FileConverter/VERSION
       - name: Verify bundled artifact (엔진 실행·라이선스·JRE legal)
         shell: pwsh
         env:
@@ -257,6 +261,10 @@ jobs:
           }
           if (-not (Test-Path dist/FileConverter/engine/licenses/notosanskr/LICENSE.txt)) {
             Write-Error "Noto Sans KR 라이선스 파일이 아티팩트에 없습니다"; exit 1
+          }
+          $bundledVersion = (Get-Content dist/FileConverter/VERSION -Raw -ErrorAction SilentlyContinue)
+          if ($bundledVersion -ne (Get-Content packaging/VERSION -Raw)) {
+            Write-Error "번들된 VERSION이 packaging/VERSION과 다릅니다(업데이트 확인 기능 오탐 위험) — 번들: '$bundledVersion'"; exit 1
           }
           # 패키징 후 실제 배포 경로에서 사이드카 실행 검증
           & dist/FileConverter/engine/jre/bin/java.exe -cp dist/FileConverter/engine/hwp `
