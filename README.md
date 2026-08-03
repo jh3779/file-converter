@@ -2,13 +2,13 @@
 
 비개발자를 위한 **완전 오프라인** 데스크톱 파일 포맷 변환기. 파일이 PC 밖으로 절대 나가지 않습니다.
 
-> Windows 배포 (v0.3.3 프리릴리스) · macOS 개발 환경 · 사이드 프로젝트 · MVP 완성
+> Windows 배포 (v0.3.4 프리릴리스) · macOS 개발 환경 · 사이드 프로젝트 · MVP 완성
 
 ## 다운로드
 
 | 플랫폼 | 방법 |
 |---|---|
-| 🪟 **Windows** | **[v0.3.3 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.3/FileConverter-Setup-latest.exe)** — 관리자 권한 불요, 인스톨러 실행 후 안내만 따라가면 끝 (v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
+| 🪟 **Windows** | **[v0.3.4 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.4/FileConverter-Setup-latest.exe)** — 관리자 권한 불요, 인스톨러 실행 후 안내만 따라가면 끝 (v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
 | 🍎 macOS | 아직 배포판이 없습니다(REQ-NF-001: macOS는 현재 개발 환경 전용). 아래 "실행 방법(개발)"로 소스에서 바로 실행할 수 있습니다 |
 | 🐧 Linux | 지원 계획 없음 |
 
