@@ -44,6 +44,12 @@ jobs:
       # 갱신 시 https://github.com/notofonts/noto-cjk/releases 에서 새 값을 다시 계산할 것.
       NOTOKR_RELEASE_TAG: "Sans2.004"
       NOTOKR_SHA256: ac7eeb4e2b0d41de8ff31b2d6e1e2a41caf253fd5cefb380bfa1f40f1747b612
+      # FFmpeg LGPL 빌드(BtbN/FFmpeg-Builds, GPL 전용 라이브러리(libx264 등) 미포함 —
+      # DEC-024) — 로컬에서 직접 다운로드해 확인한 zip SHA256. BtbN의 "latest" 릴리스
+      # 자산은 LibreOffice 공식 배포와 달리 같은 URL이 주기적으로 재빌드되어 갱신될 수
+      # 있다 — SHA256 불일치로 CI가 실패하면 최신 값을 다시 계산해 갱신할 것.
+      FFMPEG_URL: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-lgpl-shared-7.1.zip"
+      FFMPEG_SHA256: 38856fea859c078e2996bb279971ef1f6b4b9a9353701e8e481123762d09592b
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -217,6 +223,51 @@ jobs:
           if (-not (Test-Path "$fontDir/NotoSansKR-Regular.otf")) {
             Write-Error "글꼴 번들 실패: $fontDir/NotoSansKR-Regular.otf 없음"; exit 1
           }
+      - name: Cache FFmpeg build
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg.zip
+          key: ffmpeg-${{ env.FFMPEG_SHA256 }}-win64-lgpl-shared
+      - name: 영상 엔진 번들 (FFmpeg LGPL — DEC-024)
+        shell: pwsh
+        run: |
+          if (-not (Test-Path ffmpeg.zip)) {
+            curl.exe -fsSL -o ffmpeg.zip $env:FFMPEG_URL
+          }
+          $hash = (Get-FileHash ffmpeg.zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:FFMPEG_SHA256) {
+            Write-Error "FFmpeg 체크섬 불일치: $hash (기대값 $env:FFMPEG_SHA256)"
+            Remove-Item ffmpeg.zip -Force
+            exit 1
+          }
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-extract -Force
+          $binDir = Get-ChildItem -Path ffmpeg-extract -Directory | Select-Object -First 1 | ForEach-Object { Join-Path $_.FullName "bin" }
+          New-Item -ItemType Directory -Force engine-build/ffmpeg | Out-Null
+          # ffplay.exe(대화형 플레이어, ~15MB)는 앱에서 쓰지 않아 제외 — 나머지
+          # bin/ 전체(ffmpeg.exe·ffprobe.exe·필요 DLL)는 그대로 번들한다.
+          Get-ChildItem -Path $binDir -Exclude "ffplay.exe" | Copy-Item -Destination engine-build/ffmpeg/ -Recurse
+          if (-not (Test-Path engine-build/ffmpeg/ffmpeg.exe)) {
+            Write-Error "FFmpeg 번들 실패: engine-build/ffmpeg/ffmpeg.exe 없음"; exit 1
+          }
+          $licenseSrc = Get-ChildItem -Path ffmpeg-extract -Recurse -Filter "LICENSE.txt" | Select-Object -First 1
+          New-Item -ItemType Directory -Force engine-build/licenses/ffmpeg | Out-Null
+          Copy-Item $licenseSrc.FullName engine-build/licenses/ffmpeg/LICENSE.txt
+      - name: 영상 엔진 스모크 (번들된 실제 경로에서 실행 검증)
+        shell: pwsh
+        run: |
+          # 이 LGPL 빌드는 GPL 인코더(libx264 등)가 없어 자체적으로 H.264 영상을
+          # 만들 수 없다 — 저장소에 미리 넣어 둔 실제 H.264+AAC 샘플로 "스트림
+          # 카피"(재인코딩 없음) 경로만 검증한다(DEC-024 범위와 정확히 일치).
+          & engine-build/ffmpeg/ffmpeg.exe -y -i sidecar/ffmpeg/sample_h264_aac.mov `
+            -map 0:v:0 -map "0:a:0?" -c:v copy -c:a copy -sn ffmpeg-smoke-out.mp4
+          if (-not (Test-Path ffmpeg-smoke-out.mp4)) {
+            Write-Error "FFmpeg 엔진 스모크 실패: 출력 파일 없음"; exit 1
+          }
+          $srcMd5 = & engine-build/ffmpeg/ffmpeg.exe -y -i sidecar/ffmpeg/sample_h264_aac.mov -f md5 -c:v copy -an - 2>$null
+          $outMd5 = & engine-build/ffmpeg/ffmpeg.exe -y -i ffmpeg-smoke-out.mp4 -f md5 -c:v copy -an - 2>$null
+          if ($srcMd5 -ne $outMd5) {
+            Write-Error "FFmpeg 엔진 스모크 실패: 스트림 카피가 무손실이 아님(재인코딩된 것으로 보임)"; exit 1
+          }
       - name: LibreOffice + HWP→PDF 파이프라인 스모크 (사전 빌드 경로)
         shell: pwsh
         env:
@@ -262,6 +313,12 @@ jobs:
           if (-not (Test-Path dist/FileConverter/engine/licenses/notosanskr/LICENSE.txt)) {
             Write-Error "Noto Sans KR 라이선스 파일이 아티팩트에 없습니다"; exit 1
           }
+          if (-not (Test-Path dist/FileConverter/engine/licenses/ffmpeg/LICENSE.txt)) {
+            Write-Error "FFmpeg 라이선스 파일이 아티팩트에 없습니다 (DEC-024)"; exit 1
+          }
+          if (-not (Test-Path dist/FileConverter/engine/ffmpeg/ffmpeg.exe)) {
+            Write-Error "FFmpeg 엔진이 아티팩트에 없습니다 (DEC-024)"; exit 1
+          }
           $bundledVersion = (Get-Content dist/FileConverter/VERSION -Raw -ErrorAction SilentlyContinue)
           if ($bundledVersion -ne (Get-Content packaging/VERSION -Raw)) {
             Write-Error "번들된 VERSION이 packaging/VERSION과 다릅니다(업데이트 확인 기능 오탐 위험) — 번들: '$bundledVersion'"; exit 1
@@ -271,6 +328,11 @@ jobs:
             HwpToText hwplib-src/sample_hwp/merging-cell.hwp out3.txt
           if (-not (Select-String -Path out3.txt -Pattern "0,0" -Quiet)) {
             Write-Error "패키징 경로 사이드카 스모크 실패"; exit 1
+          }
+          & dist/FileConverter/engine/ffmpeg/ffmpeg.exe -y -i sidecar/ffmpeg/sample_h264_aac.mov `
+            -map 0:v:0 -map "0:a:0?" -c:v copy -c:a copy -sn packaged-ffmpeg-out.mp4
+          if (-not (Test-Path packaged-ffmpeg-out.mp4)) {
+            Write-Error "패키징 경로 FFmpeg 스모크 실패"; exit 1
           }
           # 환경변수 없이 --frozen-exe로 실제 FileConverter.exe 실행 시나리오를 흉내내
           # engine_dir() 자동 탐색(app/bundle.py)이 진짜로 엔진을 찾는지 검증한다.

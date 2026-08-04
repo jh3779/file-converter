@@ -10,8 +10,8 @@ LANGS = ("ko", "en")
 _S = {
     "app.title": ("파일 변환기", "File Converter"),
     "drop.title": ("파일을 여기에 끌어다 놓으세요", "Drop files here"),
-    "drop.sub": ("또는 클릭해서 선택 · DOCX PPTX PDF HWP CSV XLSX JSON",
-                 "or click to browse · DOCX PPTX PDF HWP CSV XLSX JSON"),
+    "drop.sub": ("또는 클릭해서 선택 · DOCX PPTX PDF HWP CSV XLSX JSON · AVI MOV MKV 등 영상",
+                 "or click to browse · DOCX PPTX PDF HWP CSV XLSX JSON · AVI MOV MKV and other video"),
     "drop.strip": ("＋ 파일 추가 또는 끌어다 놓기", "＋ Add files or drag & drop"),
     "convert": ("변환하기", "Convert"),
     "cancel": ("취소", "Cancel"),
@@ -82,6 +82,12 @@ _S = {
                            "The document engine is missing. Please reinstall the app."),
     "err.hwp_missing": ("HWP 변환 구성 요소를 찾을 수 없습니다. 앱을 다시 설치해 주세요.",
                         "The HWP component is missing. Please reinstall the app."),
+    "err.video_missing": ("영상 변환 구성 요소를 찾을 수 없습니다. 앱을 다시 설치해 주세요.",
+                          "The video component is missing. Please reinstall the app."),
+    "err.video_codec_unsupported": ("이 영상은 지원하지 않는 코덱을 사용해요(H.264/HEVC만 지원). "
+                                    "다른 도구로 변환한 뒤 다시 시도해 주세요.",
+                                    "This video uses an unsupported codec (only H.264/HEVC are "
+                                    "supported). Please convert it with another tool first."),
     "err.jsonshape": ("이 JSON은 표로 바꿀 수 없는 구조입니다. 목록 형태의 JSON만 지원해요.",
                       "This JSON has no tabular shape. Only list-style JSON is supported."),
     "err.cancelled": ("취소되었습니다", "Cancelled"),

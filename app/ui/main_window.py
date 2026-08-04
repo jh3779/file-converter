@@ -20,7 +20,9 @@ from ..update_check import UpdateChecker
 from ..workers import Job
 
 _ICONS = {"docx": "📄", "pdf": "📄", "hwp": "📄", "txt": "📄", "pptx": "📽",
-          "csv": "📊", "xlsx": "📊", "json": "📊"}
+          "csv": "📊", "xlsx": "📊", "json": "📊",
+          "avi": "🎬", "mov": "🎬", "mkv": "🎬", "wmv": "🎬", "flv": "🎬",
+          "webm": "🎬", "m4v": "🎬"}
 
 _BADGE = {  # state → (bg 토큰, fg 토큰, i18n 키)
     ItemState.QUEUED: ("stQueuedBg", "stQueuedFg", "st.queued"),

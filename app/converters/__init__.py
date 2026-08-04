@@ -1,4 +1,4 @@
-"""변환기 레지스트리 — 정본: docs/01_requirements.md REQ-F-002~006·REQ-F-012.
+"""변환기 레지스트리 — 정본: docs/01_requirements.md REQ-F-002~006·REQ-F-012·REQ-F-014.
 
 TARGETS: 확장자별 선택 가능한 대상 포맷(가능한 것만 노출 — C-03).
 convert(src, dst_fmt, tmpdir) → 임시 산출물 Path. 실패 시 ConversionError(i18n 키).
@@ -6,7 +6,7 @@ convert(src, dst_fmt, tmpdir) → 임시 산출물 Path. 실패 시 ConversionEr
 from pathlib import Path
 
 from .base import ConversionError
-from . import data, pdf, office, hwp
+from . import data, pdf, office, hwp, video
 
 TARGETS: dict[str, list[str]] = {
     "docx": ["pdf", "hwp"],  # DEC-017 — 표는 텍스트로 단순화되어 저장됨
@@ -16,7 +16,12 @@ TARGETS: dict[str, list[str]] = {
     "csv": ["xlsx", "json"],
     "xlsx": ["csv"],
     "json": ["csv"],
+    # DEC-024 — 영상 스트림이 H.264/HEVC일 때만 지원(그 외 코덱은 변환 시 오류)
+    "avi": ["mp4"], "mov": ["mp4"], "mkv": ["mp4"],
+    "wmv": ["mp4"], "flv": ["mp4"], "webm": ["mp4"], "m4v": ["mp4"],
 }
+
+_VIDEO_EXTS = ("avi", "mov", "mkv", "wmv", "flv", "webm", "m4v")
 
 _DISPATCH = {
     ("csv", "xlsx"): data.csv_to_xlsx,
@@ -32,6 +37,7 @@ _DISPATCH = {
     ("hwp", "txt"): hwp.hwp_to_txt,
     ("hwp", "pdf"): hwp.hwp_to_pdf,        # DOCX 경유 → LibreOffice
     ("hwp", "docx"): hwp.hwp_to_docx,      # 구조 JSON → python-docx
+    **{(ext, "mp4"): video.video_to_mp4 for ext in _VIDEO_EXTS},  # DEC-024
 }
 
 

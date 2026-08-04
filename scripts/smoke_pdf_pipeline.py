@@ -1,4 +1,4 @@
-"""LibreOffice 번들 스모크 — 실제 앱 코드 경로로 DOCX/PPTX→PDF, HWP→PDF, DOCX→HWP 전체 파이프라인 검증.
+"""LibreOffice 번들 스모크 — 실제 앱 코드 경로로 DOCX/PPTX→PDF, HWP→PDF, DOCX→HWP, 영상→MP4 전체 파이프라인 검증.
 
 CI(Windows)에서 사용. 기본은 FILECONV_SOFFICE / FILECONV_JAVA / FILECONV_HWP_CLASSPATH
 환경변수로 엔진 위치를 지정(사전 빌드 경로 검증용 — dist가 아직 없는 시점).
@@ -34,6 +34,7 @@ from app import converters  # noqa: E402
 from app.converters.base import ConversionError  # noqa: E402
 from app.converters import office as office_mod  # noqa: E402
 from app.converters import hwp as hwp_mod  # noqa: E402
+from app.converters import video as video_mod  # noqa: E402
 
 
 def check(label: str, cond: bool, detail: str = ""):
@@ -111,6 +112,10 @@ def simulate_frozen(exe_path: str):
     check("자동 탐색: java (env 미사용)", java is not None and str(engine) in java, java)
     cp = hwp_mod._classpath()
     check("자동 탐색: hwp classpath (env 미사용)", cp is not None and str(engine) in cp, cp)
+    ffmpeg = video_mod.find_ffmpeg()
+    check("자동 탐색: ffmpeg (env 미사용)", ffmpeg is not None and str(engine) in ffmpeg, ffmpeg)
+    ffprobe = video_mod.find_ffprobe()
+    check("자동 탐색: ffprobe (env 미사용)", ffprobe is not None and str(engine) in ffprobe, ffprobe)
 
     from app.version import current_version
     version = current_version()
@@ -258,6 +263,24 @@ def main():
                 check("DOCX→HWP 변환 완료", False, f"{e.key}: {e.detail}")
             except Exception as e:
                 check("DOCX→HWP 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
+
+        # 6) 영상 -> MP4 (DEC-024: H.264 스트림은 재인코딩 없이 그대로 복사 —
+        #    이 LGPL 빌드는 GPL 인코더가 없어 스스로 H.264를 만들 수 없으므로,
+        #    저장소에 미리 넣어 둔 실제 샘플로 "카피" 경로만 검증한다).
+        video_sample = REPO / "sidecar" / "ffmpeg" / "sample_h264_aac.mov"
+        try:
+            check("영상 샘플 존재", video_sample.exists(), str(video_sample))
+            out = converters.convert(video_sample, "mp4", tmp)
+            check("영상→MP4 변환 완료", out.exists())
+            src_bytes = video_sample.read_bytes()
+            check("영상→MP4: 결과 파일 비어있지 않음", out.stat().st_size > 0)
+            check("영상→MP4: 원본보다 극단적으로 작지 않음(재인코딩 없이 카피됐다는 방증)",
+                  out.stat().st_size > len(src_bytes) * 0.5,
+                  f"src={len(src_bytes)} out={out.stat().st_size}")
+        except ConversionError as e:
+            check("영상→MP4 변환 완료", False, f"{e.key}: {e.detail}")
+        except Exception as e:
+            check("영상→MP4 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
         print("스모크 전체 통과")
     finally:
