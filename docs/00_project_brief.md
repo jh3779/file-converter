@@ -27,4 +27,4 @@
   3. **설치 간편함** — 오피스·한글 등 별도 프로그램 없이 단독 동작
 
 ## 비전 대비 MVP 경계 (요약)
-MVP는 **문서(DOCX→PDF, PPTX→PDF, PDF→TXT/DOCX, HWP 읽기) + 데이터(CSV↔XLSX, CSV↔JSON) + 일괄 변환**까지. OCR, 미리보기/편집, 이미지·미디어 확장은 [01_requirements.md](01_requirements.md) Could/Won't 참조.
+MVP는 **문서(DOCX/PDF↔HWP, DOCX/PPTX→PDF, PDF→TXT/DOCX) + 데이터(CSV↔XLSX, CSV↔JSON) + 영상(→MP4, H.264/HEVC만) + 일괄 변환**까지. OCR, 미리보기/편집, 그 외 영상 코덱 확장은 [01_requirements.md](01_requirements.md) Could/Won't 참조.

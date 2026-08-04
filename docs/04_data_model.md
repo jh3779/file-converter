@@ -16,7 +16,7 @@
 |------|------|------|
 | id | string | 항목 ID |
 | sourcePath | string | 원본 파일 경로 (읽기 전용 접근) |
-| sourceFormat | enum | docx / pptx / pdf / hwp / csv / xlsx / json … |
+| sourceFormat | enum | docx / pptx / pdf / hwp / csv / xlsx / json / avi / mov / mkv / wmv / flv / m4v … |
 | targetFormat | enum | 사용자가 선택한 대상 포맷 |
 | outputPath | string? | 결과 파일 경로 (완료 후 확정, 충돌 시 자동 리네임 반영) |
 | status | enum | STATE-002 참조 (queued / converting / done / failed / skipped) |

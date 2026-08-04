@@ -45,3 +45,17 @@ THIRD-PARTY NOTICES — File Converter (파일 변환기)
    pdfminer.six MIT, python-docx MIT)
    - PyInstaller 번들 내 포함. PySide6(Qt) LGPLv3 고지:
      https://www.qt.io/licensing — 동적 링크 사용.
+
+6. FFmpeg (영상→MP4 변환 엔진)
+   - 경로: engine/ffmpeg/
+   - 저작권: FFmpeg 프로젝트 — https://ffmpeg.org
+   - 라이선스: GNU Lesser General Public License v2.1+ — 전문은
+     engine/licenses/ffmpeg/LICENSE.txt 참조. GPL 전용 구성요소(libx264 등)는
+     포함하지 않은 빌드(BtbN/FFmpeg-Builds, win64-lgpl-shared)를 사용한다.
+   - 번들 빌드: FFmpeg n7.1 (Windows x86_64, 다운로드 서버 SHA256 검증)
+   - 범위(DEC-024): 영상 스트림은 H.264/HEVC일 때만 재인코딩 없이 그대로
+     복사한다(무손실). 그 외 코덱은 v1에서 지원하지 않는다 — 영상
+     인코더(libx264 등)를 아예 번들하지 않으므로 재인코딩 자체가 불가능하고,
+     이 선택이 라이선스·화질 트레이드오프를 모두 피하게 해준다. 오디오는
+     AAC가 아니면 FFmpeg 내장 AAC 인코더(외부 라이브러리 불필요, LGPL 코어
+     포함)로만 재인코딩한다.
