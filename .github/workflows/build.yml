@@ -274,6 +274,8 @@ jobs:
           FILECONV_SOFFICE: engine-build\libreoffice\program\soffice.exe
           FILECONV_JAVA: engine-build\jre\bin\java.exe
           FILECONV_HWP_CLASSPATH: engine-build\hwp
+          FILECONV_FFMPEG: engine-build\ffmpeg\ffmpeg.exe
+          FILECONV_FFPROBE: engine-build\ffmpeg\ffprobe.exe
           PYTHONIOENCODING: utf-8
         run: |
           python scripts/smoke_pdf_pipeline.py hwplib-src/sample_hwp/basic/표.hwp
