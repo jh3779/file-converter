@@ -20,7 +20,7 @@
 ## 무엇을 하나
 - **문서**: DOCX→PDF · PPTX→PDF · PDF→TXT/DOCX · HWP→PDF/TXT/DOCX · DOCX·PDF→HWP (문단 텍스트, DOCX의 표는 텍스트로 단순화 — DEC-017·DEC-023)
 - **데이터**: CSV↔XLSX · CSV↔JSON (한글 인코딩 깨짐 방지)
-- **영상**: AVI/MOV/MKV/WMV/FLV/WEBM/M4V→MP4 (H.264/HEVC 스트림은 재인코딩 없이 무손실 복사, 그 외 코덱은 명확한 오류로 거부 — DEC-024)
+- **영상**: AVI/MOV/MKV/WMV/FLV/M4V→MP4 (H.264/HEVC 스트림은 재인코딩 없이 무손실 복사, 그 외 코덱은 명확한 오류로 거부 — DEC-024)
 - **일괄 변환**: 여러 파일을 드래그앤드롭 → 포맷 선택 → 변환, 3클릭 완결
 - **원본 절대 보호**: 원본 폴더에 새 파일로 저장, 이름 충돌 시 자동 리네임 — 덮어쓰기 경로 없음
 - **한글 글꼴 번들**: PDF/HWP→DOCX로 생성하는 문서는 Noto Sans KR을 항상 명시 지정 —

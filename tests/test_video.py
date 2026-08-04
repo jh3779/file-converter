@@ -108,6 +108,48 @@ class TestVideoToMp4(unittest.TestCase):
             converters.convert(src, "mp4", self.tmp)
         self.assertEqual(ctx.exception.key, "err.video_codec_unsupported")
 
+    def test_cover_art_before_video_stream_not_selected(self):
+        """커버 아트(첨부 이미지)가 실제 영상보다 앞선 스트림이어도 영상은
+        여전히 h264로 선택돼야 함(코드 리뷰 지적: "0:v:0" 지정자는 첨부
+        이미지도 세므로 절대 인덱스로 매핑해야 함)."""
+        clip = self.tmp / "clip.mov"
+        cover = self.tmp / "cover.jpg"
+        src = self.tmp / "with_cover.mkv"
+        _make_clip(clip, "libx264", "aac")
+        subprocess.run(["ffmpeg", "-hide_banner", "-y", "-f", "lavfi",
+                         "-i", "color=c=red:s=32x32", "-frames:v", "1", str(cover)],
+                        capture_output=True, check=True, timeout=15)
+        subprocess.run(["ffmpeg", "-hide_banner", "-y",
+                         "-i", str(cover), "-i", str(clip),
+                         "-map", "0:v", "-map", "1:v", "-map", "1:a",
+                         "-c:v:0", "mjpeg", "-disposition:v:0", "attached_pic",
+                         "-c:v:1", "copy", "-c:a", "copy", str(src)],
+                        capture_output=True, check=True, timeout=15)
+        out = converters.convert(src, "mp4", self.tmp)
+        streams = self._probe(out)
+        video = next(s for s in streams if s["codec_type"] == "video")
+        self.assertEqual(video["codec_name"], "h264")
+
+    def test_multiple_audio_tracks_preserved(self):
+        """다국어/해설 등 다중 오디오 트랙이 있어도 전부 보존돼야 함
+        (코드 리뷰 지적: 기존엔 첫 트랙만 남기고 조용히 삭제했음). 트랙별로
+        AAC 여부를 독립 판단해 필요한 것만 재인코딩되는지도 함께 확인."""
+        clip = self.tmp / "clip.mov"
+        second = self.tmp / "second.mov"
+        src = self.tmp / "multi_audio.mkv"
+        _make_clip(clip, "libx264", "aac")
+        _make_clip(second, "libx264", "ac3")
+        subprocess.run(["ffmpeg", "-hide_banner", "-y",
+                         "-i", str(clip), "-i", str(second),
+                         "-map", "0:v", "-map", "0:a", "-map", "1:a",
+                         "-c:v", "copy", "-c:a", "copy", str(src)],
+                        capture_output=True, check=True, timeout=15)
+        out = converters.convert(src, "mp4", self.tmp)
+        streams = self._probe(out)
+        audios = [s for s in streams if s["codec_type"] == "audio"]
+        self.assertEqual(len(audios), 2)
+        self.assertTrue(all(s["codec_name"] == "aac" for s in audios))
+
     def test_subtitle_track_dropped_not_fatal(self):
         """자막 트랙이 있어도(v1은 자막 미지원) 변환 자체는 성공해야 함."""
         src = self.tmp / "clip.mkv"

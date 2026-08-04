@@ -16,12 +16,15 @@ TARGETS: dict[str, list[str]] = {
     "csv": ["xlsx", "json"],
     "xlsx": ["csv"],
     "json": ["csv"],
-    # DEC-024 — 영상 스트림이 H.264/HEVC일 때만 지원(그 외 코덱은 변환 시 오류)
+    # DEC-024 — 영상 스트림이 H.264/HEVC일 때만 지원(그 외 코덱은 변환 시 오류).
+    # webm은 목록에서 제외 — 표준 WEBM은 VP8/VP9/AV1만 담아 H.264/HEVC를
+    # 실을 수 없으므로 "지원"으로 노출하면 사실상 항상 실패한다(가능한 것만
+    # 노출한다는 TARGETS 원칙 위반, 코드 리뷰 지적으로 발견).
     "avi": ["mp4"], "mov": ["mp4"], "mkv": ["mp4"],
-    "wmv": ["mp4"], "flv": ["mp4"], "webm": ["mp4"], "m4v": ["mp4"],
+    "wmv": ["mp4"], "flv": ["mp4"], "m4v": ["mp4"],
 }
 
-_VIDEO_EXTS = ("avi", "mov", "mkv", "wmv", "flv", "webm", "m4v")
+_VIDEO_EXTS = ("avi", "mov", "mkv", "wmv", "flv", "m4v")
 
 _DISPATCH = {
     ("csv", "xlsx"): data.csv_to_xlsx,

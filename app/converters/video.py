@@ -87,14 +87,23 @@ def video_to_mp4(src: Path, tmpdir: Path) -> Path:
     if not video_streams:
         raise ConversionError("err.corrupted", "영상 스트림 없음")
 
-    video_codec = video_streams[0].get("codec_name")
+    video_stream = video_streams[0]
+    video_codec = video_stream.get("codec_name")
     if video_codec not in _SAFE_VIDEO_CODECS:
         raise ConversionError("err.video_codec_unsupported", video_codec or "unknown")
 
-    cmd = [ffmpeg, "-y", "-i", str(src), "-map", "0:v:0", "-c:v", "copy", "-sn"]
-    if audio_streams:
-        audio_codec = audio_streams[0].get("codec_name")
-        cmd += ["-map", "0:a:0?", "-c:a", "copy" if audio_codec in _SAFE_AUDIO_CODECS else "aac"]
+    # "0:v:0" 스트림 지정자는 첨부 이미지(커버 아트)도 영상 스트림으로 세어
+    # 포함시킬 수 있어(대문자 V만 첨부 이미지를 제외), 첨부 이미지가 실제
+    # 영상보다 앞선 파일에서는 위에서 검증한 스트림과 다른 것이 매핑될 수
+    # 있다 — ffprobe로 확인한 절대 스트림 인덱스를 그대로 사용해 검증
+    # 대상과 실제 매핑 대상을 일치시킨다.
+    cmd = [ffmpeg, "-y", "-i", str(src),
+           "-map", f"0:{video_stream['index']}", "-c:v", "copy", "-sn"]
+    # 오디오 트랙 전부 보존(다국어/해설 트랙 등) — 트랙별로 AAC 여부를
+    # 독립적으로 판단해 필요한 것만 재인코딩한다.
+    for i, a in enumerate(audio_streams):
+        codec = "copy" if a.get("codec_name") in _SAFE_AUDIO_CODECS else "aac"
+        cmd += ["-map", f"0:{a['index']}", f"-c:a:{i}", codec]
 
     out = tmpdir / (src.stem + ".mp4")
     cmd.append(str(out))
