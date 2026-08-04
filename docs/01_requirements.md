@@ -17,7 +17,7 @@
 | REQ-F-002 | 사용자는 파일별로 변환 대상 포맷을 선택할 수 있다 (확장자에 따라 가능한 포맷만 노출) | Must | FLOW-001 · SCR-001 |
 | REQ-F-003 | 사용자는 DOCX를 PDF로 변환할 수 있다 | Must | FLOW-001 |
 | REQ-F-004 | 사용자는 PDF에서 TXT/DOCX를 추출·변환할 수 있다 | Must | FLOW-001 |
-| REQ-F-005 | 사용자는 HWP를 PDF/TXT/DOCX로 변환할 수 있고, DOCX를 HWP로 변환할 수 있다 (DOCX→HWP는 문단 텍스트만 지원 — 표는 텍스트로 단순화) | Must | FLOW-001 · OQ-001 · DEC-017 |
+| REQ-F-005 | 사용자는 HWP를 PDF/TXT/DOCX로 변환할 수 있고, DOCX·PDF를 HWP로 변환할 수 있다 (HWP로의 변환은 문단 텍스트만 지원 — 표는 텍스트로 단순화, PDF는 애초에 표 구조가 없어 해당 없음) | Must | FLOW-001 · OQ-001 · DEC-017 · DEC-023 |
 | REQ-F-006 | 사용자는 CSV↔XLSX, CSV↔JSON을 상호 변환할 수 있다 | Must | FLOW-001 |
 | REQ-F-007 | 사용자는 여러 파일을 한 번에 넣어 일괄 변환할 수 있다 (혼합 포맷 허용) | Must | FLOW-001 |
 | REQ-F-008 | 변환 결과는 원본 폴더에 저장되고, 이름 충돌 시 자동으로 `(1)` 등을 붙인다. 원본은 절대 수정되지 않는다 | Must | FLOW-001 · INV-01 |
