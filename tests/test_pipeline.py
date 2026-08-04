@@ -133,6 +133,18 @@ class TestHwp(Base):
         out = converters.convert(HWP_SAMPLE, "txt", self.tmp)
         self.assertIn("ABC", out.read_text(encoding="utf-8"))
 
+    def test_pdf_to_hwp_roundtrip(self):
+        """DEC-023: PDF→HWP는 텍스트 추출 기반(DEC-010과 같은 원칙 — PDF
+        자체가 표 구조를 안 담고 있어 표 전용 처리는 필요 없음)."""
+        src = self.tmp / "mini.pdf"
+        _mini_pdf(src)
+        out = converters.convert(src, "hwp", self.tmp)
+        self.assertTrue(out.exists())
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "txt", back_dir)
+        self.assertIn("Hello Converter", back.read_text(encoding="utf-8"))
+
     @unittest.skipUnless(HWP_DISTRIBUTION.exists(), "distribution.hwp 샘플 없음")
     def test_distribution_protected_hwp_still_readable(self):
         """OQ-006: '배포용(복사방지)' 문서는 편집·인쇄 제한이지 텍스트 암호화가

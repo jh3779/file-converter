@@ -103,12 +103,16 @@ class FileRow(QFrame):
     def _update_note(self):
         """레이아웃/구조 단순화 고지 (muted, 오류 아님).
         DEC-010: PDF/HWP → DOCX 선택 시. DEC-017: DOCX → HWP 선택 시(표 구조 손실 — 문단
-        텍스트로 단순화). XLSX → CSV 선택 시 시트가 여러 개면 고지(첫 시트만 변환 —
-        여러 파일로 나눠 출력하는 방안은 데이터 모델을 바꿔야 해서 별도 과제로 보류)."""
+        텍스트로 단순화). DEC-023: PDF → HWP도 텍스트 기반이라 같은 고지(PDF 자체가
+        표 구조를 안 담고 있어 표 전용 문구는 아님). XLSX → CSV 선택 시 시트가 여러
+        개면 고지(첫 시트만 변환 — 여러 파일로 나눠 출력하는 방안은 데이터 모델을
+        바꿔야 해서 별도 과제로 보류)."""
         if self.item.target_fmt == "docx" and self.item.source_fmt in ("pdf", "hwp"):
             note_key = "note.simplified"
         elif self.item.target_fmt == "hwp" and self.item.source_fmt == "docx":
             note_key = "note.hwp_table_flatten"
+        elif self.item.target_fmt == "hwp" and self.item.source_fmt == "pdf":
+            note_key = "note.simplified"
         elif self.item.target_fmt == "csv" and self.item.source_fmt == "xlsx":
             from ..converters.data import xlsx_sheet_count
             note_key = "note.xlsx_multisheet" if xlsx_sheet_count(self.item.source) > 1 else None

@@ -3,7 +3,7 @@
 사이드카: sidecar/hwp/HwpToText.java(평문) · HwpToJson.java(구조 — 문단+표) ·
 JsonToHwp.java(구조 JSON → HWP 생성, HwpToJson의 역방향).
 파이프라인: HWP→TXT 직접 / HWP→DOCX 구조 JSON→python-docx / HWP→PDF DOCX→LibreOffice /
-DOCX→HWP python-docx→구조 JSON→JsonToHwp.
+DOCX→HWP python-docx→구조 JSON→JsonToHwp / PDF→HWP pdfminer 텍스트 추출→구조 JSON→JsonToHwp.
 배포판은 JRE·클래스를 번들. 개발 환경 빌드는 sidecar/hwp/build.sh 참고.
 파일 경로만 인자로 주고받는다 — 파일 내용의 소켓/네트워크 전송 없음(REQ-NF-002).
 
@@ -116,6 +116,22 @@ def docx_to_hwp(src: Path, tmpdir: Path) -> Path:
     from .docx_extract import docx_to_blocks
 
     blocks = docx_to_blocks(src)
+    return _blocks_to_hwp(blocks, src, tmpdir)
+
+
+def pdf_to_hwp(src: Path, tmpdir: Path) -> Path:
+    """PDF → 텍스트 추출 → HWP (레이아웃 단순화 — PDF→DOCX의 DEC-010과 같은 원칙).
+    PDF는 표 구조 자체를 담고 있지 않으므로(추출 결과가 이미 평문) 문단
+    텍스트만 옮긴다."""
+    from . import pdf as pdf_mod
+    from .docx_build import text_to_blocks
+
+    txt = pdf_mod.pdf_to_txt(src, tmpdir)
+    blocks = text_to_blocks(txt.read_text(encoding="utf-8"))
+    return _blocks_to_hwp(blocks, src, tmpdir)
+
+
+def _blocks_to_hwp(blocks: list[dict], src: Path, tmpdir: Path) -> Path:
     blocks_json = tmpdir / (src.stem + ".blocks.json")
     blocks_json.write_text(json.dumps({"blocks": blocks}, ensure_ascii=False), encoding="utf-8")
     out = tmpdir / (src.stem + ".hwp")

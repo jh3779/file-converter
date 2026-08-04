@@ -55,6 +55,10 @@ class TestFormatNote(unittest.TestCase):
         visible, text = self._note_for("hwp", "docx")
         self.assertTrue(visible)
 
+    def test_pdf_to_hwp_shows_layout_simplified_note(self):
+        visible, text = self._note_for("pdf", "hwp")
+        self.assertTrue(visible)
+
     def test_docx_to_pdf_shows_no_note(self):
         visible, _ = self._note_for("docx", "pdf")
         self.assertFalse(visible)
