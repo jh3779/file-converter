@@ -2,13 +2,13 @@
 
 비개발자를 위한 **완전 오프라인** 데스크톱 파일 포맷 변환기. 파일이 PC 밖으로 절대 나가지 않습니다.
 
-> Windows 배포 (v0.3.7 프리릴리스) · macOS 개발 환경 · 사이드 프로젝트 · MVP 완성
+> Windows 배포 (v0.3.8 프리릴리스) · macOS 개발 환경 · 사이드 프로젝트 · MVP 완성
 
 ## 다운로드
 
 | 플랫폼 | 방법 |
 |---|---|
-| 🪟 **Windows** | **[v0.3.7 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.7/FileConverter-Setup-latest.exe)** — 관리자 권한 불요, 인스톨러 실행 후 안내만 따라가면 끝 (v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
+| 🪟 **Windows** | **[v0.3.8 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.8/FileConverter-Setup-latest.exe)** — 관리자 권한 불요, 인스톨러 실행 후 안내만 따라가면 끝 (v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
 | 🍎 macOS | 아직 배포판이 없습니다(REQ-NF-001: macOS는 현재 개발 환경 전용). 아래 "실행 방법(개발)"로 소스에서 바로 실행할 수 있습니다 |
 | 🐧 Linux | 지원 계획 없음 |
 
@@ -84,6 +84,7 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] v0.3.5 — **업데이트 확인 기능 추가, 옵트인·기본 꺼짐**(REQ-F-013, DEC-022 — 기획 초기부터 미결이던 OQ-002 해결): 설정에서 켜면 GitHub Releases에 버전 번호만 조회, 새 버전이 있으면 조용히 안내(클릭 시 릴리스 페이지로 이동). 자동 다운로드·설치 없음, 파일·경로·식별 정보 미전송 — 오프라인·요청 실패 시 조용히 무시. 릴리스 전 최종 점검 중 발견한 사소한 버그(알림이 떠 있는 채로 언어 전환 시 텍스트 미갱신)도 함께 수정
 - [x] v0.3.6 — **PDF→HWP 경로 추가**(DEC-023) — 확인해보니 DOCX→HWP·HWP→DOCX는 이미 있었고 PDF→HWP만 없어서 그 경로만 추가. PDF→DOCX와 같은 텍스트 기반 파이프라인(PDF는 표 구조를 안 담고 있어 별도 단순화 불필요)
 - [x] v0.3.7 — **영상→MP4 신규 지원**(REQ-F-014, DEC-024) — FFmpeg LGPL 빌드 번들(GPL 인코더 미포함). 구현 전 전수조사로 방향을 두 번 뒤집었음: OpenH264(BSD, 처음 검토한 라이선스 안전한 대안)는 실사용 화질이 x264보다 뚜렷이 나쁨을 Cisco 자체 이슈 트래커로 확인해 철회 → 재인코딩 없이 컨테이너만 바꾸는 "스트림 카피" 방식을 발견(로컬에서 원본·결과물 영상 스트림 MD5 완전 일치로 무손실 확인). 최종 범위: 영상이 이미 H.264/HEVC(실사용 영상 대부분)면 무손실·즉시 변환, 그 외 코덱은 v1에서 명확한 오류로 거부 — 인코더 라이선스·화질 트레이드오프 자체를 피함. 지원 확장자: AVI/MOV/MKV/WMV/FLV/M4V(WEBM은 VP8/VP9/AV1만 담아 이 범위와 사실상 항상 불일치해 제외)
+- [x] v0.3.8 — **이미지 변환 + 문서 서식 충실도 4-phase 업그레이드**(DEC-025~028). ① 일반 이미지 포맷 변환(JPG/PNG/BMP/GIF/WEBP/TIFF 상호 변환, Pillow) — EXIF 회전 반영, 투명 배경은 무알파 포맷 저장 시 흰 배경 합성. ② PDF→이미지 — 원본 파일명 폴더에 페이지별 PNG 저장(LibreOffice가 다중 페이지에서 첫 페이지만 내보내는 걸 실측 확인해 기각, pypdfium2 채택 — 앱이 처음으로 "출력 파일 1개" 가정을 깨는 사례라 출력 파이프라인도 함께 확장). ③ HWP→DOCX·PDF→DOCX 문자 서식(굵게/기울임/밑줄/글자크기/색상) 반영 — PDF는 폰트 이름 휴리스틱이라 100% 정확 보장 안 함(특히 한글 이탤릭은 원본 자체에 감지할 서식이 없는 경우가 흔함), 머지 후 재검토에서 실제 텍스트 손상 회귀(hwplib의 `ParaCharShape` 가중치 위치 오인 + 라이브러리 자체의 1글자 버그)를 발견해 수정. ④ **DOCX→HWP 표 신규 생성**(DEC-017 정정 — "hwplib엔 표 생성 도구가 없다"던 기존 기록이 틀렸음을 재확인, 공식 샘플 `Inserting_Table.java` 기반 스파이크 후 일반화) — 더 이상 텍스트로 단순화되지 않고 실제 HWP 표로 생성됨(셀 병합은 아직 미지원, 실제 한글 뷰어 렌더링은 다음 Windows 테스트 라운드에서 확인 예정)
 
 ## 라이선스 고지
 - HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)
