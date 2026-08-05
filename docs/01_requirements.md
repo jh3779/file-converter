@@ -7,7 +7,7 @@
 |------|------|------|
 | **Must** | DOCX→PDF, PPTX→PDF, PDF→TXT/DOCX, HWP→PDF/TXT/DOCX(읽기 전용), CSV↔XLSX, CSV↔JSON, 일괄 변환, 드래그앤드롭, 원본 보호 | REQ-F-001~008·012 |
 | Should | 인코딩 자동 감지(EUC-KR/UTF-8, 한글 깨짐 방지), 최근 변환 기록, 업데이트 확인(옵트인), 영상→MP4(H.264/HEVC만), 이미지 포맷 상호 변환(JPG/PNG/BMP/GIF/WEBP/TIFF), PDF→이미지(페이지별 폴더) | REQ-F-009~010·013~016 |
-| Could | 영상 코덱 재인코딩 확장(Xvid 등, DEC-024 잔여 리스크), TXT/MD/HTML 상호 변환, 문서 변환 서식 충실도 업그레이드(굵게/표 등) | — |
+| Could | 영상 코덱 재인코딩 확장(Xvid 등, DEC-024 잔여 리스크), TXT/MD/HTML 상호 변환, DOCX→HWP·PDF→HWP 표 신규 생성 + 문자 서식(hwplib 표 빌더 API 활용, DEC-017 정정 반영 — 4-phase 계획 Phase 4, 스파이크 필요) | — |
 | **Won't (MVP 제외)** | OCR(스캔 PDF 문자 인식), 파일 미리보기/편집, 클라우드·계정 기능 | 범위 통제 |
 
 ## 기능 요구사항 (REQ-F-*)
@@ -16,8 +16,8 @@
 | REQ-F-001 | 사용자는 파일을 드래그앤드롭(또는 클릭 선택)으로 앱에 추가할 수 있다 | Must | FLOW-001 · SCR-001 |
 | REQ-F-002 | 사용자는 파일별로 변환 대상 포맷을 선택할 수 있다 (확장자에 따라 가능한 포맷만 노출) | Must | FLOW-001 · SCR-001 |
 | REQ-F-003 | 사용자는 DOCX를 PDF로 변환할 수 있다 | Must | FLOW-001 |
-| REQ-F-004 | 사용자는 PDF에서 TXT/DOCX를 추출·변환할 수 있다 | Must | FLOW-001 |
-| REQ-F-005 | 사용자는 HWP를 PDF/TXT/DOCX로 변환할 수 있고, DOCX·PDF를 HWP로 변환할 수 있다 (HWP로의 변환은 문단 텍스트만 지원 — 표는 텍스트로 단순화, PDF는 애초에 표 구조가 없어 해당 없음) | Must | FLOW-001 · OQ-001 · DEC-017 · DEC-023 |
+| REQ-F-004 | 사용자는 PDF에서 TXT/DOCX를 추출·변환할 수 있다. DOCX 결과에는 굵게/기울임/글자크기가 반영된다(폰트 리소스 이름 기반 휴리스틱 — 100% 정확 보장 안 함, DEC-027). 밑줄은 반영하지 않는다(PDF는 밑줄을 폰트 속성이 아닌 별도 벡터 선으로 그리는 경우가 많아 이 휴리스틱으로 판별 불가) | Must | FLOW-001 |
+| REQ-F-005 | 사용자는 HWP를 PDF/TXT/DOCX로 변환할 수 있고, DOCX·PDF를 HWP로 변환할 수 있다 (HWP로의 변환은 문단 텍스트만 지원 — 표는 텍스트로 단순화, PDF는 애초에 표 구조가 없어 해당 없음). HWP→DOCX 결과에는 굵게/기울임/밑줄/글자크기/색상이 반영된다(DEC-027) | Must | FLOW-001 · OQ-001 · DEC-017 · DEC-023 · DEC-027 |
 | REQ-F-006 | 사용자는 CSV↔XLSX, CSV↔JSON을 상호 변환할 수 있다 | Must | FLOW-001 |
 | REQ-F-007 | 사용자는 여러 파일을 한 번에 넣어 일괄 변환할 수 있다 (혼합 포맷 허용) | Must | FLOW-001 |
 | REQ-F-008 | 변환 결과는 원본 폴더에 저장되고, 이름 충돌 시 자동으로 `(1)` 등을 붙인다. 원본은 절대 수정되지 않는다 | Must | FLOW-001 · INV-01 |

@@ -1,7 +1,12 @@
-"""구조 블록 → DOCX 생성 (python-docx). HWP/PDF → DOCX 파이프라인 공용 (DEC-007).
+"""구조 블록 → DOCX 생성 (python-docx). HWP/PDF → DOCX 파이프라인 공용 (DEC-007·DEC-027).
 
-블록 형식: {"type":"p","text":str} | {"type":"table","rows":[[str,...],...]}
-레이아웃은 단순화된다 — 기대치 고지는 OQ-003/DEC-010 문안으로 UI에서 안내.
+블록 형식: {"type":"p","runs":[{"text":str,"bold":bool,"italic":bool,"underline":bool,
+"size":float,"color":"RRGGBB"}, ...]} | {"type":"p","text":str}(구버전 호환, 서식 없는
+단일 run으로 취급) | {"type":"table","rows":[[str,...],...]}
+레이아웃(정확한 위치·다단·이미지 등)은 여전히 단순화된다 — 기대치 고지는
+OQ-003/DEC-010 문안으로 UI에서 안내. 문자 서식(굵게/기울임/밑줄/크기/색상)은
+DEC-027부터 HWP→DOCX·PDF→DOCX 양쪽에서 반영된다. 표 셀 내용은 여전히
+서식 없는 평문이다(표 자체가 이미 텍스트만 옮기는 게 원칙 — DEC-010).
 
 한글 글꼴을 모든 run에 명시적으로 지정한다(DEC-015) — python-docx 기본
 스타일(Calibri)은 한글 글리프가 없고, 지정을 생략하면 뷰어·OS별로 대체
@@ -38,6 +43,37 @@ def _set_font(run):
         rfonts.set(qn(attr), EAST_ASIAN_FONT)
 
 
+def _apply_run_style(run, run_dict: dict):
+    """서식 필드(굵게/기울임/밑줄/크기/색상)를 run에 반영한다 (DEC-027).
+    값이 없으면(구버전 호환 run) 아무 것도 건드리지 않고 기본값을 따른다."""
+    if run_dict.get("bold") is not None:
+        run.font.bold = bool(run_dict["bold"])
+    if run_dict.get("italic") is not None:
+        run.font.italic = bool(run_dict["italic"])
+    if run_dict.get("underline") is not None:
+        run.font.underline = bool(run_dict["underline"])
+    size = run_dict.get("size")
+    if size:
+        from docx.shared import Pt
+        run.font.size = Pt(size)
+    color = run_dict.get("color")
+    if color and color.upper() != "000000":  # 검정은 DOCX 기본값이라 굳이 명시 안 함
+        from docx.shared import RGBColor
+        try:
+            run.font.color.rgb = RGBColor.from_string(color)
+        except ValueError:
+            pass  # 색상 문자열이 6자리 hex가 아니면 조용히 건너뜀(텍스트 보존 우선)
+
+
+def _runs_for(block: dict) -> list[dict]:
+    """블록에서 run 목록을 얻는다 — 신버전("runs")·구버전("text") 스키마 모두 지원."""
+    runs = block.get("runs")
+    if runs is not None:
+        return runs
+    text = block.get("text")
+    return [{"text": text}] if text else []
+
+
 def blocks_to_docx(blocks: list[dict], out_path: Path) -> Path:
     from docx import Document
 
@@ -58,11 +94,16 @@ def blocks_to_docx(blocks: list[dict], out_path: Path) -> Path:
                         for run in paragraph.runs:
                             _set_font(run)
         else:
-            text = (block.get("text") or "").strip()
-            if text:
-                p = doc.add_paragraph()
-                run = p.add_run(text)
+            runs = [r for r in _runs_for(block) if r.get("text")]
+            # 문단 전체가 공백뿐이면(실제 내용 없음) 문단 자체를 건너뛴다(기존 동작 유지).
+            # 공백만 있는 개별 run은 단어 사이 구분자일 수 있어 그대로 둔다.
+            if not any((r.get("text") or "").strip() for r in runs):
+                continue
+            p = doc.add_paragraph()
+            for run_dict in runs:
+                run = p.add_run(run_dict["text"])
                 _set_font(run)
+                _apply_run_style(run, run_dict)
     doc.save(out_path)
     return out_path
 

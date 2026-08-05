@@ -22,7 +22,7 @@
 > 갱신할 것**(파일명은 `FileConverter-Setup-latest.exe`로 고정이라 태그 부분만 바꾸면 됨).
 
 ## 무엇을 하나
-- **문서**: DOCX→PDF · PPTX→PDF · PDF→TXT/DOCX/이미지 · HWP→PDF/TXT/DOCX · DOCX·PDF→HWP (문단 텍스트, DOCX의 표는 텍스트로 단순화 — DEC-017·DEC-023). PDF→이미지는 원본 파일명 폴더에 페이지별 PNG 저장(DEC-026)
+- **문서**: DOCX→PDF · PPTX→PDF · PDF→TXT/DOCX/이미지 · HWP→PDF/TXT/DOCX · DOCX·PDF→HWP (문단 텍스트, DOCX의 표는 텍스트로 단순화 — DEC-017·DEC-023). PDF→이미지는 원본 파일명 폴더에 페이지별 PNG 저장(DEC-026). PDF→DOCX는 굵게/기울임/글자크기, HWP→DOCX는 굵게/기울임/밑줄/글자크기/색상 반영(PDF는 밑줄을 벡터 선으로 그리는 경우가 많아 폰트 기반 휴리스틱으로 판별 불가 — DEC-027)
 - **데이터**: CSV↔XLSX · CSV↔JSON (한글 인코딩 깨짐 방지)
 - **영상**: AVI/MOV/MKV/WMV/FLV/M4V→MP4 (H.264/HEVC 스트림은 재인코딩 없이 무손실 복사, 그 외 코덱은 명확한 오류로 거부 — DEC-024)
 - **이미지**: JPG/JPEG/PNG/BMP/GIF/WEBP/TIFF 상호 변환 (EXIF 회전 반영, 투명 배경은 무알파 포맷 저장 시 흰 배경 합성, 애니메이션은 첫 프레임만 — DEC-025)

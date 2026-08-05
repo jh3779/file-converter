@@ -147,6 +147,22 @@ jobs:
           if ($vpos1First -le ($vpos0 | Select-Object -Last 1)) {
             Write-Error "HWP engine smoke failed: 다음 문단이 이전 문단 아래에서 이어지지 않음(모두 0으로 겹치는 DEC-018 회귀)"; exit 1
           }
+          # DEC-027: HwpToJson의 문자 서식(굵게/기울임/크기/색상) 추출 검증.
+          # MakeFormattedHwp도 LineSegDebug와 같은 테스트 전용 도구 —
+          # 배포용 engine-build/hwp가 아닌 debug-tools에 컴파일한다.
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/MakeFormattedHwp.java
+          & engine-build/jre/bin/java.exe -cp "debug-tools;engine-build/hwp" MakeFormattedHwp formatted.hwp
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToJson formatted.hwp formatted.json
+          $formattedJson = Get-Content formatted.json -Encoding utf8 -Raw
+          if (-not ($formattedJson | Select-String -Pattern '"text":"굵은텍스트","bold":true' -Quiet)) {
+            Write-Error "HWP engine smoke failed: 굵게 서식이 추출되지 않음(DEC-027 회귀)"; exit 1
+          }
+          if (-not ($formattedJson | Select-String -Pattern '"text":"일반텍스트","bold":false' -Quiet)) {
+            Write-Error "HWP engine smoke failed: 같은 문단 안 일반 run이 굵게로 잘못 표시됨(DEC-027 회귀)"; exit 1
+          }
+          if (-not ($formattedJson | Select-String -Pattern '"italic":true.*"size":18(\.0)?,"color":"FF0000"' -Quiet)) {
+            Write-Error "HWP engine smoke failed: 기울임·크기·색상 서식이 함께 추출되지 않음(DEC-027 회귀)"; exit 1
+          }
       - name: Cache LibreOffice installer
         uses: actions/cache@v4
         with:
