@@ -106,18 +106,18 @@ class FileRow(QFrame):
 
     def _update_note(self):
         """레이아웃/구조 단순화 고지 (muted, 오류 아님).
-        DEC-010: PDF/HWP → DOCX 선택 시. DEC-017: DOCX → HWP 선택 시(표 구조 손실 — 문단
-        텍스트로 단순화). DEC-023: PDF → HWP도 텍스트 기반이라 같은 고지(PDF 자체가
-        표 구조를 안 담고 있어 표 전용 문구는 아님). XLSX → CSV 선택 시 시트가 여러
-        개면 고지(첫 시트만 변환 — 여러 파일로 나눠 출력하는 방안은 데이터 모델을
-        바꿔야 해서 별도 과제로 보류). 애니메이션 이미지(GIF/WEBP) → 다른 이미지
-        포맷 선택 시 첫 프레임만 남는다는 고지(항상 단일 프레임으로 단순화).
-        DEC-025: PDF → 이미지 선택 시 결과가 폴더로 저장된다는 고지."""
+        DEC-010: PDF/HWP → DOCX 선택 시. DEC-028부터 DOCX → HWP도 표는 실제
+        HWP 표로 만들어지지만(DEC-017 정정) 셀 병합·정밀한 레이아웃까지는
+        아니라 같은 고지를 쓴다. DEC-023: PDF → HWP도 텍스트 기반이라 같은
+        고지(PDF 자체가 표 구조를 안 담고 있어 표 전용 문구는 아님). XLSX →
+        CSV 선택 시 시트가 여러 개면 고지(첫 시트만 변환 — 여러 파일로 나눠
+        출력하는 방안은 데이터 모델을 바꿔야 해서 별도 과제로 보류). 애니메이션
+        이미지(GIF/WEBP) → 다른 이미지 포맷 선택 시 첫 프레임만 남는다는
+        고지(항상 단일 프레임으로 단순화). DEC-025: PDF → 이미지 선택 시
+        결과가 폴더로 저장된다는 고지."""
         if self.item.target_fmt == "docx" and self.item.source_fmt in ("pdf", "hwp"):
             note_key = "note.simplified"
-        elif self.item.target_fmt == "hwp" and self.item.source_fmt == "docx":
-            note_key = "note.hwp_table_flatten"
-        elif self.item.target_fmt == "hwp" and self.item.source_fmt == "pdf":
+        elif self.item.target_fmt == "hwp" and self.item.source_fmt in ("docx", "pdf"):
             note_key = "note.simplified"
         elif self.item.target_fmt == "images" and self.item.source_fmt == "pdf":
             note_key = "note.pdf_to_images"

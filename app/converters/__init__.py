@@ -10,7 +10,7 @@ from .base import ConversionError
 from . import data, pdf, office, hwp, video, image
 
 TARGETS: dict[str, list[str]] = {
-    "docx": ["pdf", "hwp"],  # DEC-017 — 표는 텍스트로 단순화되어 저장됨
+    "docx": ["pdf", "hwp"],  # DEC-017/DEC-028 — 표는 실제 HWP 표로 생성됨(셀 병합 제외)
     "pptx": ["pdf"],   # DEC-016
     "pdf": ["txt", "docx", "hwp", "images"],  # DEC-023 — HWP도 텍스트 기반(DEC-010과 같은 원칙). images: DEC-025, 페이지별 PNG를 폴더에 저장
     "hwp": ["txt", "pdf", "docx"],
@@ -48,7 +48,7 @@ _DISPATCH = {
     ("pdf", "images"): pdf.pdf_to_images,  # 페이지별 PNG, 폴더 결과물 (DEC-025)
     ("docx", "pdf"): office.office_to_pdf,
     ("pptx", "pdf"): office.office_to_pdf,  # DEC-016 — 동일 LibreOffice 경로 재사용
-    ("docx", "hwp"): hwp.docx_to_hwp,      # DEC-017 — 문단 텍스트만, 표는 텍스트로 단순화
+    ("docx", "hwp"): hwp.docx_to_hwp,      # DEC-017/DEC-028 — 문단+표(실제 표로 신규 생성)
     ("hwp", "txt"): hwp.hwp_to_txt,
     ("hwp", "pdf"): hwp.hwp_to_pdf,        # DOCX 경유 → LibreOffice
     ("hwp", "docx"): hwp.hwp_to_docx,      # 구조 JSON → python-docx

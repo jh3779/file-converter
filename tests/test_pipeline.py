@@ -155,9 +155,12 @@ class TestHwp(Base):
         self.assertNotIn("�", text)
 
     def test_docx_to_hwp_roundtrip(self):
-        """DEC-017: DOCX→HWP는 문단 텍스트를 보존하고, 표는 " | "로 이어붙인
-        텍스트 문단으로 단순화한다. 결과 HWP를 다시 hwp_to_txt로 읽어 왕복
-        검증한다(희귀 한글 자모·한자 포함)."""
+        """DEC-017/DEC-028: DOCX→HWP는 문단 텍스트를 보존하고, 표는 실제 HWP
+        표 컨트롤로 새로 생성한다(이전엔 " | "로 이어붙인 텍스트로
+        단순화했으나 DEC-017의 "hwplib은 표를 못 만든다"는 전제가 틀렸음이
+        확인돼 정정됨). 결과 HWP를 다시 hwp_to_txt로 읽어 왕복 검증한다
+        (희귀 한글 자모·한자 포함) — 표 구조 자체의 검증은
+        test_format_fidelity.py 쪽에 별도로 있음."""
         from docx import Document
         src = self.tmp / "한글.docx"
         doc = Document()

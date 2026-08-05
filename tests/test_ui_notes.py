@@ -42,10 +42,11 @@ class TestFormatNote(unittest.TestCase):
         row._update_note()
         return (not row.reason.isHidden()), row.reason.text()
 
-    def test_docx_to_hwp_shows_table_flatten_note(self):
+    def test_docx_to_hwp_shows_layout_simplified_note(self):
+        """DEC-028: 표는 이제 실제 HWP 표로 만들어지지만(DEC-017 정정),
+        셀 병합·정밀한 레이아웃까지는 아니라 여전히 단순화 고지가 뜬다."""
         visible, text = self._note_for("docx", "hwp")
         self.assertTrue(visible)
-        self.assertIn("표", text)
 
     def test_pdf_to_docx_shows_layout_simplified_note(self):
         visible, text = self._note_for("pdf", "docx")
