@@ -1,18 +1,20 @@
-"""HWP 변환 — hwplib(Apache-2.0) + JRE 사이드카 (DEC-007·DEC-017 · M-04).
+"""HWP 변환 — hwplib(Apache-2.0) + JRE 사이드카 (DEC-007·DEC-017·DEC-028 · M-04).
 
-사이드카: sidecar/hwp/HwpToText.java(평문) · HwpToJson.java(구조 — 문단+표) ·
+사이드카: sidecar/hwp/HwpToText.java(평문) · HwpToJson.java(구조 — 문단+표+문자 서식) ·
 JsonToHwp.java(구조 JSON → HWP 생성, HwpToJson의 역방향).
 파이프라인: HWP→TXT 직접 / HWP→DOCX 구조 JSON→python-docx / HWP→PDF DOCX→LibreOffice /
 DOCX→HWP python-docx→구조 JSON→JsonToHwp / PDF→HWP pdfminer 텍스트 추출→구조 JSON→JsonToHwp.
 배포판은 JRE·클래스를 번들. 개발 환경 빌드는 sidecar/hwp/build.sh 참고.
 파일 경로만 인자로 주고받는다 — 파일 내용의 소켓/네트워크 전송 없음(REQ-NF-002).
 
-DEC-017: DOCX→HWP는 문단 텍스트만 지원한다. hwplib에는 표를 처음부터 새로
-만드는 도구가 없어(기존 표를 읽어 그대로 다시 저장하는 라운드트립만
-검증됨 — spike/hwplib/RESULT.md), 낮은 신뢰도로 표 컨트롤을 직접 조립하는
-대신 DOCX의 표는 각 행을 " | "로 이어붙인 한 줄 텍스트 문단으로 안전하게
-표현한다. 내용은 보존되고 표 구조만 단순화된다(PDF→DOCX의 DEC-010과 같은
-원칙: 검증되지 않은 시도보다 검증된 단순화를 택함).
+DEC-017 정정(DEC-028): "hwplib에는 표를 처음부터 새로 만드는 도구가
+전혀 없다"는 이전 기록이 틀렸음이 확인됨 — hwplib 공식 샘플
+`src/test/sample/Inserting_Table.java`가 정확히 그 방법을 보여준다(이전
+조사에서 놓침). DOCX의 표는 이제 실제 HWP 표 컨트롤로 새로 생성된다
+(spike/hwplib/SpikeTable.java에서 왕복 검증 후 sidecar/hwp/JsonToHwp.java에
+일반화 — 셀 병합은 아직 미지원, 셀 텍스트는 평문 한 문단). 문단 텍스트
+서식(굵게 등)은 이미 Phase 3(DEC-027)에서 HWP→DOCX 읽기 방향에 반영됨 —
+DOCX→HWP 쓰기 방향의 문자 서식은 아직 범위 밖.
 
 번호·불릿 목록(docx_extract.docx_to_blocks): DOCX의 자동 번호("1.")·불릿("•")은
 문단의 실제 텍스트가 아니라 numbering.xml 서식으로 뷰어가 화면에만 그리는
@@ -112,7 +114,8 @@ def hwp_to_pdf(src: Path, tmpdir: Path) -> Path:
 
 
 def docx_to_hwp(src: Path, tmpdir: Path) -> Path:
-    """DOCX → 구조 JSON → HWP (문단 텍스트 보존, 표는 텍스트로 단순화 — DEC-017)."""
+    """DOCX → 구조 JSON → HWP (문단 텍스트 보존, 표는 실제 HWP 표로 새로 생성 —
+    DEC-017 정정, DEC-028. 셀 병합·서식은 아직 범위 밖)."""
     from .docx_extract import docx_to_blocks
 
     blocks = docx_to_blocks(src)
