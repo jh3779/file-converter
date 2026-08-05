@@ -103,6 +103,11 @@ class TestFormatNote(unittest.TestCase):
         visible, _ = self._note_for("png", "jpg", source_path=src)
         self.assertFalse(visible)
 
+    def test_pdf_to_images_shows_folder_note(self):
+        visible, text = self._note_for("pdf", "images")
+        self.assertTrue(visible)
+        self.assertIn("폴더", text)
+
 
 if __name__ == "__main__":
     unittest.main()

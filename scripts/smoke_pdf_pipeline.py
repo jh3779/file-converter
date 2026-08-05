@@ -298,6 +298,22 @@ def main():
         except Exception as e:
             check("이미지 PNG→JPG 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
+        # 8) PDF -> 이미지(페이지별 폴더, DEC-025). pypdfium2도 Pillow와 마찬가지로
+        #    새 네이티브 의존성이라 패키징 경로 검증이 필요함. 자체 생성 DOCX를
+        #    PDF로 변환해(위 1번과 같은 방식) 실제 파이프라인으로 검증한다.
+        try:
+            out = converters.convert(src_docx, "pdf", tmp)
+            img_dir = converters.convert(out, "images", tmp)
+            check("PDF→이미지: 폴더 결과물 생성", img_dir.is_dir(), str(img_dir))
+            check("PDF→이미지: 폴더명이 원본 파일명과 일치", img_dir.name == out.stem,
+                  f"{img_dir.name} != {out.stem}")
+            pages = list(img_dir.iterdir())
+            check("PDF→이미지: 페이지 이미지 1개 이상 생성", len(pages) >= 1, str(len(pages)))
+        except ConversionError as e:
+            check("PDF→이미지 변환 완료", False, f"{e.key}: {e.detail}")
+        except Exception as e:
+            check("PDF→이미지 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
+
         print("스모크 전체 통과")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

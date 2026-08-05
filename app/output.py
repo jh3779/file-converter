@@ -13,24 +13,32 @@ from pathlib import Path
 _finalize_lock = threading.Lock()
 
 
-def unique_output_path(directory: Path, stem: str, ext: str) -> Path:
+def unique_output_path(directory: Path, stem: str, ext: str | None) -> Path:
     """원본 폴더 안에서 충돌하지 않는 경로. 충돌 시 '이름 (1).ext' 자동 리네임 (REQ-F-008).
-    호출자가 동시성 보장이 필요하면 _finalize_lock 등으로 감싸야 한다 — 이 함수
-    자체는 파일 존재 확인만 하고 예약(생성)하지 않는다."""
-    candidate = directory / f"{stem}.{ext}"
+    ext=None이면 확장자 없이(폴더 결과물 — 예: PDF→이미지, DEC-025) 이름만으로 충돌
+    검사한다. 호출자가 동시성 보장이 필요하면 _finalize_lock 등으로 감싸야 한다 —
+    이 함수 자체는 파일 존재 확인만 하고 예약(생성)하지 않는다."""
+    suffix = f".{ext}" if ext else ""
+    candidate = directory / f"{stem}{suffix}"
     n = 1
     while candidate.exists():
-        candidate = directory / f"{stem} ({n}).{ext}"
+        candidate = directory / f"{stem} ({n}){suffix}"
         n += 1
     return candidate
 
 
-def finalize(tmp_file: Path, source: Path, ext: str) -> tuple[Path, bool]:
-    """임시 산출물을 원본 폴더로 이동. (최종 경로, 리네임 발생 여부) 반환."""
+def finalize(tmp_result: Path, source: Path, ext: str) -> tuple[Path, bool]:
+    """임시 산출물을 원본 폴더로 이동. (최종 경로, 리네임 발생 여부) 반환.
+
+    tmp_result가 폴더이면(예: PDF→이미지, DEC-025) 확장자 없이 폴더째로
+    이동한다 — shutil.move()는 파일·폴더 양쪽에 그대로 동작한다."""
     with _finalize_lock:
-        out = unique_output_path(source.parent, source.stem, ext)
-        renamed = out.name != f"{source.stem}.{ext}"
-        shutil.move(str(tmp_file), out)
+        is_dir = tmp_result.is_dir()
+        target_ext = None if is_dir else ext
+        out = unique_output_path(source.parent, source.stem, target_ext)
+        expected_name = source.stem if is_dir else f"{source.stem}.{ext}"
+        renamed = out.name != expected_name
+        shutil.move(str(tmp_result), out)
     return out, renamed
 
 
