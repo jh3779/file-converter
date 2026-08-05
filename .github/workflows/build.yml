@@ -160,8 +160,11 @@ jobs:
           if (-not ($formattedJson | Select-String -Pattern '"text":"일반텍스트","bold":false' -Quiet)) {
             Write-Error "HWP engine smoke failed: 같은 문단 안 일반 run이 굵게로 잘못 표시됨(DEC-027 회귀)"; exit 1
           }
-          if (-not ($formattedJson | Select-String -Pattern '"italic":true.*"size":18(\.0)?,"color":"FF0000"' -Quiet)) {
-            Write-Error "HWP engine smoke failed: 기울임·크기·색상 서식이 함께 추출되지 않음(DEC-027 회귀)"; exit 1
+          # [^}]*로 같은 run 객체({...} 하나) 안에서만 매치되도록 제한 —
+          # .*는 run 경계를 넘어 서로 다른 run의 속성을 잘못 엮어 맞출 수
+          # 있어(코드 리뷰 지적) run 객체 경계를 넘지 않게 좁힘.
+          if (-not ($formattedJson | Select-String -Pattern '"italic":true[^}]*"size":18(\.0)?[^}]*"color":"FF0000"' -Quiet)) {
+            Write-Error "HWP engine smoke failed: 기울임·크기·색상 서식이 같은 run 안에서 함께 추출되지 않음(DEC-027 회귀)"; exit 1
           }
       - name: Cache LibreOffice installer
         uses: actions/cache@v4

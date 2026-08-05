@@ -226,6 +226,24 @@ class TestHwpToDocxFormatting(Base):
         self.assertTrue(bold_runs and bold_runs[0].font.bold)
         self.assertTrue(normal_runs and not normal_runs[0].font.bold)
 
+    def test_no_silent_text_loss_from_weighted_position_mismatch(self):
+        """코드 리뷰로 발견한 심각한 회귀(머지 후 재검토): run 분리 로직이
+        ParaCharShape의 위치를 charList 인덱스와 동일하게 취급했는데, 실제로는
+        HWPChar.getCharSize() 가중치 단위(확장/인라인 컨트롤 문자는 charList
+        에서 1칸만 차지해도 8로 셈)라 서로 달랐다. 이 문서(distribution.hwp)
+        에서 실제로 글자가 조용히 사라지는 걸 재현 확인했다: 단독 특수문자
+        "⑤"가 통째로 사라짐(1글자짜리 run이 hwplib 자체의
+        ParaText.getNormalString(start,end) 버그—start==end면 무조건 빈
+        문자열 반환—에 걸림), 괄호 앞 공백이 2곳에서 사라짐(가중치 위치를
+        charList 인덱스로 착각해 문단 뒷부분이 밀림). 손으로 짠 픽스처가
+        아니라 실제 공공기관 문서로 검증해야 이런 문제가 잡힌다는 게 이번
+        사례의 교훈이라 앞으로도 이 문서를 계속 기준으로 쓴다."""
+        out = converters.convert(HWP_DISTRIBUTION, "docx", self.tmp)
+        joined = "\n".join(p.text for p in Document(out).paragraphs)
+        self.assertIn("⑤전자입찰이용관련", joined)
+        self.assertIn("면제함 (각서는", joined)
+        self.assertIn("기준」(지방계약법시행령) 및", joined)
+
 
 @unittest.skipUnless(shutil.which("java"), "JDK 없음")
 class TestHwpMakeFormattedFixture(Base):
