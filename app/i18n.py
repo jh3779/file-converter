@@ -101,6 +101,8 @@ _S = {
                              "This workbook has multiple sheets — only the first one will be converted"),
     "note.image_first_frame": ("움직이는 이미지예요 — 첫 번째 장면만 변환돼요",
                                "This is an animated image — only the first frame will be converted"),
+    "note.pdf_to_images": ("원본 파일명으로 폴더를 만들어 페이지별 이미지로 저장해요",
+                           "A folder named after the file will hold one image per page"),
     "err.notyet": ("이 변환은 다음 버전에서 지원될 예정입니다.",
                    "This conversion is coming in a future update."),
 }

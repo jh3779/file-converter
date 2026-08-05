@@ -324,6 +324,9 @@ jobs:
           if (-not (Get-ChildItem -Recurse -Path dist/FileConverter -Filter "PIL" -Directory -ErrorAction SilentlyContinue)) {
             Write-Error "Pillow(PIL) 패키지가 패키징된 아티팩트에 없습니다 (DEC-025) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
           }
+          if (-not (Get-ChildItem -Recurse -Path dist/FileConverter -Filter "pypdfium2*" -ErrorAction SilentlyContinue)) {
+            Write-Error "pypdfium2 패키지가 패키징된 아티팩트에 없습니다 (DEC-025) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
+          }
           $bundledVersion = (Get-Content dist/FileConverter/VERSION -Raw -ErrorAction SilentlyContinue)
           if ($bundledVersion -ne (Get-Content packaging/VERSION -Raw)) {
             Write-Error "번들된 VERSION이 packaging/VERSION과 다릅니다(업데이트 확인 기능 오탐 위험) — 번들: '$bundledVersion'"; exit 1

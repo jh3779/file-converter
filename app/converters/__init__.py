@@ -12,7 +12,7 @@ from . import data, pdf, office, hwp, video, image
 TARGETS: dict[str, list[str]] = {
     "docx": ["pdf", "hwp"],  # DEC-017 — 표는 텍스트로 단순화되어 저장됨
     "pptx": ["pdf"],   # DEC-016
-    "pdf": ["txt", "docx", "hwp"],  # DEC-023 — HWP도 텍스트 기반(DEC-010과 같은 원칙)
+    "pdf": ["txt", "docx", "hwp", "images"],  # DEC-023 — HWP도 텍스트 기반(DEC-010과 같은 원칙). images: DEC-025, 페이지별 PNG를 폴더에 저장
     "hwp": ["txt", "pdf", "docx"],
     "csv": ["xlsx", "json"],
     "xlsx": ["csv"],
@@ -45,6 +45,7 @@ _DISPATCH = {
     ("pdf", "txt"): pdf.pdf_to_txt,
     ("pdf", "docx"): pdf.pdf_to_docx,      # 텍스트 기반 (DEC-010 고지)
     ("pdf", "hwp"): hwp.pdf_to_hwp,        # 텍스트 기반 (DEC-023, DEC-010과 같은 원칙)
+    ("pdf", "images"): pdf.pdf_to_images,  # 페이지별 PNG, 폴더 결과물 (DEC-025)
     ("docx", "pdf"): office.office_to_pdf,
     ("pptx", "pdf"): office.office_to_pdf,  # DEC-016 — 동일 LibreOffice 경로 재사용
     ("docx", "hwp"): hwp.docx_to_hwp,      # DEC-017 — 문단 텍스트만, 표는 텍스트로 단순화

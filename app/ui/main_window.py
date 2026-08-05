@@ -111,13 +111,16 @@ class FileRow(QFrame):
         표 구조를 안 담고 있어 표 전용 문구는 아님). XLSX → CSV 선택 시 시트가 여러
         개면 고지(첫 시트만 변환 — 여러 파일로 나눠 출력하는 방안은 데이터 모델을
         바꿔야 해서 별도 과제로 보류). 애니메이션 이미지(GIF/WEBP) → 다른 이미지
-        포맷 선택 시 첫 프레임만 남는다는 고지(항상 단일 프레임으로 단순화)."""
+        포맷 선택 시 첫 프레임만 남는다는 고지(항상 단일 프레임으로 단순화).
+        DEC-025: PDF → 이미지 선택 시 결과가 폴더로 저장된다는 고지."""
         if self.item.target_fmt == "docx" and self.item.source_fmt in ("pdf", "hwp"):
             note_key = "note.simplified"
         elif self.item.target_fmt == "hwp" and self.item.source_fmt == "docx":
             note_key = "note.hwp_table_flatten"
         elif self.item.target_fmt == "hwp" and self.item.source_fmt == "pdf":
             note_key = "note.simplified"
+        elif self.item.target_fmt == "images" and self.item.source_fmt == "pdf":
+            note_key = "note.pdf_to_images"
         elif self.item.target_fmt == "csv" and self.item.source_fmt == "xlsx":
             from ..converters.data import xlsx_sheet_count
             note_key = "note.xlsx_multisheet" if xlsx_sheet_count(self.item.source) > 1 else None
@@ -631,7 +634,10 @@ class MainWindow(QMainWindow):
     def _open_result_folder(self):
         done = next((it for it in self.items if it.state == ItemState.DONE and it.output), None)
         if done:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(done.output.parent)))
+            # PDF→이미지(DEC-025)처럼 결과물 자체가 폴더면 그 폴더를 직접 연다 —
+            # 그 외(파일 결과물)는 지금까지처럼 부모 폴더를 연다.
+            target = done.output if done.output.is_dir() else done.output.parent
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
 
     def _dismiss_result(self):
         """확인: 전체 성공 → 목록 비움 / 실패 존재 → 실패 파일만 남김 (재시도, INV-03)."""
@@ -692,9 +698,10 @@ class MainWindow(QMainWindow):
                 open_btn = QPushButton("📂")
                 open_btn.setProperty("variant", "icon")
                 open_btn.setAccessibleName("open location")
+                # PDF→이미지(DEC-025)처럼 결과물이 폴더면 그 폴더를 직접 연다.
                 open_btn.clicked.connect(
                     lambda _, p=e.output_path: QDesktopServices.openUrl(
-                        QUrl.fromLocalFile(str(Path(p).parent))))
+                        QUrl.fromLocalFile(str(Path(p) if Path(p).is_dir() else Path(p).parent))))
                 rl.addWidget(open_btn)
             del_btn = QPushButton("🗑")
             del_btn.setProperty("variant", "icon")
