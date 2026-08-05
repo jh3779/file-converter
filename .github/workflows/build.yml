@@ -593,8 +593,9 @@ jobs:
               print("::error::HWP engine smoke failed: 기울임·크기·색상 서식이 같은 run 안에서 함께 추출되지 않음(DEC-027 회귀)")
               sys.exit(1)
           PY
-      - name: Cache LibreOffice installer
-        uses: actions/cache@v4
+      - name: Restore LibreOffice installer cache
+        id: lo-cache
+        uses: actions/cache/restore@v4
         with:
           path: lo-installer
           key: libreoffice-installer-${{ env.LO_VERSION }}-${{ env.LO_MAC_SHA256 }}-mac-aarch64
@@ -613,6 +614,16 @@ jobs:
             exit 1
           fi
           echo "체크섬 확인 완료: $hash"
+      - name: Save LibreOffice installer cache
+        # 체크섬 검증 직후, 이후 단계 성공 여부와 무관하게 바로 저장한다 —
+        # actions/cache@v4의 기본 동작(잡 전체가 성공해야만 저장)에 맡기면
+        # 다운로드 이후 단계에서 실패할 때마다 무거운 dmg를 mirror 서버에서
+        # 매번 다시 받아야 한다(공식 권장 restore+save 분리 패턴).
+        if: steps.lo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: lo-installer
+          key: ${{ steps.lo-cache.outputs.cache-primary-key }}
       - name: Extract LibreOffice (dmg 마운트 → .app에서 필요한 파일만 복사, 시스템 설치 없이)
         run: |
           mountpoint="$PWD/lo-mount"
@@ -639,8 +650,9 @@ jobs:
             echo "::error::LibreOffice 라이선스 파일을 찾을 수 없습니다"
             exit 1
           fi
-      - name: Cache Noto Sans KR font
-        uses: actions/cache@v4
+      - name: Restore Noto Sans KR font cache
+        id: notokr-cache
+        uses: actions/cache/restore@v4
         with:
           path: notokr.zip
           key: notosanskr-${{ env.NOTOKR_RELEASE_TAG }}-${{ env.NOTOKR_SHA256 }}
@@ -667,6 +679,12 @@ jobs:
             echo "::error::글꼴 번들 실패: $font_dir/NotoSansKR-Regular.otf 없음"
             exit 1
           fi
+      - name: Save Noto Sans KR font cache
+        if: steps.notokr-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: notokr.zip
+          key: ${{ steps.notokr-cache.outputs.cache-primary-key }}
       - name: LibreOffice + HWP→PDF 파이프라인 스모크 (사전 빌드 경로, 영상 섹션은 미번들이라 스킵)
         env:
           FILECONV_SOFFICE: engine-build/libreoffice/LibreOffice.app/Contents/MacOS/soffice
