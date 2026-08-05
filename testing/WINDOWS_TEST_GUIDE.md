@@ -1,4 +1,4 @@
-# 파일 변환기 — Windows 테스트 가이드 (v0.3.7)
+# 파일 변환기 — Windows 테스트 가이드 (v0.3.8)
 
 테스트해 주셔서 감사합니다! 이번 버전의 핵심은 **DOCX의 표를 HWP로 변환할 때
 텍스트로 뭉개지 않고 실제 표(칸 구분이 있는 진짜 표)로 만드는 신규 기능**입니다.
@@ -13,7 +13,7 @@
 - `testing/samples/` 폴더의 샘플 파일 5개(아래 표) — 이번에 추가·수정한 기능을 정확히
   겨냥해 만든 테스트용 파일입니다. 본인이 가진 실제 문서로도 자유롭게 테스트해 주시면
   더 좋습니다(특히 표·번호 목록이 많은 실제 업무 문서라면 더 좋습니다).
-- 설치 파일 바로 다운로드: **[v0.3.7 설치 파일](https://github.com/jh3779/file-converter/releases/download/v0.3.7/FileConverter-Setup-latest.exe)**
+- 설치 파일 바로 다운로드: **[v0.3.8 설치 파일](https://github.com/jh3779/file-converter/releases/download/v0.3.8/FileConverter-Setup-latest.exe)**
   (저장소가 공개 전환되어 로그인 없이 바로 받으실 수 있습니다)
 - 한글(HWP) 프로그램 — 이번 테스트 2-1에서 꼭 필요합니다
 
