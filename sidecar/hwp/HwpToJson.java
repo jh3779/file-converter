@@ -7,6 +7,9 @@ import kr.dogfoot.hwplib.object.bodytext.control.table.Cell;
 import kr.dogfoot.hwplib.object.bodytext.control.table.Row;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.Paragraph;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.charshape.CharPositionShapeIdPair;
+import kr.dogfoot.hwplib.object.bodytext.paragraph.text.HWPChar;
+import kr.dogfoot.hwplib.object.bodytext.paragraph.text.HWPCharNormal;
+import kr.dogfoot.hwplib.object.bodytext.paragraph.text.HWPCharType;
 import kr.dogfoot.hwplib.object.docinfo.CharShape;
 import kr.dogfoot.hwplib.object.docinfo.DocInfo;
 import kr.dogfoot.hwplib.object.docinfo.charshape.UnderLineSort;
@@ -89,13 +92,14 @@ public class HwpToJson {
      */
     private static String paragraphRunsJson(Paragraph p, DocInfo docInfo) {
         if (p.getText() == null) return null;
-        int charSize;
+        ArrayList<HWPChar> charList;
         try {
-            charSize = p.getText().getCharSize();
+            charList = p.getText().getCharList();
         } catch (Exception e) {
             return null;
         }
-        if (charSize == 0) return null;
+        if (charList.isEmpty()) return null;
+        int rawSize = charList.size();
 
         ArrayList<CharPositionShapeIdPair> pairs = (p.getCharShape() != null)
                 ? p.getCharShape().getPositonShapeIdPairList() : null;
@@ -110,14 +114,26 @@ public class HwpToJson {
             texts.add(text);
             shapes.add(null);
         } else {
+            // ParaCharShape의 position은 "글자 1개=1칸"이 아니라
+            // HWPChar.getCharSize()로 가중치를 매긴 값이다(예: 확장/인라인
+            // 컨트롤 문자 — 하이퍼링크·각주·필드 등 — 는 charList에서 1칸만
+            // 차지하지만 이 가중치로는 8로 셈) — charList의 실제 인덱스와
+            // 다르다. 실사용 문서(distribution.hwp 문단 0의 섹션/컬럼정의
+            // 확장문자 2개)에서 이 괴리로 뒷부분 위치가 charList 범위를
+            // 넘어가는 것을 재현 확인(코드 리뷰로 발견) — 각 위치를 실제
+            // charList 인덱스로 변환한 다음에 슬라이스한다.
+            int[] rawPositions = new int[pairs.size()];
             for (int i = 0; i < pairs.size(); i++) {
-                int start = (int) pairs.get(i).getPosition();
-                int end = (i + 1 < pairs.size()) ? (int) pairs.get(i + 1).getPosition() - 1 : charSize - 1;
-                if (start > end || start >= charSize) continue;
-                end = Math.min(end, charSize - 1);
+                rawPositions[i] = weightedPositionToIndex(charList, (int) pairs.get(i).getPosition());
+            }
+            for (int i = 0; i < pairs.size(); i++) {
+                int start = rawPositions[i];
+                int end = (i + 1 < pairs.size()) ? rawPositions[i + 1] - 1 : rawSize - 1;
+                if (start > end || start >= rawSize) continue;
+                end = Math.min(end, rawSize - 1);
                 String text;
                 try {
-                    text = p.getText().getNormalString(start, end);
+                    text = extractNormalText(charList, start, end);
                 } catch (Exception e) {
                     continue;
                 }
@@ -129,10 +145,12 @@ public class HwpToJson {
         if (texts.isEmpty()) return null;
 
         // 문단 전체 기준 앞뒤 공백 제거(기존 safeText().trim()과 동일한 최종
-        // 결과를 내기 위함) — 첫/끝 run만 다듬고, 그 결과 비어버리면 버린다.
-        int lastIdx = texts.size() - 1;
-        texts.set(0, stripLeading(texts.get(0)));
-        texts.set(lastIdx, stripTrailing(texts.get(lastIdx)));
+        // 결과를 내기 위함) — 이어붙인 전체 문자열 기준으로 앞뒤 공백 총량을
+        // 구한 다음 run 경계를 넘나들며 그만큼만 제거한다. 물리적으로 첫/끝
+        // 배열 원소만 다듬으면, 그 사이(예: 표제 문단 뒤에 공백만 있는
+        // run)에 남는 공백을 놓친다(실사용 문서에서 재현 확인, 코드 리뷰로
+        // 발견) — 그래서 "run 경계를 넘나들며" 처리한다.
+        trimEdges(texts);
 
         StringBuilder out = new StringBuilder();
         boolean firstRun = true;
@@ -143,6 +161,88 @@ public class HwpToJson {
             firstRun = false;
         }
         return firstRun ? null : out.toString();
+    }
+
+    /**
+     * charList[start..end](양끝 포함)의 일반 글자만 이어붙인다.
+     *
+     * hwplib의 ParaText.getNormalString(start, end)를 쓰지 않는다 — 그
+     * 메서드는 startIndex==endIndex(정확히 글자 1개짜리 범위)이면 무조건
+     * 빈 문자열을 반환하는 버그가 있다(라이브러리 자체 소스로 확인). 이번
+     * run 분리 기능이 처음으로 "글자 1개짜리 run"(예: 문단 중간의 공백 1개,
+     * "⑤" 같은 단독 특수문자에만 다른 글자모양이 적용된 경우)을 실제로
+     * 만들어내면서 실사용 문서(distribution.hwp)에서 재현 확인된 조용한
+     * 텍스트 유실이었다(코드 리뷰로 발견) — 라이브러리를 우회해 직접
+     * charList를 순회하는 것으로 수정.
+     */
+    private static String extractNormalText(ArrayList<HWPChar> charList, int start, int end) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = start; i <= end && i < charList.size(); i++) {
+            HWPChar ch = charList.get(i);
+            if (ch.getType() == HWPCharType.Normal) {
+                try {
+                    sb.append(((HWPCharNormal) ch).getCh());
+                } catch (Exception e) {
+                    // 개별 글자 디코딩 실패는 그 글자만 건너뛴다(나머지는 보존).
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * ParaCharShape의 가중치 위치(weightedPos, HWPChar.getCharSize() 합산
+     * 기준)를 charList의 실제 인덱스로 변환한다. 가중치 누적 합이
+     * weightedPos에 도달하는 첫 인덱스를 찾는다 — 끝까지 못 찾으면(위치가
+     * 문단 끝을 넘어서면) charList.size()를 반환해 상위에서 "범위 밖"으로
+     * 자연히 걸러지게 한다.
+     */
+    private static int weightedPositionToIndex(ArrayList<HWPChar> charList, int weightedPos) {
+        int weight = 0;
+        for (int i = 0; i < charList.size(); i++) {
+            if (weight >= weightedPos) return i;
+            weight += charList.get(i).getCharSize();
+        }
+        return charList.size();
+    }
+
+    /**
+     * texts를 이어붙인 전체 문자열 기준으로 앞뒤 공백 총량을 구해, run
+     * 경계를 넘나들며 그만큼만 정확히 제거한다(제자리 수정). 문단 중간의
+     * 공백 run(단어 사이 구분자)은 건드리지 않는다.
+     */
+    private static void trimEdges(ArrayList<String> texts) {
+        StringBuilder full = new StringBuilder();
+        for (String t : texts) full.append(t);
+        String joined = full.toString();
+        int lead = 0;
+        while (lead < joined.length() && Character.isWhitespace(joined.charAt(lead))) lead++;
+        int trail = 0;
+        while (trail < joined.length() - lead
+                && Character.isWhitespace(joined.charAt(joined.length() - 1 - trail))) trail++;
+
+        int remaining = lead;
+        for (int i = 0; i < texts.size() && remaining > 0; i++) {
+            String t = texts.get(i);
+            if (t.length() <= remaining) {
+                remaining -= t.length();
+                texts.set(i, "");
+            } else {
+                texts.set(i, t.substring(remaining));
+                remaining = 0;
+            }
+        }
+        remaining = trail;
+        for (int i = texts.size() - 1; i >= 0 && remaining > 0; i--) {
+            String t = texts.get(i);
+            if (t.length() <= remaining) {
+                remaining -= t.length();
+                texts.set(i, "");
+            } else {
+                texts.set(i, t.substring(0, t.length() - remaining));
+                remaining = 0;
+            }
+        }
     }
 
     private static CharShape resolveCharShape(DocInfo docInfo, long shapeId) {
@@ -169,18 +269,6 @@ public class HwpToJson {
         }
         return "{\"text\":\"" + esc(text) + "\",\"bold\":" + bold + ",\"italic\":" + italic
                 + ",\"underline\":" + underline + ",\"size\":" + sizePt + ",\"color\":\"" + color + "\"}";
-    }
-
-    private static String stripLeading(String s) {
-        int i = 0;
-        while (i < s.length() && Character.isWhitespace(s.charAt(i))) i++;
-        return s.substring(i);
-    }
-
-    private static String stripTrailing(String s) {
-        int i = s.length();
-        while (i > 0 && Character.isWhitespace(s.charAt(i - 1))) i--;
-        return s.substring(0, i);
     }
 
     private static String safeText(Paragraph p) {
