@@ -17,15 +17,23 @@ TARGETS: dict[str, list[str]] = {
     "csv": ["xlsx", "json"],
     "xlsx": ["csv"],
     "json": ["csv"],
-    # DEC-024 — 영상 스트림이 H.264/HEVC일 때만 지원(그 외 코덱은 변환 시 오류).
-    # webm은 목록에서 제외 — 표준 WEBM은 VP8/VP9/AV1만 담아 H.264/HEVC를
-    # 실을 수 없으므로 "지원"으로 노출하면 사실상 항상 실패한다(가능한 것만
-    # 노출한다는 TARGETS 원칙 위반, 코드 리뷰 지적으로 발견).
-    "avi": ["mp4"], "mov": ["mp4"], "mkv": ["mp4"],
-    "wmv": ["mp4"], "flv": ["mp4"], "m4v": ["mp4"],
 }
 
 _VIDEO_EXTS = ("avi", "mov", "mkv", "wmv", "flv", "m4v")
+
+# DEC-024 — 영상 스트림이 H.264/HEVC일 때만 지원(그 외 코덱은 변환 시 오류).
+# webm은 목록에서 제외 — 표준 WEBM은 VP8/VP9/AV1만 담아 H.264/HEVC를 실을 수
+# 없으므로 "지원"으로 노출하면 사실상 항상 실패한다(가능한 것만 노출한다는
+# TARGETS 원칙 위반, 코드 리뷰 지적으로 발견).
+# DEC-029 — FFmpeg는 macOS 빌드에서 번들하지 않는다(검증된 사전 빌드
+# LGPL macOS 바이너리가 없었음). find_ffmpeg()가 못 찾으면(엔진이 애초에
+# 없는 배포판) 영상 확장자를 TARGETS에서 아예 뺀다 — "재설치하세요"라는
+# 엉뚱한 오류를 보여주는 대신, 지원 안 하는 형식으로 자연스럽게 처리된다
+# (가능한 것만 노출한다는 원칙을 여기에도 그대로 적용).
+if video.find_ffmpeg() is not None:
+    for _ext in _VIDEO_EXTS:
+        TARGETS[_ext] = ["mp4"]
+    del _ext
 
 # 이미지 상호 변환 — jpg/jpeg는 같은 포맷(JPEG)으로 취급해 서로를 대상
 # 목록에서 제외한다(자기 자신으로의 "변환" 노출 방지, TARGETS 원칙).

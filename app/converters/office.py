@@ -23,9 +23,10 @@ def find_soffice() -> str | None:
     env = os.environ.get("FILECONV_SOFFICE")
     if env and Path(env).exists():
         return env
-    for bundled in (engine_dir() / "libreoffice" / "program" / "soffice.exe",
-                    engine_dir() / "libreoffice" / "program" / "soffice"):
-        if bundled.exists():                # v0.3b: LibreOffice 번들 시 사용
+    for bundled in (engine_dir() / "libreoffice" / "program" / "soffice.exe",  # Windows (v0.3b)
+                    engine_dir() / "libreoffice" / "program" / "soffice",
+                    engine_dir() / "libreoffice" / "LibreOffice.app" / "Contents" / "MacOS" / "soffice"):  # macOS
+        if bundled.exists():
             return str(bundled)
     found = shutil.which("soffice")
     if found:

@@ -2,24 +2,29 @@
 
 비개발자를 위한 **완전 오프라인** 데스크톱 파일 포맷 변환기. 파일이 PC 밖으로 절대 나가지 않습니다.
 
-> Windows 배포 (v0.3.8 프리릴리스) · macOS 개발 환경 · 사이드 프로젝트 · MVP 완성
+> Windows·macOS 배포 (v0.3.9 프리릴리스) · 사이드 프로젝트 · MVP 완성
 
 ## 다운로드
 
 | 플랫폼 | 방법 |
 |---|---|
-| 🪟 **Windows** | **[v0.3.8 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.8/FileConverter-Setup-latest.exe)** — 관리자 권한 불요, 인스톨러 실행 후 안내만 따라가면 끝 (v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
-| 🍎 macOS | 아직 배포판이 없습니다(REQ-NF-001: macOS는 현재 개발 환경 전용). 아래 "실행 방법(개발)"로 소스에서 바로 실행할 수 있습니다 |
+| 🪟 **Windows** | **[v0.3.9 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.9/FileConverter-Setup-latest.exe)** — 관리자 권한 불요, 인스톨러 실행 후 안내만 따라가면 끝 (v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
+| 🍎 **macOS** (Apple Silicon) | **[v0.3.9 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.9/FileConverter-latest-mac-arm64.dmg)** — dmg를 열어 Applications로 드래그(DEC-029). **미서명 배포**라 처음 실행 시 Gatekeeper가 막습니다 — 아래 안내 참고. Intel Mac은 아직 미지원, **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
 | 🐧 Linux | 지원 계획 없음 |
 
 > ⚠️ 설치 파일 실행 시 Windows SmartScreen이 "인식할 수 없는 앱" 경고를 띄울 수 있습니다 —
 > 정식 코드 서명 인증서가 없는 사이드 프로젝트라 발생하는 정상적인 현상입니다(악성코드
 > 경고 아님). **"추가 정보" → "실행"**을 누르면 계속 진행됩니다.
 
+> ⚠️ macOS는 **서명 없이 배포**합니다(개인 사이드 프로젝트 규모에 맞춘 선택, DEC-029) —
+> 처음 실행 시 Gatekeeper가 "확인되지 않은 개발자" 경고로 막습니다. Finder에서 앱을
+> **control+클릭 → "열기"**를 누르면 한 번만 이 경고를 넘길 수 있습니다(악성코드 경고 아님).
+
 > 유지보수 메모: `.../releases/latest/download/...` 단축 링크는 GitHub이 **pre-release를
 > "latest"로 인정하지 않아** 쓸 수 없다(0.x라 `--prerelease`로 발행 — DEC-014). 그래서 위
 > 링크는 태그 버전이 URL에 고정되어 있다 — **새 버전을 태그할 때마다 이 표의 URL도 함께
-> 갱신할 것**(파일명은 `FileConverter-Setup-latest.exe`로 고정이라 태그 부분만 바꾸면 됨).
+> 갱신할 것**(파일명은 Windows `FileConverter-Setup-latest.exe`·macOS
+> `FileConverter-latest-mac-arm64.dmg`로 고정이라 태그 부분만 바꾸면 됨).
 
 ## 무엇을 하나
 - **문서**: DOCX→PDF · PPTX→PDF · PDF→TXT/DOCX/이미지 · HWP→PDF/TXT/DOCX · DOCX·PDF→HWP (문단 텍스트 + 실제 표, PDF는 표 구조가 없어 텍스트만 — DEC-017 정정·DEC-023·DEC-028, 셀 병합은 아직 미지원·실제 한글 뷰어 렌더링은 검증 중). PDF→이미지는 원본 파일명 폴더에 페이지별 PNG 저장(DEC-026). PDF→DOCX는 굵게/기울임/글자크기, HWP→DOCX는 굵게/기울임/밑줄/글자크기/색상 반영(PDF는 밑줄을 벡터 선으로 그리는 경우가 많아 폰트 기반 휴리스틱으로 판별 불가 — DEC-027)
@@ -85,6 +90,7 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] v0.3.6 — **PDF→HWP 경로 추가**(DEC-023) — 확인해보니 DOCX→HWP·HWP→DOCX는 이미 있었고 PDF→HWP만 없어서 그 경로만 추가. PDF→DOCX와 같은 텍스트 기반 파이프라인(PDF는 표 구조를 안 담고 있어 별도 단순화 불필요)
 - [x] v0.3.7 — **영상→MP4 신규 지원**(REQ-F-014, DEC-024) — FFmpeg LGPL 빌드 번들(GPL 인코더 미포함). 구현 전 전수조사로 방향을 두 번 뒤집었음: OpenH264(BSD, 처음 검토한 라이선스 안전한 대안)는 실사용 화질이 x264보다 뚜렷이 나쁨을 Cisco 자체 이슈 트래커로 확인해 철회 → 재인코딩 없이 컨테이너만 바꾸는 "스트림 카피" 방식을 발견(로컬에서 원본·결과물 영상 스트림 MD5 완전 일치로 무손실 확인). 최종 범위: 영상이 이미 H.264/HEVC(실사용 영상 대부분)면 무손실·즉시 변환, 그 외 코덱은 v1에서 명확한 오류로 거부 — 인코더 라이선스·화질 트레이드오프 자체를 피함. 지원 확장자: AVI/MOV/MKV/WMV/FLV/M4V(WEBM은 VP8/VP9/AV1만 담아 이 범위와 사실상 항상 불일치해 제외)
 - [x] v0.3.8 — **이미지 변환 + 문서 서식 충실도 4-phase 업그레이드**(DEC-025~028). ① 일반 이미지 포맷 변환(JPG/PNG/BMP/GIF/WEBP/TIFF 상호 변환, Pillow) — EXIF 회전 반영, 투명 배경은 무알파 포맷 저장 시 흰 배경 합성. ② PDF→이미지 — 원본 파일명 폴더에 페이지별 PNG 저장(LibreOffice가 다중 페이지에서 첫 페이지만 내보내는 걸 실측 확인해 기각, pypdfium2 채택 — 앱이 처음으로 "출력 파일 1개" 가정을 깨는 사례라 출력 파이프라인도 함께 확장). ③ HWP→DOCX·PDF→DOCX 문자 서식(굵게/기울임/밑줄/글자크기/색상) 반영 — PDF는 폰트 이름 휴리스틱이라 100% 정확 보장 안 함(특히 한글 이탤릭은 원본 자체에 감지할 서식이 없는 경우가 흔함), 머지 후 재검토에서 실제 텍스트 손상 회귀(hwplib의 `ParaCharShape` 가중치 위치 오인 + 라이브러리 자체의 1글자 버그)를 발견해 수정. ④ **DOCX→HWP 표 신규 생성**(DEC-017 정정 — "hwplib엔 표 생성 도구가 없다"던 기존 기록이 틀렸음을 재확인, 공식 샘플 `Inserting_Table.java` 기반 스파이크 후 일반화) — 더 이상 텍스트로 단순화되지 않고 실제 HWP 표로 생성됨(셀 병합은 아직 미지원, 실제 한글 뷰어 렌더링은 다음 Windows 테스트 라운드에서 확인 예정)
+- [x] v0.3.9 — **macOS 배포판 릴리스**(REQ-NF-001 정정, DEC-014 보류 결정을 뒤집음, DEC-029) — Apple Silicon(arm64) 전용, 서명 없이 무료 배포. Windows와 같은 hwplib·LibreOffice 26.2.5·Noto Sans KR을 재사용해 산출물 간 동작 차이가 없도록 CI `build-macos` 잡을 신설(같은 태그의 GitHub Release에 dmg를 함께 첨부). **영상→MP4는 이 배포판에서 미지원** — 검증된 사전 빌드 LGPL macOS FFmpeg 바이너리가 없어(BtbN·mifi 저장소 모두 macOS 자산 미제공을 직접 확인) 영상 확장자를 대상 목록에서 아예 빼(가능한 것만 노출 — C-03) "재설치하세요" 같은 엉뚱한 오류 대신 자연스럽게 미지원 처리. 구현 중 `find_soffice()`의 번들 경로 탐색이 Windows 전용 구조(`libreoffice/program/soffice.exe`)만 확인하고 macOS `.app` 번들 구조를 놓쳐 실사용자 macOS 배포판에서 LibreOffice를 못 찾을 뻔한 버그를 자체 점검으로 발견해 수정(회귀 테스트 추가)
 
 ## 라이선스 고지
 - HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)
