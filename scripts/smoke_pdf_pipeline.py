@@ -282,6 +282,22 @@ def main():
         except Exception as e:
             check("영상→MP4 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
+        # 7) 이미지 포맷 변환 (DEC-025: Pillow — PyInstaller 패키징 후에도 실제로
+        #    묶여서 동작하는지가 핵심. 새 네이티브 의존성이라 엔진들과 같은
+        #    수준으로 패키징 경로 검증이 필요함).
+        try:
+            from PIL import Image
+            src_png = tmp / "smoke.png"
+            Image.new("RGB", (8, 8), (10, 20, 30)).save(src_png)
+            out = converters.convert(src_png, "jpg", tmp)
+            check("이미지 PNG→JPG 변환 완료", out.exists())
+            with Image.open(out) as result:
+                check("이미지 결과 포맷이 JPEG", result.format == "JPEG", result.format)
+        except ConversionError as e:
+            check("이미지 PNG→JPG 변환 완료", False, f"{e.key}: {e.detail}")
+        except Exception as e:
+            check("이미지 PNG→JPG 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
+
         print("스모크 전체 통과")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

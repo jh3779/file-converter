@@ -42,7 +42,7 @@ THIRD-PARTY NOTICES — File Converter (파일 변환기)
      DOCX→PDF 렌더링은 호스트 글꼴 가용성에 여전히 일부 의존한다(잔여 리스크).
 
 5. Python 런타임 및 라이브러리 (PySide6/Qt는 LGPLv3, openpyxl MIT,
-   pdfminer.six MIT, python-docx MIT)
+   pdfminer.six MIT, python-docx MIT, Pillow HPND)
    - PyInstaller 번들 내 포함. PySide6(Qt) LGPLv3 고지:
      https://www.qt.io/licensing — 동적 링크 사용.
 

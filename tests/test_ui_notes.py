@@ -87,6 +87,22 @@ class TestFormatNote(unittest.TestCase):
         visible, _ = self._note_for("xlsx", "csv", source_path=src)
         self.assertFalse(visible)
 
+    def test_animated_gif_to_png_shows_first_frame_note(self):
+        from PIL import Image
+        frames = [Image.new("RGB", (4, 4), (i * 50, 0, 0)) for i in range(3)]
+        src = self.tmp / "anim.gif"
+        frames[0].save(src, save_all=True, append_images=frames[1:], duration=50, loop=0)
+        visible, text = self._note_for("gif", "png", source_path=src)
+        self.assertTrue(visible)
+        self.assertIn("첫 번째", text)
+
+    def test_static_png_to_jpg_shows_no_note(self):
+        from PIL import Image
+        src = self.tmp / "static.png"
+        Image.new("RGB", (4, 4)).save(src)
+        visible, _ = self._note_for("png", "jpg", source_path=src)
+        self.assertFalse(visible)
+
 
 if __name__ == "__main__":
     unittest.main()

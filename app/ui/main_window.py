@@ -22,7 +22,9 @@ from ..workers import Job
 _ICONS = {"docx": "📄", "pdf": "📄", "hwp": "📄", "txt": "📄", "pptx": "📽",
           "csv": "📊", "xlsx": "📊", "json": "📊",
           "avi": "🎬", "mov": "🎬", "mkv": "🎬", "wmv": "🎬", "flv": "🎬",
-          "webm": "🎬", "m4v": "🎬"}
+          "webm": "🎬", "m4v": "🎬",
+          "jpg": "🖼", "jpeg": "🖼", "png": "🖼", "bmp": "🖼", "gif": "🖼",
+          "webp": "🖼", "tiff": "🖼"}
 
 _BADGE = {  # state → (bg 토큰, fg 토큰, i18n 키)
     ItemState.QUEUED: ("stQueuedBg", "stQueuedFg", "st.queued"),
@@ -108,7 +110,8 @@ class FileRow(QFrame):
         텍스트로 단순화). DEC-023: PDF → HWP도 텍스트 기반이라 같은 고지(PDF 자체가
         표 구조를 안 담고 있어 표 전용 문구는 아님). XLSX → CSV 선택 시 시트가 여러
         개면 고지(첫 시트만 변환 — 여러 파일로 나눠 출력하는 방안은 데이터 모델을
-        바꿔야 해서 별도 과제로 보류)."""
+        바꿔야 해서 별도 과제로 보류). 애니메이션 이미지(GIF/WEBP) → 다른 이미지
+        포맷 선택 시 첫 프레임만 남는다는 고지(항상 단일 프레임으로 단순화)."""
         if self.item.target_fmt == "docx" and self.item.source_fmt in ("pdf", "hwp"):
             note_key = "note.simplified"
         elif self.item.target_fmt == "hwp" and self.item.source_fmt == "docx":
@@ -118,6 +121,10 @@ class FileRow(QFrame):
         elif self.item.target_fmt == "csv" and self.item.source_fmt == "xlsx":
             from ..converters.data import xlsx_sheet_count
             note_key = "note.xlsx_multisheet" if xlsx_sheet_count(self.item.source) > 1 else None
+        elif (self.item.source_fmt in ("gif", "webp", "tiff")
+              and self.item.target_fmt in ("jpg", "png", "bmp", "gif", "webp", "tiff")):
+            from ..converters.image import is_animated
+            note_key = "note.image_first_frame" if is_animated(self.item.source) else None
         else:
             note_key = None
         if note_key:

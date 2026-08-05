@@ -10,8 +10,10 @@ LANGS = ("ko", "en")
 _S = {
     "app.title": ("파일 변환기", "File Converter"),
     "drop.title": ("파일을 여기에 끌어다 놓으세요", "Drop files here"),
-    "drop.sub": ("또는 클릭해서 선택 · DOCX PPTX PDF HWP CSV XLSX JSON · AVI MOV MKV 등 영상",
-                 "or click to browse · DOCX PPTX PDF HWP CSV XLSX JSON · AVI MOV MKV and other video"),
+    "drop.sub": ("또는 클릭해서 선택 · DOCX PPTX PDF HWP CSV XLSX JSON · AVI MOV MKV 등 영상 · "
+                 "JPG PNG 등 이미지",
+                 "or click to browse · DOCX PPTX PDF HWP CSV XLSX JSON · AVI MOV MKV and other "
+                 "video · JPG PNG and other images"),
     "drop.strip": ("＋ 파일 추가 또는 끌어다 놓기", "＋ Add files or drag & drop"),
     "convert": ("변환하기", "Convert"),
     "cancel": ("취소", "Cancel"),
@@ -97,6 +99,8 @@ _S = {
                                "Tables are saved as plain text lines, without the grid — content is kept"),
     "note.xlsx_multisheet": ("시트가 여러 개예요 — 첫 번째 시트만 변환돼요",
                              "This workbook has multiple sheets — only the first one will be converted"),
+    "note.image_first_frame": ("움직이는 이미지예요 — 첫 번째 장면만 변환돼요",
+                               "This is an animated image — only the first frame will be converted"),
     "err.notyet": ("이 변환은 다음 버전에서 지원될 예정입니다.",
                    "This conversion is coming in a future update."),
 }

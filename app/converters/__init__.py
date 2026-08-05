@@ -3,10 +3,11 @@
 TARGETS: 확장자별 선택 가능한 대상 포맷(가능한 것만 노출 — C-03).
 convert(src, dst_fmt, tmpdir) → 임시 산출물 Path. 실패 시 ConversionError(i18n 키).
 """
+from functools import partial
 from pathlib import Path
 
 from .base import ConversionError
-from . import data, pdf, office, hwp, video
+from . import data, pdf, office, hwp, video, image
 
 TARGETS: dict[str, list[str]] = {
     "docx": ["pdf", "hwp"],  # DEC-017 — 표는 텍스트로 단순화되어 저장됨
@@ -26,6 +27,16 @@ TARGETS: dict[str, list[str]] = {
 
 _VIDEO_EXTS = ("avi", "mov", "mkv", "wmv", "flv", "m4v")
 
+# 이미지 상호 변환 — jpg/jpeg는 같은 포맷(JPEG)으로 취급해 서로를 대상
+# 목록에서 제외한다(자기 자신으로의 "변환" 노출 방지, TARGETS 원칙).
+_IMAGE_SRC_EXTS = ("jpg", "jpeg", "png", "bmp", "gif", "webp", "tiff")
+_IMAGE_CANON = {"jpg": "jpg", "jpeg": "jpg", "png": "png", "bmp": "bmp",
+                "gif": "gif", "webp": "webp", "tiff": "tiff"}
+_IMAGE_TARGET_EXTS = ("jpg", "png", "bmp", "gif", "webp", "tiff")
+for _src in _IMAGE_SRC_EXTS:
+    TARGETS[_src] = [t for t in _IMAGE_TARGET_EXTS if t != _IMAGE_CANON[_src]]
+del _src
+
 _DISPATCH = {
     ("csv", "xlsx"): data.csv_to_xlsx,
     ("xlsx", "csv"): data.xlsx_to_csv,
@@ -41,6 +52,8 @@ _DISPATCH = {
     ("hwp", "pdf"): hwp.hwp_to_pdf,        # DOCX 경유 → LibreOffice
     ("hwp", "docx"): hwp.hwp_to_docx,      # 구조 JSON → python-docx
     **{(ext, "mp4"): video.video_to_mp4 for ext in _VIDEO_EXTS},  # DEC-024
+    **{(src, tgt): partial(image.convert_image, target_ext=tgt)
+       for src in _IMAGE_SRC_EXTS for tgt in TARGETS[src]},
 }
 
 
