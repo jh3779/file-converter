@@ -678,6 +678,12 @@ jobs:
         run: >
           pyinstaller --noconfirm --clean --windowed --name FileConverter
           --icon packaging/icon.icns --collect-submodules app run.py
+      - name: DEBUG 번들 구조 확인 (임시 — PIL 등 실제 위치 파악용)
+        run: |
+          echo "--- dist/FileConverter.app 트리(3단계) ---"
+          find dist/FileConverter.app -maxdepth 3 | sort
+          echo "--- PIL 디렉터리 검색(전체) ---"
+          find dist/FileConverter.app -type d -iname "PIL" || true
       - name: Bundle engine into dist (+ 제3자 라이선스 고지)
         run: |
           # app/bundle.py의 engine_dir()는 sys.executable(=.../Contents/MacOS/FileConverter)
