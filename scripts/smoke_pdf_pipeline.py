@@ -14,7 +14,12 @@ PDF 결과는 파일 크기뿐 아니라 %PDF- 매직바이트 + pdfminer 텍스
 실패 시 non-zero로 종료 — 이 스크립트를 호출하는 쪽에서 exit code를 반드시 확인할 것.
 
 사용:
-  python scripts/smoke_pdf_pipeline.py <hwp_sample_path> [--skip-hwp] [--frozen-exe <exe경로>]
+  python scripts/smoke_pdf_pipeline.py <hwp_sample_path> [--skip-hwp] [--skip-video] [--frozen-exe <exe경로>]
+
+--skip-video: FFmpeg를 의도적으로 번들하지 않는 배포판(예: macOS v1, DEC-029 —
+검증된 사전 빌드 LGPL macOS 바이너리가 없어 영상 변환 자체를 지원하지 않음)에서
+사용. "번들이 깨졌다"와 "이 플랫폼은 원래 미지원"을 구분하기 위한 옵션이며,
+Windows CI는 계속 이 플래그 없이 실행해 영상 경로를 그대로 검증한다.
 """
 import shutil
 import sys
@@ -97,7 +102,7 @@ def verify_pdf_content(path: Path, must_contain: str, must_embed_font: bool = Fa
               _font_actually_embedded(path, "NotoSansKR"))
 
 
-def simulate_frozen(exe_path: str):
+def simulate_frozen(exe_path: str, skip_video: bool = False):
     """실제 사용자가 FileConverter.exe를 실행했을 때와 동일하게
     sys.frozen/sys.executable을 흉내내, engine_dir() 자동 탐색을 진짜로 태운다."""
     resolved = Path(exe_path).resolve()
@@ -112,10 +117,13 @@ def simulate_frozen(exe_path: str):
     check("자동 탐색: java (env 미사용)", java is not None and str(engine) in java, java)
     cp = hwp_mod._classpath()
     check("자동 탐색: hwp classpath (env 미사용)", cp is not None and str(engine) in cp, cp)
-    ffmpeg = video_mod.find_ffmpeg()
-    check("자동 탐색: ffmpeg (env 미사용)", ffmpeg is not None and str(engine) in ffmpeg, ffmpeg)
-    ffprobe = video_mod.find_ffprobe()
-    check("자동 탐색: ffprobe (env 미사용)", ffprobe is not None and str(engine) in ffprobe, ffprobe)
+    if skip_video:
+        print("[SKIP] 자동 탐색: ffmpeg/ffprobe — 이 배포판은 영상 변환 미지원(DEC-029)")
+    else:
+        ffmpeg = video_mod.find_ffmpeg()
+        check("자동 탐색: ffmpeg (env 미사용)", ffmpeg is not None and str(engine) in ffmpeg, ffmpeg)
+        ffprobe = video_mod.find_ffprobe()
+        check("자동 탐색: ffprobe (env 미사용)", ffprobe is not None and str(engine) in ffprobe, ffprobe)
 
     from app.version import current_version
     version = current_version()
@@ -126,6 +134,7 @@ def simulate_frozen(exe_path: str):
 def main():
     argv = sys.argv[1:]
     skip_hwp = "--skip-hwp" in argv
+    skip_video = "--skip-video" in argv
     frozen_exe = None
     if "--frozen-exe" in argv:
         frozen_exe = argv[argv.index("--frozen-exe") + 1]
@@ -133,7 +142,7 @@ def main():
     hwp_sample = Path(positional[0]) if positional else None
 
     if frozen_exe:
-        simulate_frozen(frozen_exe)
+        simulate_frozen(frozen_exe, skip_video=skip_video)
 
     tmp = Path(tempfile.mkdtemp())
     try:
@@ -267,20 +276,25 @@ def main():
         # 6) 영상 -> MP4 (DEC-024: H.264 스트림은 재인코딩 없이 그대로 복사 —
         #    이 LGPL 빌드는 GPL 인코더가 없어 스스로 H.264를 만들 수 없으므로,
         #    저장소에 미리 넣어 둔 실제 샘플로 "카피" 경로만 검증한다).
-        video_sample = REPO / "sidecar" / "ffmpeg" / "sample_h264_aac.mov"
-        try:
-            check("영상 샘플 존재", video_sample.exists(), str(video_sample))
-            out = converters.convert(video_sample, "mp4", tmp)
-            check("영상→MP4 변환 완료", out.exists())
-            src_bytes = video_sample.read_bytes()
-            check("영상→MP4: 결과 파일 비어있지 않음", out.stat().st_size > 0)
-            check("영상→MP4: 원본보다 극단적으로 작지 않음(재인코딩 없이 카피됐다는 방증)",
-                  out.stat().st_size > len(src_bytes) * 0.5,
-                  f"src={len(src_bytes)} out={out.stat().st_size}")
-        except ConversionError as e:
-            check("영상→MP4 변환 완료", False, f"{e.key}: {e.detail}")
-        except Exception as e:
-            check("영상→MP4 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
+        #    --skip-video: FFmpeg를 의도적으로 번들하지 않는 배포판(DEC-029) —
+        #    "번들이 깨졌다"가 아니라 "원래 미지원"이므로 검증 자체를 건너뛴다.
+        if skip_video:
+            print("[SKIP] 영상→MP4 — 이 배포판은 영상 변환 미지원(DEC-029)")
+        else:
+            video_sample = REPO / "sidecar" / "ffmpeg" / "sample_h264_aac.mov"
+            try:
+                check("영상 샘플 존재", video_sample.exists(), str(video_sample))
+                out = converters.convert(video_sample, "mp4", tmp)
+                check("영상→MP4 변환 완료", out.exists())
+                src_bytes = video_sample.read_bytes()
+                check("영상→MP4: 결과 파일 비어있지 않음", out.stat().st_size > 0)
+                check("영상→MP4: 원본보다 극단적으로 작지 않음(재인코딩 없이 카피됐다는 방증)",
+                      out.stat().st_size > len(src_bytes) * 0.5,
+                      f"src={len(src_bytes)} out={out.stat().st_size}")
+            except ConversionError as e:
+                check("영상→MP4 변환 완료", False, f"{e.key}: {e.detail}")
+            except Exception as e:
+                check("영상→MP4 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
         # 7) 이미지 포맷 변환 (DEC-025: Pillow — PyInstaller 패키징 후에도 실제로
         #    묶여서 동작하는지가 핵심. 새 네이티브 의존성이라 엔진들과 같은

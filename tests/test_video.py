@@ -48,6 +48,35 @@ def _make_clip(path: Path, video_codec: str, audio_codec: str | None = None, dur
     subprocess.run(cmd, capture_output=True, check=True, timeout=30)
 
 
+class TestVideoTargetsPlatformGating(unittest.TestCase):
+    """DEC-029: FFmpeg를 번들하지 않는 배포판(예: macOS v1)에서는 영상
+    확장자가 TARGETS에서 아예 빠져야 한다 — "재설치하세요"라는 엉뚱한
+    오류 대신 애초에 지원 안 하는 형식으로 자연스럽게 처리하기 위함."""
+
+    def _reload_with_find_ffmpeg(self, return_value):
+        import importlib
+        from unittest.mock import patch
+        with patch("app.converters.video.find_ffmpeg", return_value=return_value):
+            import app.converters as converters_mod
+            importlib.reload(converters_mod)
+            return converters_mod
+
+    def tearDown(self):
+        import importlib
+        import app.converters as converters_mod
+        importlib.reload(converters_mod)  # 실제 환경 기준으로 되돌림
+
+    def test_video_hidden_when_ffmpeg_unavailable(self):
+        mod = self._reload_with_find_ffmpeg(None)
+        self.assertFalse(mod.supported("avi"))
+        self.assertEqual(mod.targets_for("mov"), [])
+
+    def test_video_exposed_when_ffmpeg_available(self):
+        mod = self._reload_with_find_ffmpeg("/usr/bin/ffmpeg")
+        self.assertTrue(mod.supported("avi"))
+        self.assertEqual(mod.targets_for("mov"), ["mp4"])
+
+
 @unittest.skipUnless(_HAS_FFMPEG, "ffmpeg/ffprobe 없음 — 로컬/Windows CI에서만 실행")
 class TestVideoToMp4(unittest.TestCase):
     def setUp(self):

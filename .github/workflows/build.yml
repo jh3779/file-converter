@@ -30,8 +30,6 @@ jobs:
     # 아티팩트 업로드·릴리스 발행은 main/태그/수동 실행으로 제한한다.
     needs: test
     runs-on: windows-latest
-    permissions:
-      contents: write   # 태그 push 시 GitHub Release 생성·자산 업로드용 (DEC-014)
     env:
       # 스파이크로 검증된 hwplib 리비전 (spike/hwplib/RESULT.md · DEC-007).
       # 갱신은 별도 PR에서 스파이크/스모크 결과와 함께 진행할 것.
@@ -448,23 +446,412 @@ jobs:
         with:
           name: FileConverter-windows-installer
           path: packaging/installer-out/*.exe
-      - name: Publish GitHub Release (태그 push에서만 — v*.exe README 다운로드 링크의 실제 소스)
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
+
+  build-macos:
+    # macOS 배포 (Apple Silicon/arm64 전용, 미서명 — 서명 없이 배포하기로 결정,
+    # docs/06_open_questions.md 참고). 영상→MP4는 v1에서 미지원(DEC-029 —
+    # 검증된 사전 빌드 LGPL macOS FFmpeg 바이너리가 없어 FFmpeg 단계 자체를
+    # 생략함). 나머지 파이프라인(HWP·LibreOffice)은 Windows 잡과 동일 리비전·
+    # 버전을 재사용해 산출물 간 동작 차이가 없도록 한다.
+    needs: test
+    runs-on: macos-latest
+    env:
+      HWPLIB_REV: d9e073d6899d947f8f583492e00a5e1062381d7e
+      LO_VERSION: "26.2.5"
+      # 공식 배포 서버에서 curl로 직접 확인한 SHA256 (mac/aarch64).
+      LO_MAC_SHA256: c99fb4fe574437fc4cb820a4ca15271bca325920861f7139858b36d7f9df78ad
+      NOTOKR_RELEASE_TAG: "Sans2.004"
+      NOTOKR_SHA256: ac7eeb4e2b0d41de8ff31b2d6e1e2a41caf253fd5cefb380bfa1f40f1747b612
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: pip install -r requirements.txt pyinstaller python-pptx
+      - name: Build HWP engine (hwplib + sidecar + jlink JRE)
+        run: |
+          git clone https://github.com/neolord0/hwplib.git hwplib-src
+          git -C hwplib-src checkout "$HWPLIB_REV"
+          python3 scripts/patch_hwplib.py hwplib-src
+          find hwplib-src/src/main/java -name '*.java' > sources.txt
+          javac -encoding UTF-8 -nowarn @sources.txt -d engine-build/hwp
+          javac -encoding UTF-8 -cp engine-build/hwp -d engine-build/hwp \
+            sidecar/hwp/HwpToText.java sidecar/hwp/HwpToJson.java sidecar/hwp/JsonToHwp.java
+          jlink --add-modules java.base,java.desktop,java.xml,java.logging \
+            --strip-debug --no-header-files --no-man-pages --output engine-build/jre
+      - name: HWP engine smoke (bundled JRE + 한글 텍스트 샘플)
+        run: |
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToText \
+            hwplib-src/sample_hwp/big_file.hwp out.txt
+          grep -qF "테스트" out.txt || { echo "::error::HWP engine smoke failed: 한글 텍스트 추출 불일치"; exit 1; }
+
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToText \
+            hwplib-src/sample_hwp/merging-cell.hwp out2.txt
+          grep -qF "0,0" out2.txt || { echo "::error::HWP engine smoke failed: 표 추출 불일치"; exit 1; }
+
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson \
+            hwplib-src/sample_hwp/merging-cell.hwp out.json
+          grep -qF '"type":"table"' out.json || { echo "::error::HWP engine smoke failed: HwpToJson 표 구조 불일치"; exit 1; }
+
+          # DEC-017/DEC-028: DOCX→HWP 사이드카(JsonToHwp) — 구조 JSON → HWP 생성 → 재읽기 왕복 검증.
+          # DEC-028부터 표는 더 이상 텍스트로 단순화되지 않고 실제 HWP 표
+          # 컨트롤로 생성된다(spike/hwplib/SpikeTable.java에서 검증한 패턴).
+          python3 <<'PY'
+          import json
+          blocks = {"blocks": [
+              {"type": "p", "text": "뷁 밟 닳 넋 한글 생성 테스트"},
+              {"type": "table", "rows": [["이름", "부서"], ["김철수", "영업1팀"]]},
+          ]}
+          open("blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          PY
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp blocks.json created.hwp
+          [ -f created.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 HWP 파일을 생성하지 못함"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToText created.hwp created.txt
+          grep -qF "뷁 밟 닳 넋 한글 생성 테스트" created.txt || { echo "::error::HWP engine smoke failed: JsonToHwp 생성 문서 재읽기 텍스트 불일치"; exit 1; }
+          grep -qF "김철수" created.txt || { echo "::error::HWP engine smoke failed: JsonToHwp 표 내용 불일치"; exit 1; }
+
+          # DEC-028: 표가 진짜 표 구조(행/열)로 만들어졌는지 HwpToJson으로 재확인 —
+          # 위 HwpToText 체크는 내용만 보고 구조는 못 걸러낸다.
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson created.hwp created.json
+          python3 <<'PY'
+          import re, sys
+          text = open("created.json", encoding="utf-8").read()
+          if not re.search(r'"type":"table","rows":\[\["이름","부서"\],\["김철수","영업1팀"\]\]', text):
+              print("::error::HWP engine smoke failed: JsonToHwp가 만든 표가 실제 표 구조(2행x2열)로 재확인되지 않음(DEC-028 회귀)")
+              sys.exit(1)
+          PY
+
+          # DEC-018: 긴 문단(여러 줄로 감싸질 정도)도 텍스트가 그대로 보존되는지 —
+          # LineSeg 줄바꿈 재계산이 텍스트 자체를 깨뜨리지 않는지 확인.
+          python3 <<'PY'
+          import json
+          long_text = ("긴 문단 테스트 " * 15).strip()
+          blocks = {"blocks": [{"type": "p", "text": long_text}, {"type": "p", "text": "짧은 다음 문단"}]}
+          open("blocks-long.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          open("expected-long.txt", "w", encoding="utf-8").write(long_text + "\n짧은 다음 문단")
+          PY
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp blocks-long.json created-long.hwp
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToText created-long.hwp created-long.txt
+          python3 <<'PY'
+          import sys
+          actual = open("created-long.txt", encoding="utf-8").read().strip()
+          expected = open("expected-long.txt", encoding="utf-8").read().strip()
+          if actual != expected:
+              print("::error::HWP engine smoke failed: 긴 문단(줄바꿈 재계산) 재읽기 텍스트 불일치")
+              sys.exit(1)
+          PY
+
+          # DEC-018 구조 검증: 텍스트 왕복만으로는 LineSeg가 문단 길이와 무관하게
+          # 항상 1개·세로 위치가 모든 문단에서 0으로 고정되는 회귀를 못 잡는다 —
+          # hwplib로 직접 열어 레이아웃 캐시 구조까지 확인한다. LineSegDebug는
+          # 테스트 전용 도구라 배포용 engine-build/hwp가 아닌 별도 디렉터리에 컴파일한다.
+          mkdir -p debug-tools
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/LineSegDebug.java
+          engine-build/jre/bin/java -cp "debug-tools:engine-build/hwp" LineSegDebug created-long.hwp \
+            > lineseg-debug.txt
+          python3 <<'PY'
+          import sys
+          lines = open("lineseg-debug.txt", encoding="utf-8").read().splitlines()
+          p0 = lines[0].split("\t")
+          line_align_count0 = int(p0[1])
+          if line_align_count0 <= 1:
+              print(f"::error::HWP engine smoke failed: 긴 문단의 lineAlignCount={line_align_count0} — 줄바꿈 재계산이 안 됨(DEC-018 회귀)")
+              sys.exit(1)
+          vpos0 = [int(item.split(":")[1]) for item in p0[3].split(",")]
+          if len(set(vpos0)) != line_align_count0:
+              print("::error::HWP engine smoke failed: 줄마다 세로 위치가 달라야 하는데 일부가 겹침(DEC-018 회귀)")
+              sys.exit(1)
+          p1 = lines[1].split("\t")
+          vpos1_first = int(p1[3].split(",")[0].split(":")[1])
+          if vpos1_first <= vpos0[-1]:
+              print("::error::HWP engine smoke failed: 다음 문단이 이전 문단 아래에서 이어지지 않음(모두 0으로 겹치는 DEC-018 회귀)")
+              sys.exit(1)
+          PY
+
+          # DEC-027: HwpToJson의 문자 서식(굵게/기울임/크기/색상) 추출 검증.
+          # MakeFormattedHwp도 LineSegDebug와 같은 테스트 전용 도구 —
+          # 배포용 engine-build/hwp가 아닌 debug-tools에 컴파일한다.
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/MakeFormattedHwp.java
+          engine-build/jre/bin/java -cp "debug-tools:engine-build/hwp" MakeFormattedHwp formatted.hwp
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson formatted.hwp formatted.json
+          python3 <<'PY'
+          import re, sys
+          text = open("formatted.json", encoding="utf-8").read()
+          if not re.search(r'"text":"굵은텍스트","bold":true', text):
+              print("::error::HWP engine smoke failed: 굵게 서식이 추출되지 않음(DEC-027 회귀)")
+              sys.exit(1)
+          if not re.search(r'"text":"일반텍스트","bold":false', text):
+              print("::error::HWP engine smoke failed: 같은 문단 안 일반 run이 굵게로 잘못 표시됨(DEC-027 회귀)")
+              sys.exit(1)
+          # [^}]*로 같은 run 객체({...} 하나) 안에서만 매치되도록 제한 — .*는 run
+          # 경계를 넘어 서로 다른 run의 속성을 잘못 엮어 맞출 수 있다(코드 리뷰 지적).
+          if not re.search(r'"italic":true[^}]*"size":18(\.0)?[^}]*"color":"FF0000"', text):
+              print("::error::HWP engine smoke failed: 기울임·크기·색상 서식이 같은 run 안에서 함께 추출되지 않음(DEC-027 회귀)")
+              sys.exit(1)
+          PY
+      - name: Restore LibreOffice installer cache
+        id: lo-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: lo-installer
+          key: libreoffice-installer-${{ env.LO_VERSION }}-${{ env.LO_MAC_SHA256 }}-mac-aarch64
+      - name: Download + verify LibreOffice installer (고정 버전·SHA256)
+        run: |
+          mkdir -p lo-installer
+          dmg="lo-installer/LibreOffice.dmg"
+          if [ ! -f "$dmg" ]; then
+            url="https://download.documentfoundation.org/libreoffice/stable/${LO_VERSION}/mac/aarch64/LibreOffice_${LO_VERSION}_MacOS_aarch64.dmg"
+            curl -fsSL -o "$dmg" "$url"
+          fi
+          hash=$(shasum -a 256 "$dmg" | awk '{print $1}')
+          if [ "$hash" != "$LO_MAC_SHA256" ]; then
+            echo "::error::LibreOffice 설치파일 체크섬 불일치: $hash (기대값 $LO_MAC_SHA256)"
+            rm -f "$dmg"
+            exit 1
+          fi
+          echo "체크섬 확인 완료: $hash"
+      - name: Save LibreOffice installer cache
+        # 체크섬 검증 직후, 이후 단계 성공 여부와 무관하게 바로 저장한다 —
+        # actions/cache@v4의 기본 동작(잡 전체가 성공해야만 저장)에 맡기면
+        # 다운로드 이후 단계에서 실패할 때마다 무거운 dmg를 mirror 서버에서
+        # 매번 다시 받아야 한다(공식 권장 restore+save 분리 패턴).
+        if: steps.lo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: lo-installer
+          key: ${{ steps.lo-cache.outputs.cache-primary-key }}
+      - name: Extract LibreOffice (dmg 마운트 → .app에서 필요한 파일만 복사, 시스템 설치 없이)
+        run: |
+          mountpoint="$PWD/lo-mount"
+          mkdir -p "$mountpoint"
+          hdiutil attach lo-installer/LibreOffice.dmg -nobrowse -mountpoint "$mountpoint"
+          app=$(find "$mountpoint" -maxdepth 1 -name "*.app" | head -n1)
+          if [ -z "$app" ]; then
+            echo "::error::dmg 안에서 LibreOffice.app을 찾을 수 없습니다"
+            hdiutil detach "$mountpoint" || true
+            exit 1
+          fi
+          mkdir -p engine-build/libreoffice
+          cp -R "$app" engine-build/libreoffice/LibreOffice.app
+          hdiutil detach "$mountpoint"
+          if [ ! -f "engine-build/libreoffice/LibreOffice.app/Contents/MacOS/soffice" ]; then
+            echo "::error::정규화 경로(engine-build/libreoffice/LibreOffice.app/Contents/MacOS/soffice)에 파일이 없습니다"
+            exit 1
+          fi
+          mkdir -p engine-build/licenses/libreoffice
+          cp "engine-build/libreoffice/LibreOffice.app/Contents/Resources/LICENSE" engine-build/licenses/libreoffice/ 2>/dev/null || true
+          cp "engine-build/libreoffice/LibreOffice.app/Contents/Resources/LICENSE.html" engine-build/licenses/libreoffice/ 2>/dev/null || true
+          cp "engine-build/libreoffice/LibreOffice.app/Contents/Resources/NOTICE" engine-build/licenses/libreoffice/ 2>/dev/null || true
+          if [ -z "$(ls -A engine-build/licenses/libreoffice 2>/dev/null)" ]; then
+            echo "::error::LibreOffice 라이선스 파일을 찾을 수 없습니다"
+            exit 1
+          fi
+      - name: Restore Noto Sans KR font cache
+        id: notokr-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: notokr.zip
+          key: notosanskr-${{ env.NOTOKR_RELEASE_TAG }}-${{ env.NOTOKR_SHA256 }}
+      - name: 한글 글꼴 번들 (Noto Sans KR — DEC-015)
+        run: |
+          if [ ! -f notokr.zip ]; then
+            url="https://github.com/notofonts/noto-cjk/releases/download/${NOTOKR_RELEASE_TAG}/17_NotoSansKR.zip"
+            curl -fsSL -o notokr.zip "$url"
+          fi
+          hash=$(shasum -a 256 notokr.zip | awk '{print $1}')
+          if [ "$hash" != "$NOTOKR_SHA256" ]; then
+            echo "::error::Noto Sans KR 체크섬 불일치: $hash (기대값 $NOTOKR_SHA256)"
+            rm -f notokr.zip
+            exit 1
+          fi
+          font_dir="engine-build/libreoffice/LibreOffice.app/Contents/Resources/fonts/truetype"
+          mkdir -p "$font_dir"
+          unzip -o notokr.zip -d notokr-extract
+          cp notokr-extract/NotoSansKR-Regular.otf "$font_dir/"
+          cp notokr-extract/NotoSansKR-Bold.otf "$font_dir/"
+          mkdir -p engine-build/licenses/notosanskr
+          cp notokr-extract/LICENSE engine-build/licenses/notosanskr/LICENSE.txt
+          if [ ! -f "$font_dir/NotoSansKR-Regular.otf" ]; then
+            echo "::error::글꼴 번들 실패: $font_dir/NotoSansKR-Regular.otf 없음"
+            exit 1
+          fi
+      - name: Save Noto Sans KR font cache
+        if: steps.notokr-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: notokr.zip
+          key: ${{ steps.notokr-cache.outputs.cache-primary-key }}
+      - name: LibreOffice + HWP→PDF 파이프라인 스모크 (사전 빌드 경로, 영상 섹션은 미번들이라 스킵)
+        env:
+          FILECONV_SOFFICE: engine-build/libreoffice/LibreOffice.app/Contents/MacOS/soffice
+          FILECONV_JAVA: engine-build/jre/bin/java
+          FILECONV_HWP_CLASSPATH: engine-build/hwp
+        run: |
+          python3 scripts/smoke_pdf_pipeline.py hwplib-src/sample_hwp/basic/표.hwp --skip-video
+      - name: Build app
+        run: >
+          pyinstaller --noconfirm --clean --windowed --name FileConverter
+          --icon packaging/icon.icns --collect-submodules app run.py
+      - name: Bundle engine into dist (+ 제3자 라이선스 고지)
+        run: |
+          # app/bundle.py의 engine_dir()는 sys.executable(=.../Contents/MacOS/FileConverter)
+          # 옆의 engine/을 찾는다 — Windows의 "exe 옆 engine/"과 동일한 원칙을
+          # macOS 앱 번들 구조에 그대로 적용한 것(Contents/Resources가 아님).
+          target="dist/FileConverter.app/Contents/MacOS"
+          cp -R engine-build "$target/engine"
+          mkdir -p "$target/engine/licenses"
+          cp hwplib-src/license.txt "$target/engine/licenses/hwplib-LICENSE.txt"
+          cp packaging/THIRD_PARTY_NOTICES.txt "$target/THIRD_PARTY_NOTICES.txt"
+          # app/version.py가 배포판(frozen)에서 실행 파일 옆의 이 파일로 현재
+          # 버전을 읽는다(OQ-002 업데이트 확인 기능 — DEC-022).
+          cp packaging/VERSION "$target/VERSION"
+      - name: Verify bundled artifact (엔진 실행·라이선스 확인)
+        run: |
+          target="dist/FileConverter.app/Contents/MacOS"
+          if [ ! -d "$target/engine/licenses/libreoffice" ]; then
+            echo "::error::LibreOffice 라이선스 파일이 아티팩트에 없습니다"; exit 1
+          fi
+          if [ ! -f "$target/engine/libreoffice/LibreOffice.app/Contents/Resources/fonts/truetype/NotoSansKR-Regular.otf" ]; then
+            echo "::error::Noto Sans KR 글꼴이 아티팩트에 없습니다 (DEC-015)"; exit 1
+          fi
+          if [ ! -f "$target/engine/licenses/notosanskr/LICENSE.txt" ]; then
+            echo "::error::Noto Sans KR 라이선스 파일이 아티팩트에 없습니다"; exit 1
+          fi
+          # PyInstaller macOS 앱 번들은 수집한 파이썬 패키지를 Contents/MacOS가
+          # 아니라 Contents/Frameworks에 둔다(Windows onedir의 밋밋한 구조와
+          # 다른 macOS 고유 관례 — 실제 아티팩트 트리를 직접 확인해 발견).
+          if ! find dist/FileConverter.app/Contents -type d -name "PIL" | grep -q .; then
+            echo "::error::Pillow(PIL) 패키지가 패키징된 아티팩트에 없습니다 (DEC-025) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
+          fi
+          if ! find dist/FileConverter.app/Contents -iname "pypdfium2*" | grep -q .; then
+            echo "::error::pypdfium2 패키지가 패키징된 아티팩트에 없습니다 (DEC-025) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
+          fi
+          bundled_version=$(cat "$target/VERSION")
+          repo_version=$(cat packaging/VERSION)
+          if [ "$bundled_version" != "$repo_version" ]; then
+            echo "::error::번들된 VERSION이 packaging/VERSION과 다릅니다(업데이트 확인 기능 오탐 위험) — 번들: '$bundled_version'"; exit 1
+          fi
+          # 패키징 후 실제 배포 경로에서 사이드카 실행 검증
+          "$target/engine/jre/bin/java" -cp "$target/engine/hwp" HwpToText \
+            hwplib-src/sample_hwp/merging-cell.hwp out3.txt
+          grep -qF "0,0" out3.txt || { echo "::error::패키징 경로 사이드카 스모크 실패"; exit 1; }
+          # 환경변수 없이 --frozen-exe로 실제 FileConverter 실행 시나리오를 흉내내
+          # engine_dir() 자동 탐색(app/bundle.py)이 진짜로 엔진을 찾는지 검증한다.
+          python3 scripts/smoke_pdf_pipeline.py hwplib-src/sample_hwp/basic/표.hwp \
+            --skip-video --frozen-exe dist/FileConverter.app/Contents/MacOS/FileConverter
+      - name: Smoke run (offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          dist/FileConverter.app/Contents/MacOS/FileConverter &
+          pid=$!
+          sleep 8
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "::error::app exited early"; exit 1
+          fi
+          kill "$pid"
+          wait "$pid" 2>/dev/null || true
+      - name: Build dmg (드래그 설치 방식 — Windows Inno Setup 인스톨러에 대응, REQ-NF-006)
+        run: |
+          version=$(cat packaging/VERSION | tr -d '[:space:]')
+          staging="dmg-staging"
+          mkdir -p "$staging"
+          cp -R dist/FileConverter.app "$staging/FileConverter.app"
+          ln -s /Applications "$staging/Applications"
+          mkdir -p packaging/installer-out
+          out="packaging/installer-out/FileConverter-${version}-mac-arm64.dmg"
+          hdiutil create -volname "FileConverter ${version}" -srcfolder "$staging" -ov -format UDZO "$out"
+          if [ ! -f "$out" ]; then
+            echo "::error::dmg 생성 실패: $out 없음"; exit 1
+          fi
+          echo "빌드됨: $out ($(du -m "$out" | cut -f1) MB)"
+      - name: dmg 설치 스모크 (마운트→설치(복사)→실행→삭제(제거) 전 과정 검증)
+        run: |
+          version=$(cat packaging/VERSION | tr -d '[:space:]')
+          dmg="packaging/installer-out/FileConverter-${version}-mac-arm64.dmg"
+          mountpoint="$PWD/dmg-smoke-mount"
+          mkdir -p "$mountpoint"
+          hdiutil attach "$dmg" -nobrowse -mountpoint "$mountpoint"
+          installdir="$PWD/dmg-smoke-target"
+          mkdir -p "$installdir"
+          cp -R "$mountpoint/FileConverter.app" "$installdir/FileConverter.app"
+          hdiutil detach "$mountpoint"
+          installedexe="$installdir/FileConverter.app/Contents/MacOS/FileConverter"
+          if [ ! -f "$installedexe" ]; then
+            echo "::error::설치 후 FileConverter 실행 파일이 없습니다: $installedexe"; exit 1
+          fi
+          if [ ! -f "$installdir/FileConverter.app/Contents/MacOS/engine/libreoffice/LibreOffice.app/Contents/MacOS/soffice" ]; then
+            echo "::error::설치된 위치에 번들 엔진이 없습니다"; exit 1
+          fi
+          echo "설치 확인 완료: $installedexe"
+
+          export QT_QPA_PLATFORM=offscreen
+          "$installedexe" &
+          pid=$!
+          sleep 8
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "::error::설치된 앱 실행 실패"; exit 1
+          fi
+          kill "$pid"
+          wait "$pid" 2>/dev/null || true
+
+          rm -rf "$installdir"
+          if [ -d "$installdir" ]; then
+            echo "::error::제거 후에도 설치 폴더가 남아 있습니다"; exit 1
+          fi
+          echo "제거 확인 완료"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: FileConverter-macos-app
+          path: dist/FileConverter.app
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: FileConverter-macos-dmg
+          path: packaging/installer-out/*.dmg
+
+  publish-release:
+    # Windows/macOS 두 잡이 병렬로 빌드하되, 같은 GitHub Release에 자산을
+    # 함께 올려야 하므로(태그당 릴리스 1개) 발행만 이 잡으로 분리해 두
+    # 잡 모두를 기다린다 — 두 잡이 각자 gh release create를 부르면 경쟁
+    # 상태로 하나가 "이미 존재함" 에러로 실패할 수 있어 이렇게 나눴다.
+    needs: [build-windows, build-macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: FileConverter-windows-installer
+          path: windows-installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: FileConverter-macos-dmg
+          path: macos-dmg
+      - name: Publish GitHub Release (태그 push에서만 — v*.exe/v*.dmg README 다운로드 링크의 실제 소스)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $versioned = Get-ChildItem packaging/installer-out -Filter *.exe | Select-Object -First 1
-          # 파일명이 고정된 사본도 함께 올린다(FileConverter-Setup-latest.exe).
+          set -e
+          win_exe=$(find windows-installer -name '*.exe' | head -n1)
+          mac_dmg=$(find macos-dmg -name '*.dmg' | head -n1)
+          # 파일명이 고정된 사본도 함께 올린다(README 등에서 참조하기 쉽도록).
           # 주의: GitHub의 releases/latest/download/... 단축 URL은 pre-release를
-          # "latest"로 인정하지 않는다 — 0.x라 --prerelease로 발행하는 한 이 단축 URL은
-          # 쓸 수 없다. README는 태그가 박힌 직접 링크(.../releases/download/vX.Y.Z/...)를
-          # 쓰고 버전 태그 시 함께 갱신한다. 이 고정 파일명은 "파일명 자체는 안 바뀐다"는
-          # 사소한 편의만 준다 — URL의 태그 부분은 어차피 매번 갱신해야 한다.
-          $latest = Join-Path $versioned.DirectoryName "FileConverter-Setup-latest.exe"
-          Copy-Item $versioned.FullName $latest
-          gh release create "${{ github.ref_name }}" $versioned.FullName $latest `
-            --repo "${{ github.repository }}" `
-            --title "File Converter ${{ github.ref_name }}" `
-            --notes "Windows 인스톨러(관리자 권한 불요). 자세한 내용: README.md · docs/06_open_questions.md" `
+          # "latest"로 인정하지 않는다 — 0.x라 --prerelease로 발행하는 한 이 단축
+          # URL은 쓸 수 없다. README는 태그가 박힌 직접 링크를 쓰고 버전 태그 시
+          # 함께 갱신한다.
+          win_latest="windows-installer/FileConverter-Setup-latest.exe"
+          cp "$win_exe" "$win_latest"
+          mac_latest="macos-dmg/FileConverter-latest-mac-arm64.dmg"
+          cp "$mac_dmg" "$mac_latest"
+          gh release create "${{ github.ref_name }}" "$win_exe" "$win_latest" "$mac_dmg" "$mac_latest" \
+            --repo "${{ github.repository }}" \
+            --title "File Converter ${{ github.ref_name }}" \
+            --notes "Windows 인스톨러(관리자 권한 불요) · macOS(Apple Silicon 전용, 미서명 — 실행 시 control+클릭 → 열기 필요, 영상 변환 미지원). 자세한 내용: README.md · docs/06_open_questions.md" \
             --prerelease
