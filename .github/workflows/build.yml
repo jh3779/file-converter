@@ -696,12 +696,6 @@ jobs:
         run: >
           pyinstaller --noconfirm --clean --windowed --name FileConverter
           --icon packaging/icon.icns --collect-submodules app run.py
-      - name: DEBUG 번들 구조 확인 (임시 — PIL 등 실제 위치 파악용)
-        run: |
-          echo "--- dist/FileConverter.app 트리(3단계) ---"
-          find dist/FileConverter.app -maxdepth 3 | sort
-          echo "--- PIL 디렉터리 검색(전체) ---"
-          find dist/FileConverter.app -type d -iname "PIL" || true
       - name: Bundle engine into dist (+ 제3자 라이선스 고지)
         run: |
           # app/bundle.py의 engine_dir()는 sys.executable(=.../Contents/MacOS/FileConverter)
@@ -727,10 +721,13 @@ jobs:
           if [ ! -f "$target/engine/licenses/notosanskr/LICENSE.txt" ]; then
             echo "::error::Noto Sans KR 라이선스 파일이 아티팩트에 없습니다"; exit 1
           fi
-          if ! find "$target" -type d -name "PIL" | grep -q .; then
+          # PyInstaller macOS 앱 번들은 수집한 파이썬 패키지를 Contents/MacOS가
+          # 아니라 Contents/Frameworks에 둔다(Windows onedir의 밋밋한 구조와
+          # 다른 macOS 고유 관례 — 실제 아티팩트 트리를 직접 확인해 발견).
+          if ! find dist/FileConverter.app/Contents -type d -name "PIL" | grep -q .; then
             echo "::error::Pillow(PIL) 패키지가 패키징된 아티팩트에 없습니다 (DEC-025) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
           fi
-          if ! find "$target" -iname "pypdfium2*" | grep -q .; then
+          if ! find dist/FileConverter.app/Contents -iname "pypdfium2*" | grep -q .; then
             echo "::error::pypdfium2 패키지가 패키징된 아티팩트에 없습니다 (DEC-025) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
           fi
           bundled_version=$(cat "$target/VERSION")
