@@ -66,8 +66,14 @@ _S = {
     "lang.ko": ("한국어", "한국어"),
     "lang.en": ("English", "English"),
 
-    "settings.update_check": ("업데이트 확인 (인터넷 필요)", "Check for updates (needs internet)"),
-    "update.available": ("새 버전 {version}이 있어요 →", "Version {version} is available →"),
+    # "업데이트 확인"이라는 이름은 많은 앱에서 "확인 후 그 자리에서 설치"까지
+    # 포함한다고 오인되기 쉽다 — 실제로는 버전 번호만 조회해 알리고, 클릭하면
+    # 브라우저로 릴리스 페이지가 열릴 뿐 앱 내 다운로드·설치는 하지 않는다
+    # (외부 QA #47 — README는 이미 정확했으나 UI 문구가 기대치를 오도했음).
+    # 문구를 "알림" 범위로 명확히 하고, 클릭 시 동작(페이지 열기)도 드러낸다.
+    "settings.update_check": ("새 버전 알림 (인터넷 필요)", "Notify about new versions (needs internet)"),
+    "update.available": ("새 버전 {version}이 있어요 — 다운로드 페이지 열기 →",
+                         "Version {version} is available — open download page →"),
 
     # 오류 문안 — P-04 (원인 1문장 + 복구 1문장)
     "err.password": ("암호가 걸린 파일입니다. 암호를 해제한 뒤 다시 시도해 주세요.",
