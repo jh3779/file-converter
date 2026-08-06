@@ -38,6 +38,13 @@ DefaultDirName={autopf}\FileConverter
 DefaultGroupName=File Converter
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+; 번들 바이너리(FileConverter.exe·엔진 전부)가 전량 64비트라 32비트 Windows에서는
+; 애초에 실행이 불가능하다 — 설치만 되고 실행이 실패하는 상황을 막기 위해 아예 차단한다.
+; ArchitecturesInstallIn64BitMode가 없으면 Inno Setup은 32비트 설치 모드로 동작해
+; {autopf}가 "모든 사용자용으로 설치" 선택 시 {commonpf32}(Program Files (x86))로
+; 해석되는 버그가 있었다(실사용 QA 리포트 #48) — 지정해 64비트 Program Files로 고정.
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
 OutputDir=installer-out
