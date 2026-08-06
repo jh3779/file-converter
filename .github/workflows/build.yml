@@ -172,6 +172,19 @@ jobs:
           if (-not ($formattedJson | Select-String -Pattern '"italic":true[^}]*"size":18(\.0)?[^}]*"color":"FF0000"' -Quiet)) {
             Write-Error "HWP engine smoke failed: 기울임·크기·색상 서식이 같은 run 안에서 함께 추출되지 않음(DEC-027 회귀)"; exit 1
           }
+          # 외부 QA 이슈 #43: 표가 아닌 컨트롤(머리말·글상자) 안의 텍스트가
+          # 조용히 사라지던 회귀 — 실사용 공공기관 문서(mois-hwpplan.hwp·
+          # unikorea-contract.hwp)에서 실제로 확인된 두 중첩 패턴(머리말
+          # 안의 표, 묶음 개체 안의 글상자 2개)을 합성 픽스처로 재현한다.
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/MakeNestedControlHwp.java
+          & engine-build/jre/bin/java.exe -cp "debug-tools;engine-build/hwp" MakeNestedControlHwp nested.hwp
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToJson nested.hwp nested.json
+          $nestedJson = Get-Content nested.json -Encoding utf8 -Raw
+          foreach ($expected in @('"text":"머리말텍스트"', '"셀A"', '"셀B"', '"text":"그룹A"', '"text":"그룹B"')) {
+            if (-not ($nestedJson | Select-String -Pattern ([regex]::Escape($expected)) -Quiet)) {
+              Write-Error "HWP engine smoke failed: 표가 아닌 컨트롤(머리말·글상자) 텍스트 유실(#43 회귀) — $expected 없음"; exit 1
+            }
+          }
       - name: Cache LibreOffice installer
         uses: actions/cache@v4
         with:
@@ -607,6 +620,21 @@ jobs:
           if not re.search(r'"italic":true[^}]*"size":18(\.0)?[^}]*"color":"FF0000"', text):
               print("::error::HWP engine smoke failed: 기울임·크기·색상 서식이 같은 run 안에서 함께 추출되지 않음(DEC-027 회귀)")
               sys.exit(1)
+          PY
+          # 외부 QA 이슈 #43: 표가 아닌 컨트롤(머리말·글상자) 안의 텍스트가
+          # 조용히 사라지던 회귀 — 실사용 공공기관 문서(mois-hwpplan.hwp·
+          # unikorea-contract.hwp)에서 실제로 확인된 두 중첩 패턴(머리말
+          # 안의 표, 묶음 개체 안의 글상자 2개)을 합성 픽스처로 재현한다.
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/MakeNestedControlHwp.java
+          engine-build/jre/bin/java -cp "debug-tools:engine-build/hwp" MakeNestedControlHwp nested.hwp
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson nested.hwp nested.json
+          python3 <<'PY'
+          import sys
+          text = open("nested.json", encoding="utf-8").read()
+          for expected in ('"text":"머리말텍스트"', '"셀A"', '"셀B"', '"text":"그룹A"', '"text":"그룹B"'):
+              if expected not in text:
+                  print(f"::error::HWP engine smoke failed: 표가 아닌 컨트롤(머리말·글상자) 텍스트 유실(#43 회귀) — {expected} 없음")
+                  sys.exit(1)
           PY
       - name: Restore LibreOffice installer cache
         id: lo-cache

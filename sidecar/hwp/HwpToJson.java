@@ -1,11 +1,24 @@
 import kr.dogfoot.hwplib.object.HWPFile;
 import kr.dogfoot.hwplib.object.bodytext.Section;
 import kr.dogfoot.hwplib.object.bodytext.control.Control;
+import kr.dogfoot.hwplib.object.bodytext.control.ControlEndnote;
+import kr.dogfoot.hwplib.object.bodytext.control.ControlFooter;
+import kr.dogfoot.hwplib.object.bodytext.control.ControlFootnote;
+import kr.dogfoot.hwplib.object.bodytext.control.ControlHeader;
 import kr.dogfoot.hwplib.object.bodytext.control.ControlTable;
 import kr.dogfoot.hwplib.object.bodytext.control.ControlType;
+import kr.dogfoot.hwplib.object.bodytext.control.gso.ControlArc;
+import kr.dogfoot.hwplib.object.bodytext.control.gso.ControlContainer;
+import kr.dogfoot.hwplib.object.bodytext.control.gso.ControlCurve;
+import kr.dogfoot.hwplib.object.bodytext.control.gso.ControlEllipse;
+import kr.dogfoot.hwplib.object.bodytext.control.gso.ControlPolygon;
+import kr.dogfoot.hwplib.object.bodytext.control.gso.ControlRectangle;
+import kr.dogfoot.hwplib.object.bodytext.control.gso.GsoControl;
+import kr.dogfoot.hwplib.object.bodytext.control.gso.textbox.TextBox;
 import kr.dogfoot.hwplib.object.bodytext.control.table.Cell;
 import kr.dogfoot.hwplib.object.bodytext.control.table.Row;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.Paragraph;
+import kr.dogfoot.hwplib.object.bodytext.paragraph.ParagraphList;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.charshape.CharPositionShapeIdPair;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.text.HWPChar;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.text.HWPCharNormal;
@@ -35,52 +48,106 @@ import java.nio.file.Paths;
  * 있어 셀 서식까지는 이번 phase 범위 밖).
  */
 public class HwpToJson {
+    // JSON 배열의 콤마 삽입 여부 — emitParagraph()가 표·머리말·글상자 등을 재귀로
+    // 파고들며 여러 메서드에 걸쳐 블록을 추가하므로, 지역 변수 boolean 대신
+    // 인스턴스 필드로 공유한다(이 클래스는 단일 실행에서 한 번만 쓰는 CLI 도구라
+    // 스레드 안전성은 고려 대상이 아님).
+    private boolean firstBlock = true;
+
     public static void main(String[] args) throws Exception {
         HWPFile hwp = HWPReader.fromFile(args[0]);
         DocInfo docInfo = hwp.getDocInfo();
         StringBuilder sb = new StringBuilder();
         sb.append("{\"blocks\":[");
-        boolean first = true;
+        HwpToJson self = new HwpToJson();
         for (Section sec : hwp.getBodyText().getSectionList()) {
             for (int i = 0; i < sec.getParagraphCount(); i++) {
-                Paragraph p = sec.getParagraph(i);
-                String runsJson = paragraphRunsJson(p, docInfo);
-                if (runsJson != null) {
-                    if (!first) sb.append(',');
-                    sb.append("{\"type\":\"p\",\"runs\":[").append(runsJson).append("]}");
-                    first = false;
-                }
-                if (p.getControlList() == null) continue;
-                for (Control c : p.getControlList()) {
-                    if (c.getType() != ControlType.Table) continue;
-                    if (!first) sb.append(',');
-                    sb.append("{\"type\":\"table\",\"rows\":[");
-                    ControlTable table = (ControlTable) c;
-                    boolean firstRow = true;
-                    for (Row row : table.getRowList()) {
-                        if (!firstRow) sb.append(',');
-                        sb.append('[');
-                        boolean firstCell = true;
-                        for (Cell cell : row.getCellList()) {
-                            if (!firstCell) sb.append(',');
-                            StringBuilder cellText = new StringBuilder();
-                            for (Paragraph cp : cell.getParagraphList()) {
-                                if (cellText.length() > 0) cellText.append('\n');
-                                cellText.append(safeText(cp));
-                            }
-                            sb.append('"').append(esc(cellText.toString())).append('"');
-                            firstCell = false;
-                        }
-                        sb.append(']');
-                        firstRow = false;
-                    }
-                    sb.append("]}");
-                    first = false;
-                }
+                self.emitParagraph(sec.getParagraph(i), docInfo, sb);
             }
         }
         sb.append("]}");
         Files.write(Paths.get(args[1]), sb.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * 문단 하나를 블록으로 내보내고, 그 문단이 담은 컨트롤(표·머리말·꼬리말·
+     * 각주·미주·글상자)도 재귀로 처리한다. 재귀가 필요한 이유(외부 QA 이슈
+     * #43 원인 조사로 발견): 머리말·글상자 같은 컨트롤이 항상 평문 문단만
+     * 담는 게 아니라 **그 안에 표를 또 담을 수 있다** — 실사용 공공기관
+     * 문서(mois-hwpplan.hwp)에서 결재란이 정확히 이 모양(머리말 → 표)이었다.
+     * 표가 아닌 컨트롤만 처리하고 재귀하지 않으면 이런 중첩 구조의 텍스트가
+     * 조용히 사라진다. 이전에는 ControlType.Table만 처리하고 나머지는 전부
+     * 건너뛰어, 머리말·글상자 안의 문서 제목·결재란이 사라졌었다.
+     * HwpToText.java의 TextExtractor는 InsertControlTextBetweenParagraphText
+     * 옵션으로 이미 이 텍스트를 뽑아내고 있어 TXT 경로는 영향이 없었다.
+     */
+    private void emitParagraph(Paragraph p, DocInfo docInfo, StringBuilder sb) {
+        String runsJson = paragraphRunsJson(p, docInfo);
+        if (runsJson != null) {
+            if (!firstBlock) sb.append(',');
+            sb.append("{\"type\":\"p\",\"runs\":[").append(runsJson).append("]}");
+            firstBlock = false;
+        }
+        if (p.getControlList() == null) return;
+        for (Control c : p.getControlList()) {
+            if (c.getType() == ControlType.Table) {
+                emitTable((ControlTable) c, sb);
+            } else if (c instanceof GsoControl) {
+                emitGso((GsoControl) c, docInfo, sb);
+            } else {
+                ParagraphList nested = extractNestedParagraphList(c);
+                if (nested == null) continue;
+                for (Paragraph np : nested) {
+                    emitParagraph(np, docInfo, sb);
+                }
+            }
+        }
+    }
+
+    /**
+     * 도형(Gso) 컨트롤의 텍스트를 재귀로 내보낸다. 묶음 개체(ControlContainer —
+     * 여러 도형을 그룹으로 묶은 것)는 자기 자신은 텍스트가 없고 차일드 컨트롤
+     * 목록만 갖는데, 그 차일드가 또 다른 묶음일 수도 있다(중첩 그룹) — 실사용
+     * 문서(unikorea-contract.hwp)에서 서명란 텍스트가 정확히 이 묶음 개체
+     * 안에 있었다(외부 QA 이슈 #43 재조사로 발견, 첫 수정에서는 놓쳤음).
+     */
+    private void emitGso(GsoControl gso, DocInfo docInfo, StringBuilder sb) {
+        if (gso instanceof ControlContainer) {
+            for (GsoControl child : ((ControlContainer) gso).getChildControlList()) {
+                emitGso(child, docInfo, sb);
+            }
+            return;
+        }
+        TextBox tb = extractTextBoxFromGso(gso);
+        if (tb == null) return;
+        for (Paragraph np : tb.getParagraphList()) {
+            emitParagraph(np, docInfo, sb);
+        }
+    }
+
+    private void emitTable(ControlTable table, StringBuilder sb) {
+        if (!firstBlock) sb.append(',');
+        sb.append("{\"type\":\"table\",\"rows\":[");
+        boolean firstRow = true;
+        for (Row row : table.getRowList()) {
+            if (!firstRow) sb.append(',');
+            sb.append('[');
+            boolean firstCell = true;
+            for (Cell cell : row.getCellList()) {
+                if (!firstCell) sb.append(',');
+                StringBuilder cellText = new StringBuilder();
+                for (Paragraph cp : cell.getParagraphList()) {
+                    if (cellText.length() > 0) cellText.append('\n');
+                    cellText.append(safeText(cp));
+                }
+                sb.append('"').append(esc(cellText.toString())).append('"');
+                firstCell = false;
+            }
+            sb.append(']');
+            firstRow = false;
+        }
+        sb.append("]}");
+        firstBlock = false;
     }
 
     /**
@@ -243,6 +310,31 @@ public class HwpToJson {
                 remaining = 0;
             }
         }
+    }
+
+    /**
+     * 표·도형이 아닌 컨트롤에서 문단 리스트를 뽑아낸다(외부 QA 이슈 #43) —
+     * 머리말·꼬리말·각주·미주는 Control 자체가 바로 문단 리스트를 갖는다.
+     * 글상자(도형)는 구조가 더 복잡해(그룹 중첩 가능) emitGso()가 따로
+     * 재귀 처리한다. 수식·양식 개체처럼 별도의 특수 구조를 쓰는 컨트롤은
+     * 이번 범위 밖(정직하게 문서화 — 필요해지면 후속 과제)이라 null을
+     * 반환해 건너뛴다.
+     */
+    private static ParagraphList extractNestedParagraphList(Control c) {
+        if (c instanceof ControlHeader) return ((ControlHeader) c).getParagraphList();
+        if (c instanceof ControlFooter) return ((ControlFooter) c).getParagraphList();
+        if (c instanceof ControlFootnote) return ((ControlFootnote) c).getParagraphList();
+        if (c instanceof ControlEndnote) return ((ControlEndnote) c).getParagraphList();
+        return null;
+    }
+
+    private static TextBox extractTextBoxFromGso(GsoControl gso) {
+        if (gso instanceof ControlRectangle) return ((ControlRectangle) gso).getTextBox();
+        if (gso instanceof ControlEllipse) return ((ControlEllipse) gso).getTextBox();
+        if (gso instanceof ControlPolygon) return ((ControlPolygon) gso).getTextBox();
+        if (gso instanceof ControlCurve) return ((ControlCurve) gso).getTextBox();
+        if (gso instanceof ControlArc) return ((ControlArc) gso).getTextBox();
+        return null;
     }
 
     private static CharShape resolveCharShape(DocInfo docInfo, long shapeId) {
