@@ -1,4 +1,4 @@
-"""find_soffice() 번들 경로 탐색 테스트 — macOS 배포(DEC-030) 추가 시,
+"""find_soffice() 번들 경로 탐색 테스트 — macOS 배포(DEC-029) 추가 시,
 Windows 전용(libreoffice/program/soffice.exe) 경로만 확인하고 macOS
 번들 구조(libreoffice/LibreOffice.app/Contents/MacOS/soffice)를 놓쳐
 실제 사용자 macOS 배포판에서 LibreOffice를 못 찾는 회귀가 날 뻔했다

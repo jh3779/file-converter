@@ -328,6 +328,25 @@ def main():
         except Exception as e:
             check("PDF→이미지 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
+        # 9) PDF -> PPTX(줄 단위 위치 재구성, DEC-030). python-pptx도 새 런타임
+        #    의존성이라 패키징 경로 검증이 필요함. 자체 생성 DOCX→PDF를 다시
+        #    PPTX로 변환해 슬라이드 수·텍스트 보존을 확인한다.
+        try:
+            from pptx import Presentation
+            out = converters.convert(src_docx, "pdf", tmp)
+            pptx_out = converters.convert(out, "pptx", tmp)
+            check("PDF→PPTX 변환 완료", pptx_out.exists())
+            prs = Presentation(pptx_out)
+            slides = list(prs.slides)
+            check("PDF→PPTX: 슬라이드 1개 이상 생성", len(slides) >= 1, str(len(slides)))
+            texts = " ".join(s.text_frame.text for slide in slides
+                              for s in slide.shapes if s.has_text_frame)
+            check("PDF→PPTX: 텍스트 내용 보존", "뷁 밟 닳 넋 앎 옳" in texts, repr(texts[:120]))
+        except ConversionError as e:
+            check("PDF→PPTX 변환 완료", False, f"{e.key}: {e.detail}")
+        except Exception as e:
+            check("PDF→PPTX 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
+
         print("스모크 전체 통과")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

@@ -114,13 +114,16 @@ class FileRow(QFrame):
         출력하는 방안은 데이터 모델을 바꿔야 해서 별도 과제로 보류). 애니메이션
         이미지(GIF/WEBP) → 다른 이미지 포맷 선택 시 첫 프레임만 남는다는
         고지(항상 단일 프레임으로 단순화). DEC-025: PDF → 이미지 선택 시
-        결과가 폴더로 저장된다는 고지."""
+        결과가 폴더로 저장된다는 고지. DEC-030: PDF → PPTX 선택 시 표
+        테두리·이미지는 옮겨지지 않는다는 고지(텍스트는 위치까지 재구성됨)."""
         if self.item.target_fmt == "docx" and self.item.source_fmt in ("pdf", "hwp"):
             note_key = "note.simplified"
         elif self.item.target_fmt == "hwp" and self.item.source_fmt in ("docx", "pdf"):
             note_key = "note.simplified"
         elif self.item.target_fmt == "images" and self.item.source_fmt == "pdf":
             note_key = "note.pdf_to_images"
+        elif self.item.target_fmt == "pptx" and self.item.source_fmt == "pdf":
+            note_key = "note.pdf_to_pptx"
         elif self.item.target_fmt == "csv" and self.item.source_fmt == "xlsx":
             from ..converters.data import xlsx_sheet_count
             note_key = "note.xlsx_multisheet" if xlsx_sheet_count(self.item.source) > 1 else None

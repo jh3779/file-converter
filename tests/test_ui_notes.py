@@ -109,6 +109,13 @@ class TestFormatNote(unittest.TestCase):
         self.assertTrue(visible)
         self.assertIn("폴더", text)
 
+    def test_pdf_to_pptx_shows_layout_note(self):
+        """DEC-030: 텍스트는 위치까지 재구성되지만 표 테두리·이미지는
+        옮겨지지 않는다는 고지 — note.simplified(단순화)와는 다른 문구."""
+        visible, text = self._note_for("pdf", "pptx")
+        self.assertTrue(visible)
+        self.assertIn("표 테두리", text)
+
 
 if __name__ == "__main__":
     unittest.main()

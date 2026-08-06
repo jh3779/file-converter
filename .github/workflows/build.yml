@@ -57,10 +57,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - run: pip install -r requirements.txt pyinstaller python-pptx
-        # python-pptx는 앱 런타임 의존성이 아니다 — PPTX→PDF는 LibreOffice가
-        # 직접 읽어 변환하므로 필요 없다. 여기서는 스모크용 테스트 픽스처
-        # (샘플 .pptx) 생성 목적으로만 설치한다.
+      - run: pip install -r requirements.txt pyinstaller
+        # python-pptx는 이제 requirements.txt의 실제 런타임 의존성이다
+        # (PDF→PPTX, DEC-030) — 별도로 다시 설치할 필요 없음.
       - name: Build HWP engine (hwplib + sidecar + jlink JRE)
         shell: pwsh
         run: |
@@ -353,6 +352,9 @@ jobs:
           if (-not (Get-ChildItem -Recurse -Path dist/FileConverter -Filter "pypdfium2*" -ErrorAction SilentlyContinue)) {
             Write-Error "pypdfium2 패키지가 패키징된 아티팩트에 없습니다 (DEC-025) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
           }
+          if (-not (Get-ChildItem -Recurse -Path dist/FileConverter -Filter "pptx" -Directory -ErrorAction SilentlyContinue)) {
+            Write-Error "python-pptx 패키지가 패키징된 아티팩트에 없습니다 (DEC-030) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
+          }
           $bundledVersion = (Get-Content dist/FileConverter/VERSION -Raw -ErrorAction SilentlyContinue)
           if ($bundledVersion -ne (Get-Content packaging/VERSION -Raw)) {
             Write-Error "번들된 VERSION이 packaging/VERSION과 다릅니다(업데이트 확인 기능 오탐 위험) — 번들: '$bundledVersion'"; exit 1
@@ -471,7 +473,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - run: pip install -r requirements.txt pyinstaller python-pptx
+      - run: pip install -r requirements.txt pyinstaller
       - name: Build HWP engine (hwplib + sidecar + jlink JRE)
         run: |
           git clone https://github.com/neolord0/hwplib.git hwplib-src
@@ -729,6 +731,9 @@ jobs:
           fi
           if ! find dist/FileConverter.app/Contents -iname "pypdfium2*" | grep -q .; then
             echo "::error::pypdfium2 패키지가 패키징된 아티팩트에 없습니다 (DEC-025) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
+          fi
+          if ! find dist/FileConverter.app/Contents -type d -name "pptx" | grep -q .; then
+            echo "::error::python-pptx 패키지가 패키징된 아티팩트에 없습니다 (DEC-030) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
           fi
           bundled_version=$(cat "$target/VERSION")
           repo_version=$(cat packaging/VERSION)
