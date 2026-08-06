@@ -84,8 +84,12 @@ _S = {
                            "The document engine is missing. Please reinstall the app."),
     "err.hwp_missing": ("HWP 변환 구성 요소를 찾을 수 없습니다. 앱을 다시 설치해 주세요.",
                         "The HWP component is missing. Please reinstall the app."),
-    "err.video_missing": ("영상 변환 구성 요소를 찾을 수 없습니다. 앱을 다시 설치해 주세요.",
-                          "The video component is missing. Please reinstall the app."),
+    "err.video_missing": ("영상 변환 구성 요소를 찾을 수 없습니다. 백신 프로그램이 이 구성 "
+                          "요소를 위협으로 오인해 격리(검역)했을 수 있어요 — 백신의 격리 "
+                          "목록을 먼저 확인해 보시고, 그래도 안 되면 앱을 다시 설치해 주세요.",
+                          "The video component is missing. Your antivirus may have quarantined "
+                          "it by mistake — please check your antivirus's quarantine list first, "
+                          "and reinstall the app if that doesn't resolve it."),
     "err.video_codec_unsupported": ("이 영상은 지원하지 않는 코덱을 사용해요(H.264/HEVC만 지원). "
                                     "다른 도구로 변환한 뒤 다시 시도해 주세요.",
                                     "This video uses an unsupported codec (only H.264/HEVC are "
