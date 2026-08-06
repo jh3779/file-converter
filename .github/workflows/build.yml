@@ -399,6 +399,19 @@ jobs:
           $exe = Get-ChildItem packaging/installer-out -Filter *.exe | Select-Object -First 1
           if (-not $exe) { Write-Error "인스톨러 산출물을 찾을 수 없습니다"; exit 1 }
           Write-Host "빌드됨: $($exe.FullName) ($([math]::Round($exe.Length/1MB)) MB)"
+          # 번들이 전량 64비트인데 이 지시자가 없으면 "모든 사용자용으로 설치" 선택 시
+          # {autopf}가 32비트 전용 Program Files (x86)로 잘못 풀린다(실사용 QA #48).
+          # UAC 승격이 필요해 무인 CI로 실제 설치 경로까지 매번 검증하기는 어려워(승격
+          # 대화상자가 무인 환경에서 멈출 위험), 최소한 지시자가 소스에서 사라지지
+          # 않았는지는 매번 확인한다 — 실제 "모든 사용자용" 설치 경로 확인은 수동 검증
+          # 잔여 리스크로 남긴다(docs/06_open_questions.md 참고).
+          $issContent = Get-Content packaging/installer.iss -Raw
+          if ($issContent -notmatch 'ArchitecturesInstallIn64BitMode=x64compatible') {
+            Write-Error "installer.iss에 ArchitecturesInstallIn64BitMode 지시자가 없습니다(#48 회귀)"; exit 1
+          }
+          if ($issContent -notmatch 'ArchitecturesAllowed=x64compatible') {
+            Write-Error "installer.iss에 ArchitecturesAllowed 지시자가 없습니다(#48 회귀)"; exit 1
+          }
       - name: Installer smoke (무설치 폴더에 실치→실행→제거 전 과정 검증)
         shell: pwsh
         run: |
