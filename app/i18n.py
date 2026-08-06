@@ -111,10 +111,11 @@ _S = {
                                "This is an animated image — only the first frame will be converted"),
     "note.pdf_to_images": ("원본 파일명으로 폴더를 만들어 페이지별 이미지로 저장해요",
                            "A folder named after the file will hold one image per page"),
-    "note.pdf_to_pptx": ("텍스트는 원래 위치에 맞춰 슬라이드로 재구성돼요 — "
-                         "표 테두리·이미지 등은 옮겨지지 않아요",
-                         "Text is rebuilt into slides at its original position — "
-                         "table borders and images are not carried over"),
+    "note.pdf_to_pptx": ("텍스트·이미지·표 테두리는 원래 위치에 맞춰 슬라이드로 "
+                         "재구성돼요 — 복잡한 곡선 도형은 다각형으로 근사될 수 있어요",
+                         "Text, images, and table borders are rebuilt into slides at "
+                         "their original position — complex curved shapes may be "
+                         "approximated as polygons"),
     "err.notyet": ("이 변환은 다음 버전에서 지원될 예정입니다.",
                    "This conversion is coming in a future update."),
 }
