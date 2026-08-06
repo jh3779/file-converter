@@ -30,6 +30,102 @@ def pdf_to_docx(src: Path, tmpdir: Path) -> Path:
     return blocks_to_docx(blocks, tmpdir / (src.stem + ".docx"))
 
 
+def pdf_to_pptx(src: Path, tmpdir: Path) -> Path:
+    """PDF → PPTX, 한 페이지=한 이미지로 뭉개지 않고 줄 단위로 위치를 재구성
+    (DEC-030). 각 텍스트 줄을 원본과 같은 위치·크기의 개별 텍스트 상자로
+    복원하고, 굵게 판정은 pdf_to_docx와 같은 폰트 이름 휴리스틱(_container_to_runs)을
+    그대로 재사용한다.
+
+    **알려진 한계(정직하게 문서화, 스파이크로 직접 확인)**: (1) 표 테두리·
+    이미지·도형 등 텍스트가 아닌 요소는 옮겨지지 않는다 — PDF에서 이들은
+    텍스트가 아니라 별도의 벡터 그림이라 이 파이프라인(텍스트 레이어 추출)이
+    다루는 범위 밖. (2) 재구성에 항상 Noto Sans KR을 지정하므로(DEC-015와
+    같은 이유) 원본 폰트와 글자 폭이 달라 드물게 줄바꿈이 살짝 밀릴 수 있다.
+    (3) 기울임은 한글 글꼴 대부분에 별도 이탤릭 글리프가 없어(CJK 타이포그래피
+    관행) 감지되지 않는 경우가 흔함(pdf_to_docx와 동일한 제약).
+    """
+    from pptx import Presentation
+    from pptx.util import Emu, Pt
+    from pptx.enum.text import MSO_ANCHOR
+
+    EMU_PER_PT = 12700
+    layout = _extract_pdf_layout(src)
+    if not layout:
+        raise ConversionError("err.corrupted", "페이지 없음")
+
+    prs = Presentation()
+    prs.slide_width = Emu(round(layout[0]["width"] * EMU_PER_PT))
+    prs.slide_height = Emu(round(layout[0]["height"] * EMU_PER_PT))
+    blank_layout = prs.slide_layouts[6]
+
+    for page in layout:
+        slide = prs.slides.add_slide(blank_layout)
+        page_h = page["height"]
+        for line in page["lines"]:
+            x0, y0, x1, y1 = line["bbox"]
+            left = Emu(round(x0 * EMU_PER_PT))
+            top = Emu(round((page_h - y1) * EMU_PER_PT))
+            width = Emu(max(round((x1 - x0) * EMU_PER_PT), 1))
+            height = Emu(max(round((y1 - y0) * EMU_PER_PT), 1))
+            box = slide.shapes.add_textbox(left, top, width, height)
+            tf = box.text_frame
+            tf.word_wrap = False
+            tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+            tf.vertical_anchor = MSO_ANCHOR.TOP
+            p = tf.paragraphs[0]
+            for r in line["runs"]:
+                run = p.add_run()
+                run.text = r["text"]
+                run.font.bold = r["bold"]
+                run.font.italic = r["italic"]
+                if r["size"]:
+                    run.font.size = Pt(r["size"])
+                run.font.name = "Noto Sans KR"
+
+    out = tmpdir / (src.stem + ".pptx")
+    prs.save(out)
+    return out
+
+
+def _iter_lines(container):
+    """컨테이너의 직계 LTTextLine들을 낸다. 줄로 안 묶인 컨테이너(LTFigure
+    등, _paragraph_candidates 참고)는 통째로 줄 하나처럼 취급한다."""
+    from pdfminer.layout import LTTextLine
+
+    found_line = False
+    for item in container:
+        if isinstance(item, LTTextLine):
+            found_line = True
+            yield item
+    if not found_line:
+        yield container
+
+
+def _extract_pdf_layout(src: Path) -> list[dict]:
+    """PDF → 페이지별 [{"width","height","lines":[{"bbox","runs"}]}] — pdf_to_pptx
+    전용, 줄 단위 위치(bbox)까지 필요해 문단 단위로 합치는 _extract_pdf_blocks와는
+    분리했다(서식 판정 로직 자체는 _container_to_runs를 그대로 재사용)."""
+    from pdfminer.high_level import extract_pages
+    from pdfminer.pdfdocument import PDFPasswordIncorrect
+    from pdfminer.psparser import PSException
+
+    pages = []
+    try:
+        for page in extract_pages(str(src)):
+            lines = []
+            for container in _paragraph_candidates(page):
+                for line in _iter_lines(container):
+                    runs = _container_to_runs(line)
+                    if runs:
+                        lines.append({"bbox": line.bbox, "runs": runs})
+            pages.append({"width": page.width, "height": page.height, "lines": lines})
+    except PDFPasswordIncorrect:
+        raise ConversionError("err.password")
+    except (PSException, ValueError, OSError) as e:
+        raise ConversionError("err.corrupted", str(e))
+    return pages
+
+
 def _extract_pdf_blocks(src: Path) -> list[dict]:
     """PDF → 문단 블록(서식 포함, DEC-027). pdfminer의 레이아웃 트리를 재귀
     순회해 "문단 하나"로 볼 수 있는 단위마다 글자 단위로 훑어 굵게/기울임/
