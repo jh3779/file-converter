@@ -94,7 +94,7 @@ jobs:
           # DEC-017/DEC-028: DOCX→HWP 사이드카(JsonToHwp) — 구조 JSON → HWP 생성 → 재읽기 왕복 검증.
           # DEC-028부터 표는 더 이상 텍스트로 단순화되지 않고 실제 HWP 표
           # 컨트롤로 생성된다(spike/hwplib/SpikeTable.java에서 검증한 패턴).
-          Set-Content -Encoding utf8 blocks.json '{"blocks":[{"type":"p","text":"뷁 밟 닳 넋 한글 생성 테스트"},{"type":"table","rows":[["이름","부서"],["김철수","영업1팀"]]}]}'
+          Set-Content -Encoding utf8 blocks.json '{"blocks":[{"type":"p","text":"뷁 밟 닳 넋 한글 생성 테스트"},{"type":"table","rows":[[{"text":"이름","colSpan":1,"rowSpan":1},{"text":"부서","colSpan":1,"rowSpan":1}],[{"text":"김철수","colSpan":1,"rowSpan":1},{"text":"영업1팀","colSpan":1,"rowSpan":1}]]}]}'
           & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwp blocks.json created.hwp
           if (-not (Test-Path created.hwp)) {
             Write-Error "HWP engine smoke failed: JsonToHwp가 HWP 파일을 생성하지 못함"; exit 1
@@ -112,6 +112,19 @@ jobs:
           $createdJson = Get-Content created.json -Encoding utf8 -Raw
           if (-not ($createdJson | Select-String -Pattern '"type":"table","rows":\[\["이름","부서"\],\["김철수","영업1팀"\]\]' -Quiet)) {
             Write-Error "HWP engine smoke failed: JsonToHwp가 만든 표가 실제 표 구조(2행×2열)로 재확인되지 않음(DEC-028 회귀)"; exit 1
+          }
+          # DEC-035: 셀 병합(colSpan/rowSpan) — JsonToHwp가 TableCellMerger로
+          # 실제 병합을 적용하고, HwpToJson이 그 구조(병합 안 된 셀은 평문,
+          # 병합된 셀은 colSpan/rowSpan 객체)를 그대로 재확인해야 한다.
+          Set-Content -Encoding utf8 merge-blocks.json '{"blocks":[{"type":"table","rows":[[{"text":"병합","colSpan":2,"rowSpan":1}],[{"text":"10","colSpan":1,"rowSpan":1},{"text":"11","colSpan":1,"rowSpan":1}]],"colWidthsMm":[30.0,30.0]}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwp merge-blocks.json merged.hwp
+          if (-not (Test-Path merged.hwp)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 병합 표를 생성하지 못함(DEC-035)"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToJson merged.hwp merged.json
+          $mergedJson = Get-Content merged.json -Encoding utf8 -Raw
+          if (-not ($mergedJson | Select-String -Pattern '"type":"table","rows":\[\[\{"text":"병합","colSpan":2,"rowSpan":1\}\],\["10","11"\]\]' -Quiet)) {
+            Write-Error "HWP engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-035 회귀)"; exit 1
           }
           # DEC-018: 긴 문단(여러 줄로 감싸질 정도)도 텍스트가 그대로 보존되는지 —
           # LineSeg 줄바꿈 재계산이 텍스트 자체를 깨뜨리지 않는지 확인.
@@ -530,9 +543,11 @@ jobs:
           # 컨트롤로 생성된다(spike/hwplib/SpikeTable.java에서 검증한 패턴).
           python3 <<'PY'
           import json
+          def cell(text):
+              return {"text": text, "colSpan": 1, "rowSpan": 1}
           blocks = {"blocks": [
               {"type": "p", "text": "뷁 밟 닳 넋 한글 생성 테스트"},
-              {"type": "table", "rows": [["이름", "부서"], ["김철수", "영업1팀"]]},
+              {"type": "table", "rows": [[cell("이름"), cell("부서")], [cell("김철수"), cell("영업1팀")]]},
           ]}
           open("blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
           PY
@@ -550,6 +565,28 @@ jobs:
           text = open("created.json", encoding="utf-8").read()
           if not re.search(r'"type":"table","rows":\[\["이름","부서"\],\["김철수","영업1팀"\]\]', text):
               print("::error::HWP engine smoke failed: JsonToHwp가 만든 표가 실제 표 구조(2행x2열)로 재확인되지 않음(DEC-028 회귀)")
+              sys.exit(1)
+          PY
+
+          # DEC-035: 셀 병합(colSpan/rowSpan) — JsonToHwp가 TableCellMerger로
+          # 실제 병합을 적용하고, HwpToJson이 그 구조(병합 안 된 셀은 평문,
+          # 병합된 셀은 colSpan/rowSpan 객체)를 그대로 재확인해야 한다.
+          python3 -c '
+          import json
+          blocks = {"blocks": [{"type": "table", "rows": [
+              [{"text": "병합", "colSpan": 2, "rowSpan": 1}],
+              [{"text": "10", "colSpan": 1, "rowSpan": 1}, {"text": "11", "colSpan": 1, "rowSpan": 1}],
+          ], "colWidthsMm": [30.0, 30.0]}]}
+          open("merge-blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          '
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp merge-blocks.json merged.hwp
+          [ -f merged.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 병합 표를 생성하지 못함(DEC-035)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson merged.hwp merged.json
+          python3 <<'PY'
+          import re, sys
+          text = open("merged.json", encoding="utf-8").read()
+          if not re.search(r'"type":"table","rows":\[\[\{"text":"병합","colSpan":2,"rowSpan":1\}\],\["10","11"\]\]', text):
+              print("::error::HWP engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-035 회귀)")
               sys.exit(1)
           PY
 
