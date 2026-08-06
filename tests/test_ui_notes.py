@@ -48,9 +48,13 @@ class TestFormatNote(unittest.TestCase):
         visible, text = self._note_for("docx", "hwp")
         self.assertTrue(visible)
 
-    def test_pdf_to_docx_shows_layout_simplified_note(self):
+    def test_pdf_to_docx_shows_absolute_position_note(self):
+        """DEC-037: PDF→DOCX가 줄 단위 절대 위치 재구성으로 바뀌면서
+        전용 고지(note.pdf_to_docx)로 갈아탔다 — 편집 시 줄이 자연스럽게
+        안 이어질 수 있다는 트레이드오프 안내가 핵심."""
         visible, text = self._note_for("pdf", "docx")
         self.assertTrue(visible)
+        self.assertIn("고정된 위치", text)
 
     def test_hwp_to_docx_shows_layout_simplified_note(self):
         visible, text = self._note_for("hwp", "docx")
