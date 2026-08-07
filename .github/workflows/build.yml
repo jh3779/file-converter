@@ -125,7 +125,8 @@ jobs:
           if (-not (Test-Path pagebreak.hwp)) {
             Write-Error "HWP engine smoke failed: JsonToHwp가 페이지 구분 있는 문서를 생성하지 못함(DEC-039)"; exit 1
           }
-          $pageBreakOut = & engine-build/jre/bin/java.exe -cp "debug-tools;engine-build/hwp" PageBreakDebug pagebreak.hwp
+          & engine-build/jre/bin/java.exe -cp "debug-tools;engine-build/hwp" PageBreakDebug pagebreak.hwp pagebreak-out.txt
+          $pageBreakOut = Get-Content -Encoding utf8 pagebreak-out.txt
           if (-not ($pageBreakOut | Select-String -Pattern "0`tfalse`t1페이지 문단" -SimpleMatch -Quiet)) {
             Write-Error "HWP engine smoke failed: 1페이지 문단에 쪽 나눔이 잘못 붙음(DEC-039 회귀)"; exit 1
           }
@@ -589,7 +590,7 @@ jobs:
           '
           engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp pagebreak-blocks.json pagebreak.hwp
           [ -f pagebreak.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 페이지 구분 있는 문서를 생성하지 못함(DEC-039)"; exit 1; }
-          engine-build/jre/bin/java -cp "debug-tools:engine-build/hwp" PageBreakDebug pagebreak.hwp > pagebreak-out.txt
+          engine-build/jre/bin/java -cp "debug-tools:engine-build/hwp" PageBreakDebug pagebreak.hwp pagebreak-out.txt
           grep -qF "$(printf '0\tfalse\t1페이지 문단')" pagebreak-out.txt || { echo "::error::HWP engine smoke failed: 1페이지 문단에 쪽 나눔이 잘못 붙음(DEC-039 회귀)"; exit 1; }
           grep -qF "$(printf '1\ttrue\t2페이지 문단')" pagebreak-out.txt || { echo "::error::HWP engine smoke failed: 2페이지 문단에 쪽 나눔이 반영되지 않음(DEC-039 회귀)"; exit 1; }
 
