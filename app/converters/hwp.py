@@ -22,6 +22,13 @@ DOCX→HWP 쓰기 방향의 문자 서식은 아직 범위 밖.
 재현 확인 후 보완) — numbering.xml을 해석해 마커를 문단 앞에 텍스트로
 붙인다. 다단계 중첩 목록의 상위 레벨 변경 시 하위 레벨 재시작 등 OOXML
 번호 매기기 전체 규칙까지는 재현하지 않는 문서화된 단순화다.
+
+문단 정렬(DEC-040): DOCX→HWP는 python-docx의 paragraph.alignment(직접
+지정된 값만, 스타일 상속은 범위 밖)를, PDF→HWP는 pdfminer 줄 위치(bbox)
+기반 휴리스틱을 각각 JsonToHwp.java에 "align" 필드로 넘긴다. HWP→DOCX는
+HwpToJson.java가 ParaShape의 정렬을 항상 읽어 docx_build.py가
+paragraph.alignment에 반영한다. HWP 문서 기본 정렬은 "양쪽 정렬"이라(hwplib
+실측 확인), align이 없으면 그 기본값을 그대로 따른다.
 """
 import json
 import os
@@ -125,12 +132,12 @@ def docx_to_hwp(src: Path, tmpdir: Path) -> Path:
 def pdf_to_hwp(src: Path, tmpdir: Path) -> Path:
     """PDF → 텍스트 추출 → HWP (레이아웃 단순화 — PDF→DOCX의 DEC-010과 같은 원칙).
     PDF는 표 구조 자체를 담고 있지 않으므로(추출 결과가 이미 평문) 문단
-    텍스트만 옮긴다."""
+    텍스트만 옮긴다. 정렬(DEC-040)은 문단 줄 위치(bbox)로 추정해 반영한다
+    (이전엔 pdfminer의 extract_text()로 문서 전체를 한 문자열로 뽑아 페이지·
+    줄 위치 정보 자체가 없었음)."""
     from . import pdf as pdf_mod
-    from .docx_build import text_to_blocks
 
-    txt = pdf_mod.pdf_to_txt(src, tmpdir)
-    blocks = text_to_blocks(txt.read_text(encoding="utf-8"))
+    blocks = pdf_mod._extract_pdf_paragraphs(src)
     return _blocks_to_hwp(blocks, src, tmpdir)
 
 
