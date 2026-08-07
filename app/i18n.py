@@ -10,9 +10,9 @@ LANGS = ("ko", "en")
 _S = {
     "app.title": ("파일 변환기", "File Converter"),
     "drop.title": ("파일을 여기에 끌어다 놓으세요", "Drop files here"),
-    "drop.sub": ("또는 클릭해서 선택 · DOCX PPTX PDF HWP CSV XLSX JSON · AVI MOV MKV 등 영상 · "
+    "drop.sub": ("또는 클릭해서 선택 · DOCX PPTX PDF HWP HWPX CSV XLSX JSON · AVI MOV MKV 등 영상 · "
                  "JPG PNG 등 이미지",
-                 "or click to browse · DOCX PPTX PDF HWP CSV XLSX JSON · AVI MOV MKV and other "
+                 "or click to browse · DOCX PPTX PDF HWP HWPX CSV XLSX JSON · AVI MOV MKV and other "
                  "video · JPG PNG and other images"),
     "drop.strip": ("＋ 파일 추가 또는 끌어다 놓기", "＋ Add files or drag & drop"),
     "convert": ("변환하기", "Convert"),
