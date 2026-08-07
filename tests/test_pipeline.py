@@ -186,6 +186,44 @@ class TestHwp(Base):
         self.assertIn("김철수", text)
         self.assertIn("영업1팀", text)
 
+    def test_docx_to_hwp_char_formatting_roundtrip(self):
+        """DEC-038: DOCX→HWP 쓰기 방향에도 문단 문자 서식(굵게/기울임/밑줄/
+        크기/색상)이 반영되는지 — 실제 hwplib로 DOCX→HWP→DOCX 왕복(HWP→DOCX
+        읽기 방향은 이미 DEC-027부터 반영돼 있었음)까지 확인한다."""
+        from docx import Document
+        from docx.shared import Pt, RGBColor
+
+        src = self.tmp / "formatted.docx"
+        doc = Document()
+        p = doc.add_paragraph()
+        p.add_run("일반 ")
+        bold_run = p.add_run("굵게")
+        bold_run.bold = True
+        styled_run = p.add_run("기울임+18pt+빨강")
+        styled_run.italic = True
+        styled_run.font.size = Pt(18)
+        styled_run.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+
+        p2 = doc.add_paragraph()
+        p2.add_run("둘째 문단 ")
+        underline_run = p2.add_run("밑줄")
+        underline_run.underline = True
+        doc.save(src)
+
+        out = converters.convert(src, "hwp", self.tmp)
+        back_dir = self.tmp / "back_fmt"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        doc2 = Document(back)
+
+        by_text = {run.text: run for p in doc2.paragraphs for run in p.runs}
+        self.assertFalse(bool(by_text["일반 "].font.bold))
+        self.assertTrue(by_text["굵게"].font.bold)
+        self.assertTrue(by_text["기울임+18pt+빨강"].font.italic)
+        self.assertEqual(by_text["기울임+18pt+빨강"].font.size, Pt(18))
+        self.assertEqual(by_text["기울임+18pt+빨강"].font.color.rgb, RGBColor(0xFF, 0x00, 0x00))
+        self.assertTrue(by_text["밑줄"].font.underline)
+
     def test_docx_to_hwp_preserves_long_wrapped_paragraph(self):
         """긴 문단(여러 줄로 감싸질 정도)이 HWP 레이아웃 캐시(LineSeg) 계산
         누락으로 실제 뷰어에서 겹쳐 보이던 문제 — hwplib 샘플 문서(distribution.hwp)

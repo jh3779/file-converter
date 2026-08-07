@@ -140,6 +140,12 @@ class TestCsvJson(Base):
         self.assertEqual(json.loads(out.read_text()), [{"a": "1", "b": "2"}])
 
 
+def _block_text(block: dict) -> str:
+    """블록의 runs를 이어붙인 평문(DEC-038 — docx_to_blocks가 이제 항상
+    runs를 낸다). 마커·본문이 서로 다른 run에 나뉘어 있어도 하나로 합친다."""
+    return "".join(r["text"] for r in block["runs"])
+
+
 class TestDocxExtractNumbering(Base):
     """코드 리뷰 지적: DOCX 자동 번호·불릿은 numbering.xml 서식일 뿐 문단
     텍스트가 아니므로, item.text만 추출하면 눈에 보이는 마커가 사라진다."""
@@ -155,7 +161,7 @@ class TestDocxExtractNumbering(Base):
         doc.save(src)
 
         blocks = docx_to_blocks(src)
-        texts = [b["text"] for b in blocks]
+        texts = [_block_text(b) for b in blocks]
         self.assertEqual(texts, [
             "일반 문단", "1. 첫 항목", "2. 둘째 항목", "• 불릿 항목",
         ])
@@ -190,7 +196,7 @@ class TestDocxExtractNumbering(Base):
         doc.save(src)
 
         blocks = docx_to_blocks(src)
-        texts = [b["text"] for b in blocks]
+        texts = [_block_text(b) for b in blocks]
         self.assertEqual(texts[2], "목록 사이 일반 문단")
         # numId=1의 서식(decimal/bullet 등)은 기본 템플릿에 따라 달라질 수
         # 있으므로 마커 문자 자체보다 "일반 문단은 그대로, 목록 항목에는
@@ -199,6 +205,70 @@ class TestDocxExtractNumbering(Base):
         self.assertTrue(texts[0].endswith("목록 1"))
         self.assertNotEqual(texts[3], "목록 3")
         self.assertTrue(texts[3].endswith("목록 3"))
+
+
+class TestDocxExtractCharFormatting(Base):
+    """DEC-038: docx_extract.py가 run별 문자 서식(굵게/기울임/밑줄/크기/색상)을
+    추출하는지 — JDK 없이 순수 파이썬 추출 로직만 검증(HWP 왕복까지 포함한
+    통합 테스트는 test_pipeline.py::TestHwp에 있음, hwplib 필요)."""
+
+    def test_bold_italic_underline_size_color_extracted_per_run(self):
+        from docx import Document
+        from docx.shared import Pt, RGBColor
+
+        src = self.tmp / "d.docx"
+        doc = Document()
+        p = doc.add_paragraph()
+        p.add_run("일반 ")
+        bold_run = p.add_run("굵게")
+        bold_run.bold = True
+        styled_run = p.add_run("기울임크게빨강")
+        styled_run.italic = True
+        styled_run.font.size = Pt(18)
+        styled_run.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        self.assertEqual(len(blocks), 1)
+        runs = blocks[0]["runs"]
+        self.assertEqual(runs[0], {"text": "일반 ", "bold": False, "italic": False,
+                                    "underline": False, "size": None, "color": None})
+        self.assertEqual(runs[1], {"text": "굵게", "bold": True, "italic": False,
+                                    "underline": False, "size": None, "color": None})
+        self.assertEqual(runs[2], {"text": "기울임크게빨강", "bold": False, "italic": True,
+                                    "underline": False, "size": 18.0, "color": "FF0000"})
+
+    def test_plain_run_has_no_formatting(self):
+        from docx import Document
+        src = self.tmp / "d.docx"
+        doc = Document()
+        doc.add_paragraph("서식 없는 문단")
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        self.assertEqual(blocks[0]["runs"], [
+            {"text": "서식 없는 문단", "bold": False, "italic": False,
+             "underline": False, "size": None, "color": None},
+        ])
+
+    def test_numbering_marker_prepended_as_unformatted_run(self):
+        """마커(번호/불릿)는 본문 run의 서식과 무관하게 별도의 서식 없는
+        run으로 앞에 붙는다 — 본문이 굵게라도 마커까지 굵어지지 않는다."""
+        from docx import Document
+
+        src = self.tmp / "d.docx"
+        doc = Document()
+        p = doc.add_paragraph("", style="List Number")
+        bold_run = p.add_run("굵은 항목")
+        bold_run.bold = True
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        runs = blocks[0]["runs"]
+        self.assertEqual(runs[0]["text"], "1. ")
+        self.assertFalse(runs[0]["bold"])
+        self.assertEqual(runs[1], {"text": "굵은 항목", "bold": True, "italic": False,
+                                    "underline": False, "size": None, "color": None})
 
 
 class TestDocxBuildFont(Base):
