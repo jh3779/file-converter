@@ -1,8 +1,9 @@
-"""PDF→이미지(페이지별, 폴더 결과물) 테스트 — DEC-025.
+"""PDF→이미지(페이지별, 폴더 결과물) 테스트 — DEC-026(PNG)·DEC-043(JPG 추가).
 
-핵심 검증: 원본 파일명 폴더가 생성되고 그 안에 페이지 수만큼 PNG가
-생기는지, output.finalize()가 폴더 결과물을 파일과 동일하게 원자적으로
-처리하는지(충돌 시 자동 리네임 포함).
+핵심 검증: 원본 파일명 폴더가 생성되고 그 안에 페이지 수만큼 이미지가
+생기는지, PNG/JPG 각각 실제로 그 포맷·확장자로 저장되는지,
+output.finalize()가 폴더 결과물을 파일과 동일하게 원자적으로 처리하는지
+(충돌 시 자동 리네임 포함).
 """
 import shutil
 import tempfile
@@ -62,7 +63,7 @@ class TestPdfToImages(unittest.TestCase):
     def test_multi_page_pdf_produces_one_png_per_page_in_named_folder(self):
         src = self.tmp / "report.pdf"
         _mini_pdf_pages(src, 3)
-        out_dir = converters.convert(src, "images", self.tmp)
+        out_dir = converters.convert(src, "png", self.tmp)
         self.assertTrue(out_dir.is_dir())
         self.assertEqual(out_dir.name, "report")
         pages = sorted(p.name for p in out_dir.iterdir())
@@ -71,22 +72,42 @@ class TestPdfToImages(unittest.TestCase):
     def test_single_page_pdf_produces_one_image(self):
         src = self.tmp / "single.pdf"
         _mini_pdf_pages(src, 1)
-        out_dir = converters.convert(src, "images", self.tmp)
+        out_dir = converters.convert(src, "png", self.tmp)
         self.assertEqual([p.name for p in out_dir.iterdir()], ["page_1.png"])
 
     def test_ten_plus_pages_zero_padded_for_correct_sort(self):
         src = self.tmp / "long.pdf"
         _mini_pdf_pages(src, 11)
-        out_dir = converters.convert(src, "images", self.tmp)
+        out_dir = converters.convert(src, "png", self.tmp)
         names = sorted(p.name for p in out_dir.iterdir())
         self.assertEqual(names[0], "page_01.png")
         self.assertEqual(names[-1], "page_11.png")
+
+    def test_jpg_target_produces_jpeg_files_with_jpg_extension(self):
+        """DEC-043: PNG만 지원하던 것을 JPG까지 확장(외부 QA 피드백) —
+        확장자·실제 저장 포맷(Pillow가 인식하는 진짜 JPEG인지) 둘 다 확인."""
+        from PIL import Image
+        src = self.tmp / "report.pdf"
+        _mini_pdf_pages(src, 2)
+        out_dir = converters.convert(src, "jpg", self.tmp)
+        pages = sorted(p.name for p in out_dir.iterdir())
+        self.assertEqual(pages, ["page_1.jpg", "page_2.jpg"])
+        with Image.open(out_dir / "page_1.jpg") as im:
+            self.assertEqual(im.format, "JPEG")
+
+    def test_png_target_produces_real_png_files(self):
+        from PIL import Image
+        src = self.tmp / "single.pdf"
+        _mini_pdf_pages(src, 1)
+        out_dir = converters.convert(src, "png", self.tmp)
+        with Image.open(out_dir / "page_1.png") as im:
+            self.assertEqual(im.format, "PNG")
 
     def test_corrupted_pdf_rejected(self):
         src = self.tmp / "broken.pdf"
         src.write_bytes(b"not a real pdf")
         with self.assertRaises(ConversionError) as ctx:
-            converters.convert(src, "images", self.tmp)
+            converters.convert(src, "png", self.tmp)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_finalize_moves_folder_and_renames_on_collision(self):
@@ -96,14 +117,14 @@ class TestPdfToImages(unittest.TestCase):
         src = src_dir / "doc.pdf"
         _mini_pdf_pages(src, 2)
         try:
-            produced1 = converters.convert(src, "images", self.tmp)
-            out1, renamed1 = finalize(produced1, src, "images")
+            produced1 = converters.convert(src, "png", self.tmp)
+            out1, renamed1 = finalize(produced1, src, "png")
             self.assertTrue(out1.is_dir())
             self.assertEqual(out1.name, "doc")
             self.assertFalse(renamed1)
 
-            produced2 = converters.convert(src, "images", self.tmp)
-            out2, renamed2 = finalize(produced2, src, "images")
+            produced2 = converters.convert(src, "png", self.tmp)
+            out2, renamed2 = finalize(produced2, src, "png")
             self.assertTrue(renamed2)
             self.assertEqual(out2.name, "doc (1)")
             self.assertTrue(out2.is_dir())
