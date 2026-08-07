@@ -25,6 +25,7 @@ import kr.dogfoot.hwplib.object.bodytext.paragraph.header.ParaHeader;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.lineseg.LineSegItem;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.lineseg.ParaLineSeg;
 import kr.dogfoot.hwplib.object.docinfo.BorderFill;
+import kr.dogfoot.hwplib.object.docinfo.ParaShape;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.BackSlashDiagonalShape;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.BorderThickness;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.BorderType;
@@ -44,7 +45,12 @@ import java.util.Map;
 /**
  * 구조 JSON → HWP 사이드카 (DOCX→HWP 파이프라인의 2단계, HwpToJson의 역방향).
  * 사용: java JsonToHwp <in.blocks.json> <out.hwp>
- * 입력: {"blocks":[{"type":"p","text":"..."} | {"type":"table","rows":[["c1","c2"],...]}]}
+ * 입력: {"blocks":[{"type":"p","text":"...","pageBreakBefore":bool} |
+ *   {"type":"table","rows":[["c1","c2"],...],"pageBreakBefore":bool}]}
+ * pageBreakBefore(DEC-039)는 이 블록 앞에서 항상 새 쪽에서 시작하라는
+ * 표시다 — pdf_to_hwp가 PDF 페이지 경계를 유지하려고 쓴다(원래는 pdfminer의
+ * extract_text()가 페이지 구분 없이 전체를 한 문자열로 뭉개, 여러 페이지의
+ * 텍스트가 HWP 안에서 한 페이지처럼 이어 붙어 보이는 버그였다).
  *
  * DEC-017 정정(DEC-028): hwplib에는 표를 처음부터 만드는 도구가 "전혀 없다"고
  * 기록했던 게 이전 조사 누락이었음이 확인됨 — 공식 샘플
@@ -90,17 +96,18 @@ public class JsonToHwp {
         // 빈 블록(공백뿐인 문단, 빈 표)은 미리 걸러낸다 — 몇 번째가
         // "문서의 첫 블록"인지(=BlankFileMaker가 이미 만들어 둔 첫 문단을
         // 재사용해야 하는지)를 정확히 판단하기 위해서다.
-        List<Object[]> items = new ArrayList<>(); // {"p", text} or {"table", rows}
+        List<Object[]> items = new ArrayList<>(); // {"p", text, pageBreakBefore} or {"table", rows, pageBreakBefore}
         for (Object o : blocks) {
             Map<String, Object> block = (Map<String, Object>) o;
             String type = (String) block.get("type");
+            boolean pageBreakBefore = Boolean.TRUE.equals(block.get("pageBreakBefore"));
             if ("table".equals(type)) {
                 List<Object> rawRows = (List<Object>) block.get("rows");
                 List<List<String>> rows = normalizeRows(rawRows);
-                if (!rows.isEmpty()) items.add(new Object[]{"table", rows});
+                if (!rows.isEmpty()) items.add(new Object[]{"table", rows, pageBreakBefore});
             } else {
                 String text = (String) block.get("text");
-                if (text != null && !text.trim().isEmpty()) items.add(new Object[]{"p", text.trim()});
+                if (text != null && !text.trim().isEmpty()) items.add(new Object[]{"p", text.trim(), pageBreakBefore});
             }
         }
 
@@ -115,10 +122,13 @@ public class JsonToHwp {
                 boolean isFirst = (i == 0);
                 boolean isLast = (i == items.size() - 1);
                 String kind = (String) items.get(i)[0];
+                // 첫 블록은 이 문서의 시작 자체가 이미 "새 쪽"이라
+                // pageBreakBefore를 적용할 대상(앞 문단)이 없다 — 무시.
+                boolean pageBreakBefore = !isFirst && (Boolean) items.get(i)[2];
                 if ("table".equals(kind)) {
                     List<List<String>> rows = (List<List<String>>) items.get(i)[1];
                     Paragraph host = isFirst ? section.getParagraph(0) : section.addNewParagraph();
-                    vpos = addTableBlock(section, host, rows, isFirst, isLast, vpos);
+                    vpos = addTableBlock(section, host, rows, isFirst, isLast, vpos, pageBreakBefore);
                 } else {
                     String text = (String) items.get(i)[1];
                     if (isFirst) {
@@ -130,7 +140,7 @@ public class JsonToHwp {
                         first.getHeader().setLastInList(isLast);
                         vpos = applyLineSeg(first, text, vpos);
                     } else {
-                        vpos = addTextParagraph(section, text, isLast, vpos);
+                        vpos = addTextParagraph(section, text, isLast, vpos, pageBreakBefore);
                     }
                 }
             }
@@ -160,14 +170,15 @@ public class JsonToHwp {
         return rows;
     }
 
-    private static int addTextParagraph(Section section, String content, boolean last, int startVpos) throws Exception {
+    private static int addTextParagraph(Section section, String content, boolean last, int startVpos,
+                                         boolean pageBreakBefore) throws Exception {
         Paragraph paragraph = section.addNewParagraph();
 
         ParaHeader header = paragraph.getHeader();
         header.setLastInList(last);
         header.setCharacterCount(content.length() + 1);
         header.getControlMask().setValue(0);
-        header.setParaShapeId(3);
+        header.setParaShapeId(findOrCreateParaShape(pageBreakBefore));
         header.setStyleId((short) 0);
         header.getDivideSort().setValue((short) 0);
         header.setCharShapeCount(1);
@@ -193,7 +204,8 @@ public class JsonToHwp {
      * 문단을 쓴다 — 둘 다 표 앵커용 확장 문자만 담아 텍스트 자체는 비운다.
      */
     private static int addTableBlock(Section section, Paragraph host, List<List<String>> rows,
-                                      boolean hostIsFirstParagraph, boolean last, int startVpos) throws Exception {
+                                      boolean hostIsFirstParagraph, boolean last, int startVpos,
+                                      boolean pageBreakBefore) throws Exception {
         int rowCount = rows.size();
         int colCount = rows.get(0).size();
 
@@ -206,7 +218,7 @@ public class JsonToHwp {
         } else {
             header.setCharacterCount(1 + 8);
             header.getControlMask().setValue(0);
-            header.setParaShapeId(3);
+            header.setParaShapeId(findOrCreateParaShape(pageBreakBefore));
             header.setStyleId((short) 0);
             header.getDivideSort().setValue((short) 0);
             header.setInstanceID(0);
@@ -285,6 +297,26 @@ public class JsonToHwp {
         }
 
         return startVpos + LINE_ADVANCE;
+    }
+
+    // pageBreakBefore=false → 기본 ParaShape(id=3, BlankFileMaker가 만든 본문
+    // 스타일) 그대로 재사용. true인 경우만 findOrCreateCharShape(DEC-038)과
+    // 같은 원칙으로 그 ParaShape을 복제해 "문단 앞에서 항상 쪽 나눔"
+    // (ParaShapeProperty1 19bit, spike/hwplib/SpikePageBreak.java에서 실제
+    // write+read 왕복으로 비트가 보존됨을 확인)만 켠 새 ParaShape을 한 번만
+    // 만들어 캐시한다(문서 안에 페이지 경계가 여러 개여도 같은 ParaShape을
+    // 공유).
+    private static Integer pageBreakParaShapeId = null;
+
+    private static int findOrCreateParaShape(boolean pageBreakBefore) {
+        if (!pageBreakBefore) return 3;
+        if (pageBreakParaShapeId != null) return pageBreakParaShapeId;
+        ParaShape base = hwp.getDocInfo().getParaShapeList().get(3);
+        ParaShape withBreak = base.clone();
+        withBreak.getProperty1().setSplitPageBeforePara(true);
+        hwp.getDocInfo().getParaShapeList().add(withBreak);
+        pageBreakParaShapeId = hwp.getDocInfo().getParaShapeList().size() - 1;
+        return pageBreakParaShapeId;
     }
 
     private static long mmToHwp(double mm) {
@@ -433,8 +465,9 @@ public class JsonToHwp {
 
     /**
      * 최소 JSON 파서 — 이 사이드카가 받는 입력은 전적으로 우리 Python 코드가
-     * 생성한 표준 JSON(문자열/배열/객체)뿐이므로, 숫자·불리언·null 등
-     * 이 스키마에 없는 값 타입은 지원하지 않는다.
+     * 생성한 표준 JSON(문자열/배열/객체/불리언)뿐이므로, 숫자·null 등 이
+     * 스키마에 없는 값 타입은 지원하지 않는다(pageBreakBefore를 읽으려고
+     * true/false만 DEC-039에서 추가).
      */
     private static class JsonReader {
         private final String s;
@@ -450,7 +483,16 @@ public class JsonToHwp {
             if (c == '{') return readObject();
             if (c == '[') return readArray();
             if (c == '"') return readString();
+            if (c == 't') { expectLiteral("true"); return Boolean.TRUE; }
+            if (c == 'f') { expectLiteral("false"); return Boolean.FALSE; }
             throw new RuntimeException("지원하지 않는 JSON 값 (pos=" + pos + ")");
+        }
+
+        void expectLiteral(String literal) {
+            if (!s.regionMatches(pos, literal, 0, literal.length())) {
+                throw new RuntimeException("예상치 못한 리터럴 (pos=" + pos + ", 예상='" + literal + "')");
+            }
+            pos += literal.length();
         }
 
         Map<String, Object> readObject() {
