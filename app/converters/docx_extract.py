@@ -1,20 +1,28 @@
 """DOCX → 구조 블록 (python-docx). DOCX→HWP 파이프라인 1단계 (docx_build.blocks_to_docx의 역방향).
 
-블록 형식: {"type":"p","text":str} | {"type":"table","rows":[[str,...],...]}
+블록 형식: {"type":"p","runs":[{"text":str,"bold":bool,"italic":bool,
+"underline":bool,"size":float,"color":"RRGGBB"}, ...]} | {"type":"table","rows":[[str,...],...]}
 문서 순서(본문에 등장하는 순서)대로 문단·표를 함께 추출한다 — python-docx는
 document.paragraphs/document.tables를 각각 따로 주기 때문에 body XML을 직접
 순회해야 순서가 보존된다.
+
+문자 서식(굵게/기울임/밑줄/크기/색상, DEC-038)은 run 단위로 그대로 추출한다
+— run.bold/italic/underline이 None이면(스타일에서 상속받고 직접 지정은 없는
+경우) 미지정으로 보고 False로 안전하게 처리한다. HwpToJson.java(HWP→DOCX
+읽기 방향, DEC-027)와 대칭이지만 스타일 상속 체인 전체를 해석하지는
+않는다는 점은 같은 단순화 원칙(번호 매기기의 restart 규칙 미재현과 동일).
 
 번호·불릿 목록 주의: DOCX의 자동 번호("1.", "가.")·불릿("•")은 문단의 실제
 텍스트(w:t)가 아니라 numbering.xml에 정의된 서식이 뷰어에 의해 화면에만
 그려지는 것이라, item.text만 추출하면 눈에 보이는 마커가 조용히 사라진다
 (코드 리뷰 지적, 실제 재현 확인 후 보완). 소수(decimal)·로마자·알파벳·불릿
-서식은 numbering.xml을 해석해 마커 문자열을 만들어 문단 앞에 붙인다.
-다단계 중첩 목록의 상위 레벨 변경 시 하위 레벨 카운터 재시작 등 OOXML
-번호 매기기의 전체 규칙(요소 restart·startOverride 등)까지는 재현하지
-않는다 — (numId, ilvl) 쌍별로 문서 순서대로 단순 증가하는 카운터를 쓴다.
-지원하지 않는 서식(예: 사용자 정의 다단계 서식)은 마커 없이 본문만 유지한다
-(내용 유실은 없음 — 마커만 생략).
+서식은 numbering.xml을 해석해 마커 문자열을 만들어 문단 맨 앞에 서식 없는
+run으로 붙인다(마커 자체는 numbering.xml의 별도 서식을 갖지만 이번 범위
+에서는 재현하지 않음 — 문서화된 단순화). 다단계 중첩 목록의 상위 레벨
+변경 시 하위 레벨 카운터 재시작 등 OOXML 번호 매기기의 전체 규칙(요소
+restart·startOverride 등)까지는 재현하지 않는다 — (numId, ilvl) 쌍별로
+문서 순서대로 단순 증가하는 카운터를 쓴다. 지원하지 않는 서식(예: 사용자
+정의 다단계 서식)은 마커 없이 본문만 유지한다(내용 유실은 없음 — 마커만 생략).
 """
 from pathlib import Path
 
@@ -135,6 +143,32 @@ def _paragraph_numpr(paragraph):
     return num_id, ilvl
 
 
+def _paragraph_runs(paragraph) -> list[dict]:
+    """문단의 run별 문자 서식을 추출한다(DEC-038). 빈 텍스트 run은 건너뛴다
+    (예: 필드 코드 전용 run 등 — 내용 유실 아님, 서식 붙일 텍스트가 없을 뿐)."""
+    runs = []
+    for run in paragraph.runs:
+        if not run.text:
+            continue
+        size = run.font.size
+        color = None
+        try:
+            rgb = run.font.color.rgb if run.font.color is not None else None
+            if rgb is not None:
+                color = str(rgb)
+        except Exception:
+            pass  # 테마 색상 등 RGB로 안 떨어지는 경우 — 색상 미지정으로 안전 처리
+        runs.append({
+            "text": run.text,
+            "bold": bool(run.bold),
+            "italic": bool(run.italic),
+            "underline": bool(run.underline),
+            "size": (size.pt if size is not None else None),
+            "color": color,
+        })
+    return runs
+
+
 def _iter_block_items(document):
     from docx.oxml.table import CT_Tbl
     from docx.oxml.text.paragraph import CT_P
@@ -162,9 +196,9 @@ def docx_to_blocks(src: Path) -> list[dict]:
             if any(cell for row in rows for cell in row):
                 blocks.append({"type": "table", "rows": rows})
         else:
-            text = item.text.strip()
-            if not text:
+            if not item.text.strip():
                 continue
+            runs = _paragraph_runs(item)
             numpr = _paragraph_numpr(item)
             if numpr is not None:
                 num_id, ilvl = numpr
@@ -175,6 +209,8 @@ def docx_to_blocks(src: Path) -> list[dict]:
                     counters[key] = counters.get(key, start - 1) + 1
                     marker = _format_marker(numfmt, lvltext, counters[key])
                     if marker:
-                        text = f"{marker} {text}"
-            blocks.append({"type": "p", "text": text})
+                        runs.insert(0, {"text": f"{marker} ", "bold": False, "italic": False,
+                                        "underline": False, "size": None, "color": None})
+            if runs:
+                blocks.append({"type": "p", "runs": runs})
     return blocks
