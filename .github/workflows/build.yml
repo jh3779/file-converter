@@ -113,6 +113,25 @@ jobs:
           if (-not ($createdJson | Select-String -Pattern '"type":"table","rows":\[\["이름","부서"\],\["김철수","영업1팀"\]\]' -Quiet)) {
             Write-Error "HWP engine smoke failed: JsonToHwp가 만든 표가 실제 표 구조(2행×2열)로 재확인되지 않음(DEC-028 회귀)"; exit 1
           }
+          # DEC-040: 문단 정렬(align) — "align"이 있는 블록은 JsonToHwp가
+          # 실제 ParaShape 정렬로 반영하고, "align"이 없는 블록은 HWP 문서
+          # 기본 정렬(양쪽 정렬)로 나와야 한다. HwpToJson으로 왕복 재확인.
+          Set-Content -Encoding utf8 align-blocks.json '{"blocks":[{"type":"p","text":"기본 정렬"},{"type":"p","text":"가운데 정렬","align":"center"},{"type":"p","text":"오른쪽 정렬","align":"right"}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwp align-blocks.json align.hwp
+          if (-not (Test-Path align.hwp)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 정렬 있는 문서를 생성하지 못함(DEC-040)"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToJson align.hwp align.json
+          $alignJson = Get-Content align.json -Encoding utf8 -Raw
+          if (-not ($alignJson | Select-String -Pattern '"text":"기본 정렬".*?"align":"justify"' -Quiet)) {
+            Write-Error "HWP engine smoke failed: 정렬 미지정 문단이 HWP 기본 정렬(양쪽)로 나오지 않음(DEC-040 회귀)"; exit 1
+          }
+          if (-not ($alignJson | Select-String -Pattern '"text":"가운데 정렬".*?"align":"center"' -Quiet)) {
+            Write-Error "HWP engine smoke failed: 가운데 정렬이 왕복 후 재확인되지 않음(DEC-040 회귀)"; exit 1
+          }
+          if (-not ($alignJson | Select-String -Pattern '"text":"오른쪽 정렬".*?"align":"right"' -Quiet)) {
+            Write-Error "HWP engine smoke failed: 오른쪽 정렬이 왕복 후 재확인되지 않음(DEC-040 회귀)"; exit 1
+          }
           # DEC-018: 긴 문단(여러 줄로 감싸질 정도)도 텍스트가 그대로 보존되는지 —
           # LineSeg 줄바꿈 재계산이 텍스트 자체를 깨뜨리지 않는지 확인.
           # ConvertTo-Json 기본 -Depth(2)로는 이 중첩 구조를 다 못 펴서 값이
@@ -551,6 +570,35 @@ jobs:
           if not re.search(r'"type":"table","rows":\[\["이름","부서"\],\["김철수","영업1팀"\]\]', text):
               print("::error::HWP engine smoke failed: JsonToHwp가 만든 표가 실제 표 구조(2행x2열)로 재확인되지 않음(DEC-028 회귀)")
               sys.exit(1)
+          PY
+
+          # DEC-040: 문단 정렬(align) — "align"이 있는 블록은 JsonToHwp가
+          # 실제 ParaShape 정렬로 반영하고, "align"이 없는 블록은 HWP 문서
+          # 기본 정렬(양쪽 정렬)로 나와야 한다. HwpToJson으로 왕복 재확인.
+          python3 -c '
+          import json
+          blocks = {"blocks": [
+              {"type": "p", "text": "기본 정렬"},
+              {"type": "p", "text": "가운데 정렬", "align": "center"},
+              {"type": "p", "text": "오른쪽 정렬", "align": "right"},
+          ]}
+          open("align-blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          '
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp align-blocks.json align.hwp
+          [ -f align.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 정렬 있는 문서를 생성하지 못함(DEC-040)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson align.hwp align.json
+          python3 <<'PY'
+          import re, sys
+          text = open("align.json", encoding="utf-8").read()
+          checks = [
+              (r'"text":"기본 정렬".*?"align":"justify"', "정렬 미지정 문단이 HWP 기본 정렬(양쪽)로 나오지 않음"),
+              (r'"text":"가운데 정렬".*?"align":"center"', "가운데 정렬이 왕복 후 재확인되지 않음"),
+              (r'"text":"오른쪽 정렬".*?"align":"right"', "오른쪽 정렬이 왕복 후 재확인되지 않음"),
+          ]
+          for pattern, message in checks:
+              if not re.search(pattern, text):
+                  print(f"::error::HWP engine smoke failed: {message}(DEC-040 회귀)")
+                  sys.exit(1)
           PY
 
           # DEC-018: 긴 문단(여러 줄로 감싸질 정도)도 텍스트가 그대로 보존되는지 —
