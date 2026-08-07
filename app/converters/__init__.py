@@ -12,7 +12,7 @@ from . import data, pdf, office, hwp, video, image
 TARGETS: dict[str, list[str]] = {
     "docx": ["pdf", "hwp"],  # DEC-017/DEC-028 — 표는 실제 HWP 표로 생성됨(셀 병합 제외)
     "pptx": ["pdf"],   # DEC-016
-    "pdf": ["txt", "docx", "hwp", "images", "pptx"],  # DEC-023 — HWP도 텍스트 기반(DEC-010과 같은 원칙). images: DEC-025, 페이지별 PNG를 폴더에 저장. pptx: DEC-030, 줄 단위 위치 재구성(이미지로 뭉개지 않음)
+    "pdf": ["txt", "docx", "hwp", "png", "jpg", "pptx"],  # DEC-023 — HWP도 텍스트 기반(DEC-010과 같은 원칙). png/jpg: DEC-026, 페이지별 이미지를 폴더에 저장(jpg 옵션은 DEC-043). pptx: DEC-030, 줄 단위 위치 재구성(이미지로 뭉개지 않음)
     "hwp": ["txt", "pdf", "docx"],
     "csv": ["xlsx", "json"],
     "xlsx": ["csv"],
@@ -53,7 +53,8 @@ _DISPATCH = {
     ("pdf", "txt"): pdf.pdf_to_txt,
     ("pdf", "docx"): pdf.pdf_to_docx,      # 텍스트 기반 (DEC-010 고지)
     ("pdf", "hwp"): hwp.pdf_to_hwp,        # 텍스트 기반 (DEC-023, DEC-010과 같은 원칙)
-    ("pdf", "images"): pdf.pdf_to_images,  # 페이지별 PNG, 폴더 결과물 (DEC-025)
+    ("pdf", "png"): partial(pdf.pdf_to_images, ext="png"),  # 페이지별 이미지, 폴더 결과물 (DEC-026)
+    ("pdf", "jpg"): partial(pdf.pdf_to_images, ext="jpg"),  # 위와 동일, JPG(DEC-043)
     ("pdf", "pptx"): pdf.pdf_to_pptx,      # 줄 단위 위치 재구성 (DEC-030)
     ("docx", "pdf"): office.office_to_pdf,
     ("pptx", "pdf"): office.office_to_pdf,  # DEC-016 — 동일 LibreOffice 경로 재사용
