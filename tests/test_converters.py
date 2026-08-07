@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from app.converters import data
+from app.converters import pdf as pdf_mod
 from app.converters.base import ConversionError
 from app.converters.docx_build import EAST_ASIAN_FONT, blocks_to_docx
 from app.converters.docx_extract import docx_to_blocks
@@ -19,6 +20,71 @@ class Base(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+
+def _mini_pdf_pages(path: Path, texts: list[str]):
+    """tests/test_pipeline.py의 _mini_pdf_pages와 같은 원리(최소 PDF를
+    페이지마다 다른 텍스트로 생성) — JDK 없이 pdf.py의 순수 파이썬 추출
+    로직만 검증하려고 이 파일에도 둔다(다른 테스트 파일들도 각자 최소 PDF
+    헬퍼를 따로 둠, DRY보다 파일별 독립성 우선)."""
+    n = len(texts)
+    page_obj_start = 3
+    font_obj_num = page_obj_start + 2 * n
+    kids, page_bodies, content_bodies = [], [], []
+    for i, text in enumerate(texts):
+        page_idx = page_obj_start + 2 * i
+        content_idx = page_idx + 1
+        kids.append(f"{page_idx} 0 R")
+        content = f"BT /F1 18 Tf 40 700 Td ({text}) Tj ET".encode()
+        stream = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
+        page_bodies.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_idx} 0 R"
+            f" /Resources << /Font << /F1 {font_obj_num} 0 R >> >> >>".encode())
+        content_bodies.append(stream)
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        ("<< /Type /Pages /Kids [" + " ".join(kids) + f"] /Count {n} >>").encode(),
+    ]
+    for pb, cb in zip(page_bodies, content_bodies):
+        objs.append(pb)
+        objs.append(cb)
+    objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    buf = b"%PDF-1.4\n"
+    offsets = []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(buf))
+        buf += f"{i} 0 obj\n".encode() + o + b"\nendobj\n"
+    xref = len(buf)
+    buf += b"xref\n0 " + str(len(objs) + 1).encode() + b"\n0000000000 65535 f \n"
+    for off in offsets:
+        buf += f"{off:010d} 00000 n \n".encode()
+    buf += (b"trailer\n<< /Size " + str(len(objs) + 1).encode() +
+            b" /Root 1 0 R >>\nstartxref\n" + str(xref).encode() + b"\n%%EOF")
+    path.write_bytes(buf)
+
+
+class TestPdfToHwpPageBreaks(Base):
+    """DEC-039: pdf.py._extract_pdf_blocks_by_page의 순수 파이썬 로직
+    (JDK 불요) — 실제 hwplib 왕복 검증은 tests/test_pipeline.py::TestHwp::
+    test_pdf_to_hwp_preserves_page_breaks(hwplib 로컬 빌드 있을 때만)."""
+
+    def test_first_page_first_block_has_no_page_break(self):
+        pdf = self.tmp / "one.pdf"
+        _mini_pdf_pages(pdf, ["Only Page"])
+        blocks = pdf_mod._extract_pdf_blocks_by_page(pdf)
+        self.assertEqual(len(blocks), 1)
+        self.assertNotIn("pageBreakBefore", blocks[0])
+        self.assertEqual(blocks[0]["text"], "Only Page")
+
+    def test_later_pages_first_block_marked(self):
+        pdf = self.tmp / "three.pdf"
+        _mini_pdf_pages(pdf, ["Page One", "Page Two", "Page Three"])
+        blocks = pdf_mod._extract_pdf_blocks_by_page(pdf)
+        self.assertEqual([b["text"] for b in blocks], ["Page One", "Page Two", "Page Three"])
+        self.assertNotIn("pageBreakBefore", blocks[0])
+        self.assertTrue(blocks[1]["pageBreakBefore"])
+        self.assertTrue(blocks[2]["pageBreakBefore"])
 
 
 class TestCsvXlsx(Base):
