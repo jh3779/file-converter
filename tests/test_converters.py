@@ -10,6 +10,7 @@ from app.converters import data
 from app.converters.base import ConversionError
 from app.converters.docx_build import EAST_ASIAN_FONT, blocks_to_docx
 from app.converters.docx_extract import docx_to_blocks
+from app.converters.pdf import _classify_alignment
 from app.output import unique_output_path
 
 
@@ -201,6 +202,84 @@ class TestDocxExtractNumbering(Base):
         self.assertTrue(texts[3].endswith("목록 3"))
 
 
+class TestDocxExtractAlignment(Base):
+    """DEC-040: 문단에 직접 지정된 정렬만 읽는다(스타일 상속은 범위 밖).
+    명시적으로 지정 안 된 문단은 "align" 필드 자체를 안 실어 HWP 쪽 문서
+    기본 정렬(양쪽 정렬)을 그대로 따르게 한다."""
+
+    def test_explicit_alignment_extracted(self):
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        src = self.tmp / "d.docx"
+        doc = Document()
+        doc.add_paragraph("기본")
+        p_center = doc.add_paragraph("가운데")
+        p_center.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_right = doc.add_paragraph("오른쪽")
+        p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        p_left = doc.add_paragraph("왼쪽 명시")
+        p_left.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        p_justify = doc.add_paragraph("양쪽")
+        p_justify.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        by_text = {b["text"]: b.get("align") for b in blocks}
+        self.assertIsNone(by_text["기본"])
+        self.assertNotIn("align", next(b for b in blocks if b["text"] == "기본"))
+        self.assertEqual(by_text["가운데"], "center")
+        self.assertEqual(by_text["오른쪽"], "right")
+        self.assertEqual(by_text["왼쪽 명시"], "left")
+        self.assertEqual(by_text["양쪽"], "justify")
+
+
+class TestPdfAlignmentClassification(unittest.TestCase):
+    """DEC-040: _classify_alignment는 pdfminer 객체 없이 줄별 bbox만으로
+    판정하는 순수 함수라 hand-crafted bbox로 직접 검증할 수 있다(실제
+    pdfminer 파싱을 거친 end-to-end 검증은 tests/test_format_fidelity.py에
+    별도로 있음)."""
+
+    PAGE_W = 612.0
+
+    def test_single_line_no_signal_returns_none(self):
+        self.assertIsNone(_classify_alignment([(72, 700, 200, 712)], self.PAGE_W))
+
+    def test_single_line_centered(self):
+        self.assertEqual(_classify_alignment([(206, 700, 406, 712)], self.PAGE_W), "center")
+
+    def test_single_line_right_not_detected(self):
+        """한 줄만으로는 오른쪽 정렬을 판단하지 않는다 — "오른쪽 여백이
+        작다"가 문서의 정상적인 여백인지 진짜 오른쪽 정렬인지 한 줄만
+        봐서는 구분할 근거가 없다(로컬 검증 중 발견해 범위를 좁힘)."""
+        self.assertIsNone(_classify_alignment([(400, 700, 540, 712)], self.PAGE_W))
+
+    def test_single_line_flush_with_left_edge_returns_none(self):
+        self.assertIsNone(_classify_alignment([(0, 700, 200, 712)], self.PAGE_W))
+
+    def test_multi_line_left_aligned_returns_none(self):
+        boxes = [(72, 700, 300, 712), (72, 680, 500, 692), (72, 660, 150, 672)]
+        self.assertIsNone(_classify_alignment(boxes, self.PAGE_W))
+
+    def test_multi_line_right_aligned(self):
+        boxes = [(300, 700, 540, 712), (100, 680, 540, 692), (400, 660, 540, 672)]
+        self.assertEqual(_classify_alignment(boxes, self.PAGE_W), "right")
+
+    def test_multi_line_justified_last_line_short(self):
+        boxes = [(72, 700, 540, 712), (72, 680, 540, 692), (72, 660, 200, 672)]
+        self.assertEqual(_classify_alignment(boxes, self.PAGE_W), "justify")
+
+    def test_multi_line_centered(self):
+        boxes = [(200, 700, 412, 712), (150, 680, 462, 692), (250, 660, 362, 672)]
+        self.assertEqual(_classify_alignment(boxes, self.PAGE_W), "center")
+
+    def test_multi_line_ambiguous_returns_none(self):
+        boxes = [(50, 700, 200, 712), (300, 680, 500, 692), (80, 660, 550, 672)]
+        self.assertIsNone(_classify_alignment(boxes, self.PAGE_W))
+
+    def test_empty_boxes_returns_none(self):
+        self.assertIsNone(_classify_alignment([], self.PAGE_W))
+
+
 class TestDocxBuildFont(Base):
     """DEC-015: 생성 DOCX는 한글 글꼴을 모든 run에 명시해야 한다 — 실사용 중
     글자 깨짐이 재현된 근본 원인(글꼴 미지정 → 뷰어별 대체 글꼴 불일치)."""
@@ -229,6 +308,30 @@ class TestDocxBuildFont(Base):
                     for p in cell.paragraphs:
                         for run in p.runs:
                             self.assertEqual(run.font.name, EAST_ASIAN_FONT)
+
+
+class TestDocxBuildAlignment(Base):
+    """DEC-040: "align"이 있는 블록만 명시적으로 정렬을 설정하고, 없으면
+    DOCX 기본 정렬(왼쪽, python-docx의 None)을 그대로 둔다."""
+
+    def test_align_field_sets_paragraph_alignment(self):
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        blocks = [
+            {"type": "p", "text": "기본"},
+            {"type": "p", "text": "가운데", "align": "center"},
+            {"type": "p", "text": "오른쪽", "align": "right"},
+            {"type": "p", "text": "왼쪽", "align": "left"},
+            {"type": "p", "text": "양쪽", "align": "justify"},
+        ]
+        out = blocks_to_docx(blocks, self.tmp / "out.docx")
+        doc = Document(out)
+        by_text = {p.text: p.alignment for p in doc.paragraphs}
+        self.assertIsNone(by_text["기본"])
+        self.assertEqual(by_text["가운데"], WD_ALIGN_PARAGRAPH.CENTER)
+        self.assertEqual(by_text["오른쪽"], WD_ALIGN_PARAGRAPH.RIGHT)
+        self.assertEqual(by_text["왼쪽"], WD_ALIGN_PARAGRAPH.LEFT)
+        self.assertEqual(by_text["양쪽"], WD_ALIGN_PARAGRAPH.JUSTIFY)
 
 
 class TestOutputNaming(Base):
