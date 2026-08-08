@@ -8,6 +8,7 @@ hwpxlib 저장소 자체의 테스트 픽스처(testFile/tool/textextractor/*.hw
 문서를 저장소에 넣지 않는다는 기존 관례, DEC-032와 같은 원칙).
 """
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,6 +23,18 @@ HWPX_TABLE_SAMPLE = REPO / "spike" / "hwpxlib" / "repo" / "testFile" / "tool" / 
 def _find_soffice():
     from app.converters import office
     return office.find_soffice()
+
+
+def _make_tab_hwpx(out_path: Path):
+    """MakeTabHwpx(테스트 전용 디버그 도구, sidecar/hwp/MakeTabHwpx.java)를
+    실행해 "가나"+Tab+"다라" 문단 하나짜리 최소 HWPX를 만든다 — test_pipeline.py의
+    _run_linesegdebug와 같은 패턴(로컬 build.sh 산출물을 subprocess로 직접 실행)."""
+    from app.converters import hwp as hwp_mod
+    java = hwp_mod._java()
+    cp = hwp_mod._classpath()
+    proc = subprocess.run([java, "-cp", cp, "MakeTabHwpx", str(out_path)],
+                           capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 0, proc.stderr
 
 
 class Base(unittest.TestCase):
@@ -67,6 +80,20 @@ class TestHwpx(Base):
         by_text = {r.text.strip(): r for r in runs}
         self.assertIn("날짜", by_text)
         self.assertTrue(by_text["날짜"].font.italic)
+
+    def test_hwpx_tab_normalized_to_space_not_dropped(self):
+        """HwpxToJson(HWPX→DOCX/PDF 경로, HWPX→TXT는 hwpxlib 자체
+        TextExtractor를 써서 별도)의 extractTextFrom이 Tab(TItem)을 조용히
+        건너뛰면 탭 앞뒤 텍스트가 공백 없이 그대로 붙어버리는 회귀가
+        있었다(수정 확인용) — "가나"+Tab+"다라"가 "가나다라"로 뭉개지지
+        않고 "가나 다라"로 나와야 한다."""
+        from docx import Document
+        src = self.tmp / "tab.hwpx"
+        _make_tab_hwpx(src)
+        out = converters.convert(src, "docx", self.tmp)
+        texts = [p.text for p in Document(out).paragraphs]
+        self.assertIn("가나 다라", texts)
+        self.assertNotIn("가나다라", texts)
 
     @unittest.skipUnless(_find_soffice(), "LibreOffice(soffice) 없음 — 로컬/Windows CI에서만 실행")
     def test_hwpx_to_pdf(self):

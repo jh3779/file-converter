@@ -17,7 +17,7 @@ mkdir -p out
 SOURCES="HwpToText.java HwpToJson.java JsonToHwp.java LineSegDebug.java MakeFormattedHwp.java"
 CP="$HWPLIB"
 if [ -d "$HWPXLIB" ]; then
-    SOURCES="$SOURCES HwpxToText.java HwpxToJson.java"
+    SOURCES="$SOURCES HwpxToText.java HwpxToJson.java MakeTabHwpx.java"
     CP="$HWPLIB:$HWPXLIB"
 else
     echo "hwpxlib 빌드가 없습니다: $HWPXLIB (spike/hwpxlib/RESULT.md 참고) — HWPX 사이드카는 건너뜁니다"

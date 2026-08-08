@@ -12,8 +12,11 @@ import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.TItem;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.object.Table;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.object.table.Tc;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.object.table.Tr;
+import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.t.FWSpace;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.t.LineBreak;
+import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.t.NBSpace;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.t.NormalText;
+import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.t.Tab;
 import kr.dogfoot.hwpxlib.reader.HWPXReader;
 
 import java.nio.charset.StandardCharsets;
@@ -162,9 +165,11 @@ public class HwpxToJson {
 
     /** T(텍스트 run item)에서 실제 문자열을 뽑는다 — 단순 텍스트(onlyText)
      * 또는 TItem 목록(NormalText·LineBreak·Tab 등 섞인 경우) 둘 다 처리.
-     * 줄바꿈·탭은 PDF 파이프라인과 같은 원칙으로 공백 하나로 정규화한다
-     * (문단 경계는 이미 Para 단위로 나뉘어 있어 내부 줄바꿈은 단어 구분자
-     * 역할일 뿐). 변경추적 마크 등 그 외 TItem 종류는 이번 phase 범위 밖.
+     * 줄바꿈·탭·빈칸류는 PDF 파이프라인과 같은 원칙으로 공백 하나로
+     * 정규화한다(문단 경계는 이미 Para 단위로 나뉘어 있어 내부 줄바꿈은
+     * 단어 구분자 역할일 뿐). Tab/FWSpace/NBSpace를 빼먹으면 그 앞뒤
+     * 텍스트가 공백 없이 그대로 붙어버린다(회귀로 발견해 수정 — PR
+     * 콘텐츠 리뷰). 변경추적 마크 등 그 외 TItem 종류는 이번 phase 범위 밖.
      */
     private static String extractTextFrom(T t) {
         if (t.onlyText() != null) return t.onlyText();
@@ -173,7 +178,8 @@ public class HwpxToJson {
         for (TItem item : t.items()) {
             if (item instanceof NormalText) {
                 sb.append(((NormalText) item).text());
-            } else if (item instanceof LineBreak) {
+            } else if (item instanceof LineBreak || item instanceof Tab
+                    || item instanceof FWSpace || item instanceof NBSpace) {
                 sb.append(' ');
             }
         }
