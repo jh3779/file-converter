@@ -21,12 +21,14 @@ EMU_PER_PT = 12700
 TWIPS_PER_PT = 20
 
 
-def _mini_pdf(path: Path, pages: list[list[tuple]]):
+def _mini_pdf(path: Path, pages: list[list[tuple]], page_sizes: list[tuple] | None = None):
     """손으로 만든 최소 PDF. pages: 페이지별 [(text, x, y, font_key, size)] 목록.
     font_key "F1"=Helvetica(일반), "F2"=Helvetica-Bold(굵게 감지용) —
-    test_pdf_to_pptx.py의 동명 헬퍼와 동일한 구조."""
+    test_pdf_to_pptx.py의 동명 헬퍼와 동일한 구조. page_sizes: 페이지별
+    (width, height) — 생략 시 전부 612x792(레터)."""
     page_obj_start = 3
     n = len(pages)
+    sizes = page_sizes or [(612, 792)] * n
     font1_num = page_obj_start + 2 * n
     font2_num = font1_num + 1
     kids, page_bodies, content_bodies = [], [], []
@@ -39,8 +41,9 @@ def _mini_pdf(path: Path, pages: list[list[tuple]]):
             ops.append(f"BT /{font_key} {size} Tf {x} {y} Td ({text}) Tj ET")
         content = "\n".join(ops).encode()
         stream = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
+        w, h = sizes[i]
         page_bodies.append(
-            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_idx} 0 R"
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w} {h}] /Contents {content_idx} 0 R"
             f" /Resources << /Font << /F1 {font1_num} 0 R /F2 {font2_num} 0 R >> >> >>".encode())
         content_bodies.append(stream)
     objs = [
@@ -151,6 +154,35 @@ class TestPdfToDocxLayout(unittest.TestCase):
             for br in p._p.findall(f".//{qn('w:br')}")
         )
         self.assertTrue(has_page_break)
+
+    def test_mixed_page_sizes_each_section_matches_its_page(self):
+        """페이지마다 크기가 다른 PDF(스캔 첨부문서의 가로/세로 혼합 등)에서
+        각 페이지가 자기 실제 크기의 섹션에 들어가야 한다 — 첫 페이지
+        크기로 섹션이 고정된 채면 vAnchor="page" 기준 y좌표가 실제 렌더링
+        페이지 높이와 어긋나 텍스트가 밀려 보인다(PR 콘텐츠 리뷰로 발견해
+        수정)."""
+        src = self.tmp / "mixed.pdf"
+        _mini_pdf(
+            src,
+            [[("Portrait", 50, 700, "F1", 12)], [("Landscape", 50, 500, "F1", 12)]],
+            page_sizes=[(612, 792), (792, 612)],
+        )
+        out = converters.convert(src, "docx", self.tmp)
+        doc = Document(out)
+        self.assertEqual(len(doc.sections), 2)
+        s0, s1 = doc.sections
+        self.assertEqual(s0.page_width, round(612 * EMU_PER_PT))
+        self.assertEqual(s0.page_height, round(792 * EMU_PER_PT))
+        self.assertEqual(s1.page_width, round(792 * EMU_PER_PT))
+        self.assertEqual(s1.page_height, round(612 * EMU_PER_PT))
+
+        p2 = next(p for p in doc.paragraphs if p.text == "Landscape")
+        frame = _frame_pr(p2)
+        self.assertIsNotNone(frame)
+        # 두 번째 페이지 실제 높이(612)를 기준으로 계산돼야 한다 —
+        # 첫 페이지 높이(792)를 썼다면 180pt(=792-612)만큼 어긋난다.
+        expected_y_approx = 612 - 500
+        self.assertAlmostEqual(frame["y"], expected_y_approx, delta=15)
 
     def test_corrupted_pdf_rejected(self):
         src = self.tmp / "broken.pdf"

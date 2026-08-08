@@ -46,6 +46,7 @@ def pdf_to_docx(src: Path, tmpdir: Path) -> Path:
     타이포그래피 관행) 감지되지 않는 경우가 흔함(pdf_to_pptx와 동일한 제약).
     """
     from docx import Document
+    from docx.enum.section import WD_SECTION
     from docx.shared import Emu, Pt
 
     from .docx_build import _apply_run_style, _set_font
@@ -56,15 +57,33 @@ def pdf_to_docx(src: Path, tmpdir: Path) -> Path:
         raise ConversionError("err.corrupted", "페이지 없음")
 
     doc = Document()
-    section = doc.sections[0]
-    section.page_width = Emu(round(layout[0]["width"] * EMU_PER_PT))
-    section.page_height = Emu(round(layout[0]["height"] * EMU_PER_PT))
-    for attr in ("left_margin", "right_margin", "top_margin", "bottom_margin"):
-        setattr(section, attr, Emu(0))
+
+    def _size_section(section, page):
+        section.page_width = Emu(round(page["width"] * EMU_PER_PT))
+        section.page_height = Emu(round(page["height"] * EMU_PER_PT))
+        for attr in ("left_margin", "right_margin", "top_margin", "bottom_margin"):
+            setattr(section, attr, Emu(0))
+
+    _size_section(doc.sections[0], layout[0])
+    current_size = (layout[0]["width"], layout[0]["height"])
 
     for page_index, page in enumerate(layout):
         if page_index > 0:
-            doc.add_page_break()
+            page_size = (page["width"], page["height"])
+            if page_size == current_size:
+                doc.add_page_break()
+            else:
+                # 페이지 크기가 바뀌는 경우(스캔 첨부문서의 가로/세로 혼합 등)
+                # — 단순 페이지 나눔만으로는 section의 page_width/height가
+                # 첫 페이지 크기로 고정된 채라, 아래 vAnchor="page" 기준
+                # y좌표(page_h - y1) 계산이 실제 렌더링 페이지 높이와 어긋나
+                # 텍스트가 밀려 보이는 버그가 있었다(PR 콘텐츠 리뷰로 발견).
+                # 크기가 실제로 바뀔 때만 새 섹션을 열어 그 페이지 실제
+                # 크기로 맞춘다 — 흔한 동일 크기 다중 페이지는 기존과 동일하게
+                # 단순 페이지 나눔을 그대로 쓴다.
+                section = doc.add_section(WD_SECTION.NEW_PAGE)
+                _size_section(section, page)
+                current_size = page_size
         page_h = page["height"]
         for line in page["lines"]:
             x0, y0, x1, y1 = line["bbox"]
