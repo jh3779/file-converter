@@ -126,6 +126,100 @@ def _extract_pdf_layout(src: Path) -> list[dict]:
     return pages
 
 
+_ALIGN_TOL = 3.0  # pt — 글자 위치 반올림오차 허용치
+
+
+def _detect_alignment(container, page_width: float) -> str | None:
+    """문단(컨테이너) 안 줄들의 가로 위치(bbox)로 정렬을 추정한다(DEC-040) —
+    판정 로직 자체는 _classify_alignment(순수 함수, 단위 테스트 대상)에
+    있고, 여기서는 pdfminer 컨테이너에서 줄별 bbox만 뽑아 넘긴다."""
+    boxes = [line.bbox for line in _iter_lines(container)]
+    return _classify_alignment(boxes, page_width)
+
+
+def _classify_alignment(boxes: list[tuple[float, float, float, float]], page_width: float) -> str | None:
+    """줄별 bbox((x0,y0,x1,y1), ...) 목록으로 정렬을 추정하는 순수 판정
+    로직(DEC-040) — pdfminer 객체에 의존하지 않아 hand-crafted bbox로
+    직접 단위 테스트할 수 있다.
+
+    PDF는 정렬 자체를 담지 않는다 — 글자마다 절대 좌표만 있어, 렌더링된
+    좌표에서 역산하는 수밖에 없다. 판단 근거가 약하면(짧은 문단·애매한
+    여백) None을 돌려줘 "align" 필드 자체를 생략한다 — 잘못 추정해 원래
+    의도와 다른 정렬로 억지로 맞추는 것보다, 아무것도 안 하는(문서 기본
+    정렬 유지) 쪽이 안전하다는 원칙(DEC-027의 "서식 불명 시 안전한 기본값"과
+    같은 태도).
+
+    한 줄짜리 문단: 좌우 여백이 비슷하면 가운데(페이지 중심 기준이라 문서의
+    실제 여백 폭을 몰라도 판단 가능). **오른쪽 정렬은 한 줄만으로는 추정
+    안 한다** — "오른쪽 여백이 작다"는 게 문서의 실제 오른쪽 여백이 원래
+    좁아서인지 정말 오른쪽 정렬이라서인지 한 줄만 봐서는 구분할 근거가
+    없다(페이지 가장자리에 딱 붙어야만 판단 가능한 값이 되어 버려 실사용
+    문서의 정상적인 여백을 가진 오른쪽 정렬을 대부분 놓친다 — 로컬 검증
+    중 발견해 범위를 좁힘). 여러 줄 문단의 오른쪽 정렬은 아래처럼 다른
+    방식(줄마다 오른쪽 끝이 서로 일치하는지, 문서의 실제 여백 값과 무관)
+    으로 판단해 이 문제가 없다.
+    여러 줄 문단: 모든 줄의 왼쪽·오른쪽 끝이 (마지막 줄 제외) 둘 다
+    일치하면 양쪽 정렬, 왼쪽만 일치하면 왼쪽(표시 생략), 오른쪽만 일치하면
+    오른쪽, 어느 쪽도 아니면 각 줄의 중심이 일치하는지로 가운데 정렬만
+    추가로 확인한다."""
+    if not boxes:
+        return None
+
+    if len(boxes) == 1:
+        x0, _, x1, _ = boxes[0]
+        left_margin = x0
+        right_margin = page_width - x1
+        if left_margin <= _ALIGN_TOL:
+            return None  # 왼쪽 여백이 거의 없음 — 판단 근거 부족
+        if abs(left_margin - right_margin) <= _ALIGN_TOL * 2:
+            return "center"
+        return None  # 오른쪽 정렬은 한 줄만으로 판단 안 함(위 설명) — 왼쪽 정렬(기본값)로 취급
+
+    lefts = [b[0] for b in boxes]
+    rights_body = [b[2] for b in boxes[:-1]]  # 마지막 줄은 양쪽 정렬이어도 보통 짧다
+    left_consistent = (max(lefts) - min(lefts)) <= _ALIGN_TOL
+    right_consistent = (max(rights_body) - min(rights_body)) <= _ALIGN_TOL if rights_body else True
+
+    if left_consistent and right_consistent:
+        return "justify"
+    if left_consistent:
+        return None  # 왼쪽 정렬 — 표시 생략
+    if right_consistent:
+        return "right"
+    centers = [(b[0] + b[2]) / 2 for b in boxes]
+    if max(centers) - min(centers) <= _ALIGN_TOL:
+        return "center"
+    return None
+
+
+def _extract_pdf_paragraphs(src: Path) -> list[dict]:
+    """PDF → 문단 블록(평문 + 정렬, DEC-040). pdf_to_hwp 전용 — HWP 쓰기
+    경로는 문자 서식(runs)을 아직 안 받으므로 텍스트와 정렬만 뽑는다.
+    이전엔 pdf_to_txt()(extract_text())로 문서 전체를 한 문자열로 뽑아
+    페이지·줄 위치 정보 자체가 없어 정렬을 판단할 수 없었다."""
+    from pdfminer.high_level import extract_pages
+    from pdfminer.pdfdocument import PDFPasswordIncorrect
+    from pdfminer.psparser import PSException
+
+    blocks = []
+    try:
+        for page in extract_pages(str(src)):
+            for container in _paragraph_candidates(page):
+                text = "".join(r["text"] for r in _container_to_runs(container))
+                if not text:
+                    continue
+                block = {"type": "p", "text": text}
+                align = _detect_alignment(container, page.width)
+                if align:
+                    block["align"] = align
+                blocks.append(block)
+    except PDFPasswordIncorrect:
+        raise ConversionError("err.password")
+    except (PSException, ValueError, OSError) as e:
+        raise ConversionError("err.corrupted", str(e))
+    return blocks
+
+
 def _extract_pdf_blocks(src: Path) -> list[dict]:
     """PDF → 문단 블록(서식 포함, DEC-027). pdfminer의 레이아웃 트리를 재귀
     순회해 "문단 하나"로 볼 수 있는 단위마다 글자 단위로 훑어 굵게/기울임/
@@ -148,6 +242,10 @@ def _extract_pdf_blocks(src: Path) -> list[dict]:
     PDF run은 항상 underline=False — HWP→DOCX만 밑줄을 지원, DEC-027).
     텍스트 보존은 서식 감지 실패와 무관하게 항상 보장한다(서식 불명 시
     bold=False/italic=False로 안전하게 처리).
+
+    정렬(DEC-040)은 문단 안 줄들의 가로 위치(bbox)를 페이지 폭과 비교하는
+    별도 휴리스틱(_detect_alignment)으로 추정한다 — 판단 근거가 약하면 "align"
+    필드 자체를 생략한다(문서 기본 정렬을 그대로 둠, 잘못된 추정보다 안전).
     """
     from pdfminer.high_level import extract_pages
     from pdfminer.pdfdocument import PDFPasswordIncorrect
@@ -159,7 +257,11 @@ def _extract_pdf_blocks(src: Path) -> list[dict]:
             for container in _paragraph_candidates(page):
                 runs = _container_to_runs(container)
                 if runs:
-                    blocks.append({"type": "p", "runs": runs})
+                    block = {"type": "p", "runs": runs}
+                    align = _detect_alignment(container, page.width)
+                    if align:
+                        block["align"] = align
+                    blocks.append(block)
     except PDFPasswordIncorrect:
         raise ConversionError("err.password")
     except (PSException, ValueError, OSError) as e:
@@ -228,7 +330,7 @@ def _container_to_runs(container) -> list[dict]:
             # LTAnno(가상 문자 — 줄바꿈·자간 보정 등, 폰트 정보 없음): 현재
             # run에 그대로 이어붙이고 서식 전환은 트리거하지 않는다. PDF의
             # 줄바꿈은 문단 내부 개행일 뿐이라(문단 경계는 컨테이너 단위로
-            # 이미 나뉨) 공백으로 정규화한다(text_to_blocks()와 같은 원칙).
+            # 이미 나뉨) 공백으로 정규화한다.
             text = ch.get_text()
             text = " " if text == "\n" else text
             style = cur_style

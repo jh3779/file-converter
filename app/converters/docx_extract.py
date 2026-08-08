@@ -1,9 +1,14 @@
 """DOCX → 구조 블록 (python-docx). DOCX→HWP 파이프라인 1단계 (docx_build.blocks_to_docx의 역방향).
 
-블록 형식: {"type":"p","text":str} | {"type":"table","rows":[[str,...],...]}
+블록 형식: {"type":"p","text":str,"align":"left"|"center"|"right"|"justify"(선택)} |
+{"type":"table","rows":[[str,...],...]}
 문서 순서(본문에 등장하는 순서)대로 문단·표를 함께 추출한다 — python-docx는
 document.paragraphs/document.tables를 각각 따로 주기 때문에 body XML을 직접
 순회해야 순서가 보존된다.
+
+문단 정렬(DEC-040): 문단에 직접 지정된 정렬(w:jc)만 읽고, 없으면 "align"
+필드 자체를 생략한다 — HWP 쪽 문서 기본 정렬(양쪽 정렬)을 그대로 두고,
+사용자가 실제로 지정한 정렬만 덮어쓰기 위함.
 
 번호·불릿 목록 주의: DOCX의 자동 번호("1.", "가.")·불릿("•")은 문단의 실제
 텍스트(w:t)가 아니라 numbering.xml에 정의된 서식이 뷰어에 의해 화면에만
@@ -135,6 +140,26 @@ def _paragraph_numpr(paragraph):
     return num_id, ilvl
 
 
+_ALIGN_TO_STR = {
+    "LEFT": "left", "CENTER": "center", "RIGHT": "right",
+    "JUSTIFY": "justify", "JUSTIFY_MED": "justify", "JUSTIFY_HI": "justify",
+    "JUSTIFY_LOW": "justify", "DISTRIBUTE": "justify", "THAI_JUSTIFY": "justify",
+}
+
+
+def _paragraph_align(paragraph) -> str | None:
+    """문단에 직접 지정된 정렬만 읽는다(스타일에서 물려받는 값은 안 봄 —
+    style.paragraph_format.alignment까지 걸어야 하는데, 이 프로젝트가
+    다루는 실사용 문서에서 정렬은 거의 항상 문단에 직접 지정돼 있어
+    범위 밖으로 둠, DEC-040). None이면 이 필드 자체를 블록에 안 실어
+    HWP 쪽 문서 기본 정렬(양쪽 정렬)을 그대로 따르게 한다 — 명시적으로
+    지정된 경우만 덮어쓴다."""
+    alignment = paragraph.alignment
+    if alignment is None:
+        return None
+    return _ALIGN_TO_STR.get(alignment.name)
+
+
 def _iter_block_items(document):
     from docx.oxml.table import CT_Tbl
     from docx.oxml.text.paragraph import CT_P
@@ -176,5 +201,9 @@ def docx_to_blocks(src: Path) -> list[dict]:
                     marker = _format_marker(numfmt, lvltext, counters[key])
                     if marker:
                         text = f"{marker} {text}"
-            blocks.append({"type": "p", "text": text})
+            block = {"type": "p", "text": text}
+            align = _paragraph_align(item)
+            if align:
+                block["align"] = align
+            blocks.append(block)
     return blocks

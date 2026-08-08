@@ -25,6 +25,8 @@ import kr.dogfoot.hwplib.object.bodytext.paragraph.header.ParaHeader;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.lineseg.LineSegItem;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.lineseg.ParaLineSeg;
 import kr.dogfoot.hwplib.object.docinfo.BorderFill;
+import kr.dogfoot.hwplib.object.docinfo.ParaShape;
+import kr.dogfoot.hwplib.object.docinfo.parashape.Alignment;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.BackSlashDiagonalShape;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.BorderThickness;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.BorderType;
@@ -44,7 +46,10 @@ import java.util.Map;
 /**
  * 구조 JSON → HWP 사이드카 (DOCX→HWP 파이프라인의 2단계, HwpToJson의 역방향).
  * 사용: java JsonToHwp <in.blocks.json> <out.hwp>
- * 입력: {"blocks":[{"type":"p","text":"..."} | {"type":"table","rows":[["c1","c2"],...]}]}
+ * 입력: {"blocks":[{"type":"p","text":"...","align":"left"|"center"|"right"|"justify"} |
+ *   {"type":"table","rows":[["c1","c2"],...]}]}
+ * align(DEC-040)이 없으면 문서 기본 정렬(양쪽 정렬, BlankFileMaker 기본
+ * ParaShape)을 그대로 쓴다 — 명시적으로 지정된 블록만 정렬을 덮어쓴다.
  *
  * DEC-017 정정(DEC-028): hwplib에는 표를 처음부터 만드는 도구가 "전혀 없다"고
  * 기록했던 게 이전 조사 누락이었음이 확인됨 — 공식 샘플
@@ -90,17 +95,18 @@ public class JsonToHwp {
         // 빈 블록(공백뿐인 문단, 빈 표)은 미리 걸러낸다 — 몇 번째가
         // "문서의 첫 블록"인지(=BlankFileMaker가 이미 만들어 둔 첫 문단을
         // 재사용해야 하는지)를 정확히 판단하기 위해서다.
-        List<Object[]> items = new ArrayList<>(); // {"p", text} or {"table", rows}
+        List<Object[]> items = new ArrayList<>(); // {"p", text, align} or {"table", rows, align}
         for (Object o : blocks) {
             Map<String, Object> block = (Map<String, Object>) o;
             String type = (String) block.get("type");
+            String align = (String) block.get("align");
             if ("table".equals(type)) {
                 List<Object> rawRows = (List<Object>) block.get("rows");
                 List<List<String>> rows = normalizeRows(rawRows);
-                if (!rows.isEmpty()) items.add(new Object[]{"table", rows});
+                if (!rows.isEmpty()) items.add(new Object[]{"table", rows, align});
             } else {
                 String text = (String) block.get("text");
-                if (text != null && !text.trim().isEmpty()) items.add(new Object[]{"p", text.trim()});
+                if (text != null && !text.trim().isEmpty()) items.add(new Object[]{"p", text.trim(), align});
             }
         }
 
@@ -115,10 +121,11 @@ public class JsonToHwp {
                 boolean isFirst = (i == 0);
                 boolean isLast = (i == items.size() - 1);
                 String kind = (String) items.get(i)[0];
+                String align = (String) items.get(i)[2];
                 if ("table".equals(kind)) {
                     List<List<String>> rows = (List<List<String>>) items.get(i)[1];
                     Paragraph host = isFirst ? section.getParagraph(0) : section.addNewParagraph();
-                    vpos = addTableBlock(section, host, rows, isFirst, isLast, vpos);
+                    vpos = addTableBlock(section, host, rows, isFirst, isLast, vpos, align);
                 } else {
                     String text = (String) items.get(i)[1];
                     if (isFirst) {
@@ -128,9 +135,10 @@ public class JsonToHwp {
                         // +2: BlankFileMaker가 첫 문단에 이미 넣어 둔 섹션/컬럼정의 확장문자.
                         first.getHeader().setCharacterCount(text.length() + 1 + 2);
                         first.getHeader().setLastInList(isLast);
+                        if (align != null) first.getHeader().setParaShapeId(findOrCreateParaShape(align));
                         vpos = applyLineSeg(first, text, vpos);
                     } else {
-                        vpos = addTextParagraph(section, text, isLast, vpos);
+                        vpos = addTextParagraph(section, text, isLast, vpos, align);
                     }
                 }
             }
@@ -160,14 +168,15 @@ public class JsonToHwp {
         return rows;
     }
 
-    private static int addTextParagraph(Section section, String content, boolean last, int startVpos) throws Exception {
+    private static int addTextParagraph(Section section, String content, boolean last, int startVpos,
+                                         String align) throws Exception {
         Paragraph paragraph = section.addNewParagraph();
 
         ParaHeader header = paragraph.getHeader();
         header.setLastInList(last);
         header.setCharacterCount(content.length() + 1);
         header.getControlMask().setValue(0);
-        header.setParaShapeId(3);
+        header.setParaShapeId(findOrCreateParaShape(align));
         header.setStyleId((short) 0);
         header.getDivideSort().setValue((short) 0);
         header.setCharShapeCount(1);
@@ -193,7 +202,8 @@ public class JsonToHwp {
      * 문단을 쓴다 — 둘 다 표 앵커용 확장 문자만 담아 텍스트 자체는 비운다.
      */
     private static int addTableBlock(Section section, Paragraph host, List<List<String>> rows,
-                                      boolean hostIsFirstParagraph, boolean last, int startVpos) throws Exception {
+                                      boolean hostIsFirstParagraph, boolean last, int startVpos,
+                                      String align) throws Exception {
         int rowCount = rows.size();
         int colCount = rows.get(0).size();
 
@@ -203,10 +213,11 @@ public class JsonToHwp {
         if (hostIsFirstParagraph) {
             // +2: BlankFileMaker가 첫 문단에 이미 넣어 둔 섹션/컬럼정의 확장문자.
             header.setCharacterCount(1 + 8 + 2);
+            if (align != null) header.setParaShapeId(findOrCreateParaShape(align));
         } else {
             header.setCharacterCount(1 + 8);
             header.getControlMask().setValue(0);
-            header.setParaShapeId(3);
+            header.setParaShapeId(findOrCreateParaShape(align));
             header.setStyleId((short) 0);
             header.getDivideSort().setValue((short) 0);
             header.setInstanceID(0);
@@ -285,6 +296,39 @@ public class JsonToHwp {
         }
 
         return startVpos + LINE_ADVANCE;
+    }
+
+    // align이 null(문서에 명시적 정렬이 없음)이면 기본 ParaShape(id=3,
+    // BlankFileMaker 기본값 — hwplib 실측 결과 "양쪽 정렬") 그대로 재사용.
+    // 명시적 정렬이 있을 때만 기본 ParaShape을 복제해 그 정렬만 켠 새
+    // ParaShape을 만들어(조합별 캐시) 건다 — findOrCreateCharShape(DEC-038이
+    // 문자 서식에 쓴 것)과 같은 원칙, spike/hwplib/SpikeAlignment.java에서
+    // write+read 왕복으로 Alignment가 정확히 보존됨을 먼저 확인함.
+    private static final Map<String, Integer> paraShapeCache = new java.util.HashMap<>();
+
+    private static int findOrCreateParaShape(String align) {
+        Alignment alignment = mapAlignment(align);
+        if (alignment == null) return 3;
+        Integer cached = paraShapeCache.get(align);
+        if (cached != null) return cached;
+        ParaShape base = hwp.getDocInfo().getParaShapeList().get(3);
+        ParaShape shape = base.clone();
+        shape.getProperty1().setAlignment(alignment);
+        hwp.getDocInfo().getParaShapeList().add(shape);
+        int id = hwp.getDocInfo().getParaShapeList().size() - 1;
+        paraShapeCache.put(align, id);
+        return id;
+    }
+
+    private static Alignment mapAlignment(String align) {
+        if (align == null) return null;
+        switch (align) {
+            case "left": return Alignment.Left;
+            case "center": return Alignment.Center;
+            case "right": return Alignment.Right;
+            case "justify": return Alignment.Justify;
+            default: return null; // 알 수 없는 값 — 문서 기본 정렬 유지(텍스트 보존 우선)
+        }
     }
 
     private static long mmToHwp(double mm) {

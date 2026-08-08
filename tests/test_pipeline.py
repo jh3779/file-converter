@@ -36,6 +36,43 @@ def _run_linesegdebug(hwp_path: Path):
     return rows
 
 
+def _mini_pdf_centered(path: Path):
+    """가운데 정렬된 한 줄짜리 최소 PDF(DEC-040) — 페이지 폭 612pt 기준
+    좌우 여백이 정확히 같도록 Helvetica 18pt 폭(pdfminer 내장 AFM 테이블,
+    tests/test_format_fidelity.py의 _helvetica_width와 같은 원리)을 직접
+    계산해 배치한다. 단일 줄 정렬 감지 중 유일하게 신뢰도 높은 경우가
+    가운데 정렬이라(페이지 중심 기준이라 문서의 실제 여백 폭을 몰라도
+    판단 가능 — pdf.py._classify_alignment 참고) 이걸로 검증한다."""
+    from pdfminer.pdffont import FONT_METRICS
+    _, metrics = FONT_METRICS["Helvetica"]
+    text = "Centered Line"
+    size = 18
+    width = sum(metrics.get(ch, metrics.get(" ", 500)) for ch in text) / 1000.0 * size
+    x = (612 - width) / 2
+    content = f"BT /F1 {size} Tf 1 0 0 1 {x:.2f} 700 Tm ({text}) Tj ET".encode()
+    stream = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R"
+        b" /Resources << /Font << /F1 5 0 R >> >> >>",
+        stream,
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    buf = b"%PDF-1.4\n"
+    offsets = []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(buf))
+        buf += f"{i} 0 obj\n".encode() + o + b"\nendobj\n"
+    xref = len(buf)
+    buf += b"xref\n0 " + str(len(objs) + 1).encode() + b"\n0000000000 65535 f \n"
+    for off in offsets:
+        buf += f"{off:010d} 00000 n \n".encode()
+    buf += (b"trailer\n<< /Size " + str(len(objs) + 1).encode() +
+            b" /Root 1 0 R >>\nstartxref\n" + str(xref).encode() + b"\n%%EOF")
+    path.write_bytes(buf)
+
+
 def _mini_pdf(path: Path):
     content = b"BT /F1 18 Tf 40 700 Td (Hello Converter) Tj ET"
     stream = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
@@ -145,6 +182,20 @@ class TestHwp(Base):
         back = converters.convert(out, "txt", back_dir)
         self.assertIn("Hello Converter", back.read_text(encoding="utf-8"))
 
+    def test_pdf_to_hwp_alignment_roundtrip(self):
+        """DEC-040: PDF의 가운데 정렬 문단이 bbox 휴리스틱으로 감지돼 HWP
+        ParaShape에 실제로 반영되는지 — HWP→DOCX로 다시 왕복해 확인한다."""
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        src = self.tmp / "centered.pdf"
+        _mini_pdf_centered(src)
+        out = converters.convert(src, "hwp", self.tmp)
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        centered = next(p for p in Document(back).paragraphs if "Centered Line" in p.text)
+        self.assertEqual(centered.alignment, WD_ALIGN_PARAGRAPH.CENTER)
+
     @unittest.skipUnless(HWP_DISTRIBUTION.exists(), "distribution.hwp 샘플 없음")
     def test_distribution_protected_hwp_still_readable(self):
         """OQ-006: '배포용(복사방지)' 문서는 편집·인쇄 제한이지 텍스트 암호화가
@@ -185,6 +236,37 @@ class TestHwp(Base):
         self.assertIn("이름", text)
         self.assertIn("김철수", text)
         self.assertIn("영업1팀", text)
+
+    def test_docx_to_hwp_alignment_roundtrip(self):
+        """DEC-040: DOCX 문단에 직접 지정된 정렬(가운데/오른쪽/왼쪽/양쪽)이
+        HWP의 실제 정렬 ParaShape으로 반영되고, 다시 DOCX로 왕복해도 그대로
+        남는지 확인한다. 명시적으로 정렬을 지정 안 한 문단은 HWP 문서 기본
+        정렬(양쪽 정렬, hwplib 실측 확인)로 나와야 한다 — DOCX에서는 다시
+        "정렬 안 지정"이 아니라 명시적 JUSTIFY로 나옴(HWP 쪽 기본값을 그대로
+        옮기는 것도 이 기능의 의도된 동작)."""
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        src = self.tmp / "정렬.docx"
+        doc = Document()
+        doc.add_paragraph("기본 정렬")
+        p_center = doc.add_paragraph("가운데 정렬")
+        p_center.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_right = doc.add_paragraph("오른쪽 정렬")
+        p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        p_left = doc.add_paragraph("왼쪽 정렬 명시")
+        p_left.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        doc.save(src)
+
+        out = converters.convert(src, "hwp", self.tmp)
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        by_text = {p.text: p.alignment for p in Document(back).paragraphs}
+
+        self.assertEqual(by_text["기본 정렬"], WD_ALIGN_PARAGRAPH.JUSTIFY)
+        self.assertEqual(by_text["가운데 정렬"], WD_ALIGN_PARAGRAPH.CENTER)
+        self.assertEqual(by_text["오른쪽 정렬"], WD_ALIGN_PARAGRAPH.RIGHT)
+        self.assertEqual(by_text["왼쪽 정렬 명시"], WD_ALIGN_PARAGRAPH.LEFT)
 
     def test_docx_to_hwp_preserves_long_wrapped_paragraph(self):
         """긴 문단(여러 줄로 감싸질 정도)이 HWP 레이아웃 캐시(LineSeg) 계산
