@@ -270,6 +270,37 @@ class TestDocxExtractCharFormatting(Base):
         self.assertEqual(runs[1], {"text": "굵은 항목", "bold": True, "italic": False,
                                     "underline": False, "size": None, "color": None})
 
+    def test_hyperlink_only_paragraph_not_dropped(self):
+        """`paragraph.runs`(python-docx)는 <w:hyperlink> 안에 중첩된 run을
+        포함하지 않는다 — 문단 전체가 하이퍼링크 하나뿐이면 옛 구현은 runs가
+        빈 리스트가 되어 문단째로 조용히 드롭됐다(회귀, 이번에 수정)."""
+        import docx.oxml
+        import docx.opc.constants
+        from docx import Document
+        from docx.oxml.ns import qn
+
+        src = self.tmp / "d.docx"
+        doc = Document()
+        p = doc.add_paragraph()
+        r_id = p.part.relate_to(
+            "https://example.com",
+            docx.opc.constants.RELATIONSHIP_TYPE.HYPERLINK,
+            is_external=True,
+        )
+        hyperlink = docx.oxml.OxmlElement("w:hyperlink")
+        hyperlink.set(qn("r:id"), r_id)
+        run_el = docx.oxml.OxmlElement("w:r")
+        t = docx.oxml.OxmlElement("w:t")
+        t.text = "링크텍스트"
+        run_el.append(t)
+        hyperlink.append(run_el)
+        p._p.append(hyperlink)
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["runs"][0]["text"], "링크텍스트")
+
 
 class TestDocxBuildFont(Base):
     """DEC-015: 생성 DOCX는 한글 글꼴을 모든 run에 명시해야 한다 — 실사용 중
