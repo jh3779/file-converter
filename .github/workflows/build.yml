@@ -113,6 +113,27 @@ jobs:
           if (-not ($createdJson | Select-String -Pattern '"type":"table","rows":\[\["이름","부서"\],\["김철수","영업1팀"\]\]' -Quiet)) {
             Write-Error "HWP engine smoke failed: JsonToHwp가 만든 표가 실제 표 구조(2행×2열)로 재확인되지 않음(DEC-028 회귀)"; exit 1
           }
+          # DEC-038: DOCX→HWP 문자 서식(굵게/기울임/밑줄/크기/색상) 반영 —
+          # JsonToHwp가 run별 서식을 CharShape으로 만들어 ParaCharShape에
+          # 위치별로 연결하고, HwpToJson으로 재읽었을 때 run 경계·서식이
+          # 그대로 재확인되어야 한다(DEC-027은 읽기 방향만 검증했다 — 이건
+          # 쓰기 방향 왕복).
+          Set-Content -Encoding utf8 formatted-blocks.json '{"blocks":[{"type":"p","runs":[{"text":"굵은텍스트","bold":true},{"text":"일반텍스트"},{"text":"기울임텍스트","italic":true,"size":18,"color":"FF0000"}]}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwp formatted-blocks.json formatted-created.hwp
+          if (-not (Test-Path formatted-created.hwp)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 서식 있는 문서를 생성하지 못함(DEC-038)"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToJson formatted-created.hwp formatted-created.json
+          $formattedCreatedJson = Get-Content formatted-created.json -Encoding utf8 -Raw
+          if (-not ($formattedCreatedJson | Select-String -Pattern '"text":"굵은텍스트","bold":true,"italic":false,"underline":false' -Quiet)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 쓴 굵게 서식이 왕복 후 재확인되지 않음(DEC-038 회귀)"; exit 1
+          }
+          if (-not ($formattedCreatedJson | Select-String -Pattern '"text":"일반텍스트","bold":false,"italic":false,"underline":false' -Quiet)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 서식 없는 run을 잘못된 서식으로 씀(DEC-038 회귀)"; exit 1
+          }
+          if (-not ($formattedCreatedJson | Select-String -Pattern '"text":"기울임텍스트","bold":false,"italic":true,"underline":false,"size":18(\.0)?,"color":"FF0000"' -Quiet)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 쓴 기울임·크기·색상 서식이 같은 run 안에서 왕복 후 재확인되지 않음(DEC-038 회귀)"; exit 1
+          }
           # DEC-018: 긴 문단(여러 줄로 감싸질 정도)도 텍스트가 그대로 보존되는지 —
           # LineSeg 줄바꿈 재계산이 텍스트 자체를 깨뜨리지 않는지 확인.
           # ConvertTo-Json 기본 -Depth(2)로는 이 중첩 구조를 다 못 펴서 값이
@@ -550,6 +571,37 @@ jobs:
           text = open("created.json", encoding="utf-8").read()
           if not re.search(r'"type":"table","rows":\[\["이름","부서"\],\["김철수","영업1팀"\]\]', text):
               print("::error::HWP engine smoke failed: JsonToHwp가 만든 표가 실제 표 구조(2행x2열)로 재확인되지 않음(DEC-028 회귀)")
+              sys.exit(1)
+          PY
+
+          # DEC-038: DOCX→HWP 문자 서식(굵게/기울임/밑줄/크기/색상) 반영 —
+          # JsonToHwp가 run별 서식을 CharShape으로 만들어 ParaCharShape에
+          # 위치별로 연결하고, HwpToJson으로 재읽었을 때 run 경계·서식이
+          # 그대로 재확인되어야 한다(DEC-027은 읽기 방향만 검증했다 — 이건
+          # 쓰기 방향 왕복).
+          python3 -c '
+          import json
+          blocks = {"blocks": [{"type": "p", "runs": [
+              {"text": "굵은텍스트", "bold": True},
+              {"text": "일반텍스트"},
+              {"text": "기울임텍스트", "italic": True, "size": 18, "color": "FF0000"},
+          ]}]}
+          open("formatted-blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          '
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp formatted-blocks.json formatted-created.hwp
+          [ -f formatted-created.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 서식 있는 문서를 생성하지 못함(DEC-038)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson formatted-created.hwp formatted-created.json
+          python3 <<'PY'
+          import re, sys
+          text = open("formatted-created.json", encoding="utf-8").read()
+          if not re.search(r'"text":"굵은텍스트","bold":true,"italic":false,"underline":false', text):
+              print("::error::HWP engine smoke failed: JsonToHwp가 쓴 굵게 서식이 왕복 후 재확인되지 않음(DEC-038 회귀)")
+              sys.exit(1)
+          if not re.search(r'"text":"일반텍스트","bold":false,"italic":false,"underline":false', text):
+              print("::error::HWP engine smoke failed: JsonToHwp가 서식 없는 run을 잘못된 서식으로 씀(DEC-038 회귀)")
+              sys.exit(1)
+          if not re.search(r'"text":"기울임텍스트","bold":false,"italic":true,"underline":false,"size":18(\.0)?,"color":"FF0000"', text):
+              print("::error::HWP engine smoke failed: JsonToHwp가 쓴 기울임·크기·색상 서식이 같은 run 안에서 왕복 후 재확인되지 않음(DEC-038 회귀)")
               sys.exit(1)
           PY
 
