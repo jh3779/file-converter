@@ -7,13 +7,14 @@ from functools import partial
 from pathlib import Path
 
 from .base import ConversionError
-from . import data, pdf, office, hwp, video, image
+from . import data, pdf, office, hwp, hwpx, video, image
 
 TARGETS: dict[str, list[str]] = {
     "docx": ["pdf", "hwp"],  # DEC-017/DEC-028 — 표는 실제 HWP 표로 생성됨(셀 병합 제외)
     "pptx": ["pdf"],   # DEC-016
     "pdf": ["txt", "docx", "hwp", "images", "pptx"],  # DEC-023 — HWP도 텍스트 기반(DEC-010과 같은 원칙). images: DEC-025, 페이지별 PNG를 폴더에 저장. pptx: DEC-030, 줄 단위 위치 재구성(이미지로 뭉개지 않음)
     "hwp": ["txt", "pdf", "docx"],
+    "hwpx": ["txt", "pdf", "docx"],  # QA(h) Phase 1(읽기, 외부 QA 요청) — hwplib이 아닌 별도 라이브러리 hwpxlib 사용
     "csv": ["xlsx", "json"],
     "xlsx": ["csv"],
     "json": ["csv"],
@@ -61,6 +62,9 @@ _DISPATCH = {
     ("hwp", "txt"): hwp.hwp_to_txt,
     ("hwp", "pdf"): hwp.hwp_to_pdf,        # DOCX 경유 → LibreOffice
     ("hwp", "docx"): hwp.hwp_to_docx,      # 구조 JSON → python-docx
+    ("hwpx", "txt"): hwpx.hwpx_to_txt,     # QA(h) Phase 1 — hwpxlib 사이드카
+    ("hwpx", "pdf"): hwpx.hwpx_to_pdf,     # DOCX 경유 → LibreOffice
+    ("hwpx", "docx"): hwpx.hwpx_to_docx,   # 구조 JSON → python-docx
     **{(ext, "mp4"): video.video_to_mp4 for ext in _VIDEO_EXTS},  # DEC-024
     **{(src, tgt): partial(image.convert_image, target_ext=tgt)
        for src in _IMAGE_SRC_EXTS for tgt in TARGETS[src]},

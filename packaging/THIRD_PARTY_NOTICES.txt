@@ -12,12 +12,22 @@ THIRD-PARTY NOTICES — File Converter (파일 변환기)
    - 참고: hwplib에는 Apache POI(Apache-2.0)의 POIFS가
      kr.dogfoot.hwplib.org.apache.poi 패키지로 shading되어 포함됩니다.
 
-2. Eclipse Temurin JRE (jlink 최소 런타임)
+2. hwpxlib (HWPX 읽기 — QA(h) Phase 1)
+   - 경로: engine/hwp/ (컴파일된 클래스, hwplib과 패키지명이 겹치지 않아
+     같은 디렉터리에 함께 번들)
+   - 저작권: Park.sungkyon (neolord0) — https://github.com/neolord0/hwpxlib
+     (hwplib과 같은 저자, HWPX는 HWP 바이너리와 다른 별도 스펙)
+   - 라이선스: Apache License 2.0 — 전문은 engine/licenses/hwpxlib-LICENSE.txt 참조
+   - 번들 리비전: 473d9d6aa82d8896f4f464b52d801e5691dc7cf3
+     (스파이크 검증 커밋 — spike/hwpxlib/RESULT.md · CI에서 고정 체크아웃)
+   - 참고: 런타임 의존성 없음(순수 JDK)
+
+3. Eclipse Temurin JRE (jlink 최소 런타임)
    - 경로: engine/jre/
    - 라이선스: GNU GPL v2 with Classpath Exception
    - 라이선스·고지 전문: engine/jre/legal/ 디렉터리 참조
 
-3. LibreOffice (headless 변환 엔진 — DOCX→PDF, HWP→PDF)
+4. LibreOffice (headless 변환 엔진 — DOCX→PDF, HWP→PDF)
    - 경로: engine/libreoffice/
    - 저작권: The Document Foundation — https://www.libreoffice.org
    - 라이선스: Mozilla Public License 2.0 (일부 구성요소 LGPLv3) —
@@ -29,7 +39,7 @@ THIRD-PARTY NOTICES — File Converter (파일 변환기)
    - 알려진 제약: Microsoft Visual C++ 런타임이 전혀 없는 완전히 새 Windows
      환경에서는 soffice.exe 실행이 실패할 수 있다(별도 검증 필요 — DEC-012).
 
-4. Noto Sans KR (한글 글꼴 — DOCX/HWP→DOCX 생성 문서 및 LibreOffice 렌더링용)
+5. Noto Sans KR (한글 글꼴 — DOCX/HWP→DOCX 생성 문서 및 LibreOffice 렌더링용)
    - 경로: engine/libreoffice/share/fonts/truetype/NotoSansKR-{Regular,Bold}.otf
    - 저작권: Google — https://github.com/notofonts/noto-cjk
    - 라이선스: SIL Open Font License 1.1 — 전문은
@@ -41,13 +51,13 @@ THIRD-PARTY NOTICES — File Converter (파일 변환기)
      명시적으로 지정한다. 사용자가 직접 제공한 DOCX/PPTX(글꼴 미지정)의
      DOCX→PDF 렌더링은 호스트 글꼴 가용성에 여전히 일부 의존한다(잔여 리스크).
 
-5. Python 런타임 및 라이브러리 (PySide6/Qt는 LGPLv3, openpyxl MIT,
+6. Python 런타임 및 라이브러리 (PySide6/Qt는 LGPLv3, openpyxl MIT,
    pdfminer.six MIT, python-docx MIT, Pillow HPND, pypdfium2
    BSD-3-Clause/Apache-2.0 — PDFium 엔진 자체도 BSD-3-Clause/Apache-2.0)
    - PyInstaller 번들 내 포함. PySide6(Qt) LGPLv3 고지:
      https://www.qt.io/licensing — 동적 링크 사용.
 
-6. FFmpeg (영상→MP4 변환 엔진)
+7. FFmpeg (영상→MP4 변환 엔진)
    - 경로: engine/ffmpeg/
    - 저작권: FFmpeg 프로젝트 — https://ffmpeg.org
    - 라이선스: GNU Lesser General Public License v2.1+ — 전문은

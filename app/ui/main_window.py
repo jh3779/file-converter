@@ -19,7 +19,7 @@ from ..models import FileItem, ItemState
 from ..update_check import UpdateChecker
 from ..workers import Job
 
-_ICONS = {"docx": "📄", "pdf": "📄", "hwp": "📄", "txt": "📄", "pptx": "📽",
+_ICONS = {"docx": "📄", "pdf": "📄", "hwp": "📄", "hwpx": "📄", "txt": "📄", "pptx": "📽",
           "csv": "📊", "xlsx": "📊", "json": "📊",
           "avi": "🎬", "mov": "🎬", "mkv": "🎬", "wmv": "🎬", "flv": "🎬",
           "webm": "🎬", "m4v": "🎬",
@@ -109,7 +109,9 @@ class FileRow(QFrame):
         DEC-010: PDF/HWP → DOCX 선택 시. DEC-028부터 DOCX → HWP도 표는 실제
         HWP 표로 만들어지지만(DEC-017 정정) 셀 병합·정밀한 레이아웃까지는
         아니라 같은 고지를 쓴다. DEC-023: PDF → HWP도 텍스트 기반이라 같은
-        고지(PDF 자체가 표 구조를 안 담고 있어 표 전용 문구는 아님). XLSX →
+        고지(PDF 자체가 표 구조를 안 담고 있어 표 전용 문구는 아님). QA(h)
+        Phase 1: HWPX → DOCX/PDF도 같은 고지(셀 병합·머리말/꼬리말·문단
+        정렬이 아직 범위 밖 — spike/hwpxlib/RESULT.md). XLSX →
         CSV 선택 시 시트가 여러 개면 고지(첫 시트만 변환 — 여러 파일로 나눠
         출력하는 방안은 데이터 모델을 바꿔야 해서 별도 과제로 보류). 애니메이션
         이미지(GIF/WEBP) → 다른 이미지 포맷 선택 시 첫 프레임만 남는다는
@@ -117,6 +119,11 @@ class FileRow(QFrame):
         결과가 폴더로 저장된다는 고지. DEC-030: PDF → PPTX 선택 시 표
         테두리·이미지는 옮겨지지 않는다는 고지(텍스트는 위치까지 재구성됨)."""
         if self.item.target_fmt == "docx" and self.item.source_fmt in ("pdf", "hwp"):
+            note_key = "note.simplified"
+        elif self.item.target_fmt in ("docx", "pdf") and self.item.source_fmt == "hwpx":
+            # QA(h) Phase 1: hwpx_to_pdf도 내부적으로 hwpx_to_docx를 거치므로
+            # (hwp_to_pdf가 hwp_to_docx를 거치는 것과 같은 구조) 두 타겟 모두
+            # 같은 단순화 고지를 쓴다.
             note_key = "note.simplified"
         elif self.item.target_fmt == "hwp" and self.item.source_fmt in ("docx", "pdf"):
             note_key = "note.simplified"
