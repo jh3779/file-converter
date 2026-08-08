@@ -6,6 +6,8 @@
 항목들의 저장 폴더를 중복 없이 최대 3곳까지 직접 보여주도록 수정했다.
 """
 import os
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -38,12 +40,19 @@ def _done_item(item_id: int, output: Path) -> FileItem:
 
 
 class TestResultLocationNotice(unittest.TestCase):
+    """경로는 항상 tempfile 기반 실제 임시 디렉터리 밑에서 만들고, 기대
+    문자열도 그 Path 객체에서 뽑는다 — 하드코딩된 POSIX `/tmp/...` 리터럴은
+    Windows(REQ-NF-001, Windows 우선 배포)에서 str(Path(...))가 다르게
+    나와 깨진다(자동 리뷰로 발견해 수정)."""
+
     def setUp(self):
         self._orig_lang_pref = i18n.saved_pref()
         i18n.set_lang("ko")
+        self.tmp = Path(tempfile.mkdtemp())
 
     def tearDown(self):
         i18n.set_lang(self._orig_lang_pref or None)
+        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _window(self, items):
         win = MainWindow(tokens.LIGHT)
@@ -54,32 +63,35 @@ class TestResultLocationNotice(unittest.TestCase):
         return win
 
     def test_single_file_shows_its_folder(self):
-        win = self._window([_done_item(1, Path("/tmp/a/out.pdf"))])
-        self.assertEqual(_location_texts(win), ["📂 /tmp/a"])
+        folder = self.tmp / "a"
+        win = self._window([_done_item(1, folder / "out.pdf")])
+        self.assertEqual(_location_texts(win), [f"📂 {folder}"])
 
     def test_duplicate_folders_deduplicated(self):
-        items = [_done_item(1, Path("/tmp/a/out1.pdf")), _done_item(2, Path("/tmp/a/out2.pdf"))]
+        folder = self.tmp / "a"
+        items = [_done_item(1, folder / "out1.pdf"), _done_item(2, folder / "out2.pdf")]
         win = self._window(items)
-        self.assertEqual(_location_texts(win), ["📂 /tmp/a"])
+        self.assertEqual(_location_texts(win), [f"📂 {folder}"])
 
     def test_duplicate_folders_deduplicated_case_insensitively(self):
         """Windows(NTFS)·macOS 기본(APFS)은 대소문자를 구분하지 않는
         파일시스템이라, 대소문자만 다른 경로도 같은 폴더로 취급해야 한다."""
-        items = [_done_item(1, Path("/tmp/A/out1.pdf")), _done_item(2, Path("/tmp/a/out2.pdf"))]
+        items = [_done_item(1, self.tmp / "A" / "out1.pdf"), _done_item(2, self.tmp / "a" / "out2.pdf")]
         win = self._window(items)
         self.assertEqual(len(_location_texts(win)), 1)
 
     def test_more_than_three_folders_capped_with_summary(self):
-        items = [_done_item(i, Path(f"/tmp/{c}/out.pdf")) for i, c in enumerate("abcd")]
+        folders = [self.tmp / c for c in "abcd"]
+        items = [_done_item(i, folders[i] / "out.pdf") for i in range(4)]
         win = self._window(items)
         texts = _location_texts(win)
-        self.assertEqual(texts[:3], ["📂 /tmp/a", "📂 /tmp/b", "📂 /tmp/c"])
+        self.assertEqual(texts[:3], [f"📂 {folders[0]}", f"📂 {folders[1]}", f"📂 {folders[2]}"])
         self.assertEqual(win.result_locations.count(), 4)  # 3개 + 요약 1개
 
     def test_directory_output_shown_as_is_not_its_parent(self):
         """PDF→이미지(DEC-025)처럼 결과물 자체가 폴더면 그 폴더를 보여줘야
         한다(open_folder_btn과 같은 원칙) — 부모 폴더가 아니라."""
-        out_dir = Path("/tmp/x/out")
+        out_dir = self.tmp / "x" / "out"
         out_dir.mkdir(parents=True, exist_ok=True)
         win = self._window([_done_item(1, out_dir)])
         self.assertEqual(_location_texts(win), [f"📂 {out_dir}"])
