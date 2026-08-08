@@ -642,8 +642,18 @@ class MainWindow(QMainWindow):
             w = self.result_locations.takeAt(0).widget()
             if w:
                 w.deleteLater()
-        locations = list(dict.fromkeys(
-            str(it.output if it.output.is_dir() else it.output.parent) for it in done))
+        # 대소문자만 다른 경로는 같은 폴더로 본다 — Windows(NTFS)·macOS
+        # 기본(APFS)은 대소문자를 구분하지 않는 파일시스템이라, 단순 문자열
+        # 비교로 중복을 제거하면 같은 폴더가 서로 다른 항목으로 두 번 표시될
+        # 수 있다(외부 QA 피드백 리뷰로 발견).
+        locations = []
+        seen_lower = set()
+        for it in done:
+            loc = str(it.output if it.output.is_dir() else it.output.parent)
+            key = loc.casefold()
+            if key not in seen_lower:
+                seen_lower.add(key)
+                locations.append(loc)
         for loc in locations[:3]:
             lbl = QLabel(f"📂 {loc}")
             lbl.setWordWrap(True)

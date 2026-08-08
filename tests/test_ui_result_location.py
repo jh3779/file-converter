@@ -62,6 +62,13 @@ class TestResultLocationNotice(unittest.TestCase):
         win = self._window(items)
         self.assertEqual(_location_texts(win), ["📂 /tmp/a"])
 
+    def test_duplicate_folders_deduplicated_case_insensitively(self):
+        """Windows(NTFS)·macOS 기본(APFS)은 대소문자를 구분하지 않는
+        파일시스템이라, 대소문자만 다른 경로도 같은 폴더로 취급해야 한다."""
+        items = [_done_item(1, Path("/tmp/A/out1.pdf")), _done_item(2, Path("/tmp/a/out2.pdf"))]
+        win = self._window(items)
+        self.assertEqual(len(_location_texts(win)), 1)
+
     def test_more_than_three_folders_capped_with_summary(self):
         items = [_done_item(i, Path(f"/tmp/{c}/out.pdf")) for i, c in enumerate("abcd")]
         win = self._window(items)
