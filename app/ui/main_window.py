@@ -368,10 +368,13 @@ class MainWindow(QMainWindow):
         self.result_note = QLabel()
         self.result_note.setObjectName("muted")
         self.result_note.setWordWrap(True)
+        self.result_locations = QVBoxLayout()  # 저장 위치 안내(외부 QA 피드백)
+        self.result_locations.setSpacing(2)
         rc.addWidget(self.result_title)
         rc.addWidget(self.result_counts)
         rc.addLayout(self.result_fails)
         rc.addWidget(self.result_note)
+        rc.addLayout(self.result_locations)
         btns = QHBoxLayout()
         btns.addStretch(1)
         self.open_folder_btn = QPushButton()
@@ -629,6 +632,38 @@ class MainWindow(QMainWindow):
         self.result_note.setText("\n".join(notes))
         self.result_note.setVisible(bool(notes))
         self.open_folder_btn.setVisible(bool(done))
+
+        # 저장 위치 안내(외부 QA 피드백) — 최근 기록 창을 따로 열어야만
+        # 저장 경로를 알 수 있던 문제. 결과가 폴더 자체(PDF→이미지, DEC-025)면
+        # 그 폴더를, 파일이면 부모 폴더를 "위치"로 본다(open_folder_btn과
+        # 같은 원칙) — 중복 없이 등장 순서대로, 너무 길어지지 않게 최대
+        # 3곳까지만 보여주고 나머지는 개수로 요약한다.
+        while self.result_locations.count():
+            w = self.result_locations.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        # 대소문자만 다른 경로는 같은 폴더로 본다 — Windows(NTFS)·macOS
+        # 기본(APFS)은 대소문자를 구분하지 않는 파일시스템이라, 단순 문자열
+        # 비교로 중복을 제거하면 같은 폴더가 서로 다른 항목으로 두 번 표시될
+        # 수 있다(외부 QA 피드백 리뷰로 발견).
+        locations = []
+        seen_lower = set()
+        for it in done:
+            loc = str(it.output if it.output.is_dir() else it.output.parent)
+            key = loc.casefold()
+            if key not in seen_lower:
+                seen_lower.add(key)
+                locations.append(loc)
+        for loc in locations[:3]:
+            lbl = QLabel(f"📂 {loc}")
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet(
+                f'font-family:"Menlo","Consolas",monospace;font-size:10px;color:{t["onSurfaceVariant"]};')
+            self.result_locations.addWidget(lbl)
+        if len(locations) > 3:
+            more = QLabel(tr("result.location_more", n=len(locations) - 3))
+            more.setObjectName("muted")
+            self.result_locations.addWidget(more)
         self.overlay.setGeometry(self.centralWidget().rect())
         self.overlay.show()
         self.overlay.raise_()
