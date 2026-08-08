@@ -347,12 +347,18 @@ public class HwpToJson {
         return null;
     }
 
-    /** 문단의 ParaShape에서 정렬을 읽어 DOCX 쪽 4값으로 단순화한다(DEC-040). */
+    /**
+     * 문단의 ParaShape에서 정렬을 읽어 DOCX 쪽 4값으로 단순화한다(DEC-040).
+     * shapeId가 범위를 벗어나거나 Alignment를 못 읽으면 HWP 문서의 실제
+     * 기본 정렬인 "justify"로 폴백한다 — "left"로 폴백하면 이 PR이 고치려던
+     * "HWP 기본은 양쪽 정렬인데 DOCX 기본은 왼쪽 정렬"이라는 비대칭 문제가
+     * 바로 이 방어 경로에서 재현된다(DEC-040 결정 로그 참고).
+     */
     private static String paragraphAlign(Paragraph p, DocInfo docInfo) {
         int shapeId = p.getHeader().getParaShapeId();
-        if (shapeId < 0 || shapeId >= docInfo.getParaShapeList().size()) return "left";
+        if (shapeId < 0 || shapeId >= docInfo.getParaShapeList().size()) return "justify";
         Alignment a = docInfo.getParaShapeList().get(shapeId).getProperty1().getAlignment();
-        if (a == null) return "left";
+        if (a == null) return "justify";
         switch (a) {
             case Left: return "left";
             case Center: return "center";
