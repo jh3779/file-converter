@@ -189,7 +189,14 @@ def _extract_pdf_blocks_by_page(src: Path) -> list[dict]:
             first_on_page = True
             for container in _paragraph_candidates(page):
                 text = "".join(r["text"] for r in _container_to_runs(container))
-                if not text:
+                # JsonToHwp.java는 text.trim().isEmpty()인 문단을 버린다
+                # (sidecar/hwp/JsonToHwp.java) — 여기서 공백뿐인 컨테이너를
+                # "의미 있는 첫 문단"으로 인정하면, pageBreakBefore가 그
+                # 컨테이너에 붙었다가 JsonToHwp 쪽에서 통째로 버려져 실제
+                # 첫 문단에는 쪽 나눔이 반영되지 않는 버그가 있었다(자동
+                # 리뷰로 발견) — 같은 기준(strip 후 빈 문자열)으로 걸러
+                # first_on_page를 소비하지 않게 한다.
+                if not text.strip():
                     continue
                 block = {"type": "p", "text": text}
                 if page_index > 0 and first_on_page:

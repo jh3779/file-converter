@@ -40,15 +40,24 @@ def _run_pagebreakdebug(hwp_path: Path):
     """PageBreakDebug(테스트 전용 디버그 도구, sidecar/hwp/PageBreakDebug.java)를
     직접 실행해 문단별 (pageBreakBefore, 텍스트)를 돌려준다 — DEC-039.
     HwpToText/HwpToJson 둘 다 ParaShape의 이 속성을 안 보므로 hwplib로
-    직접 열어 확인해야 한다."""
+    직접 열어 확인해야 한다.
+
+    결과를 stdout이 아니라 UTF-8 파일로 받는다 — PowerShell이 외부 프로세스
+    stdout을 콘솔 코드페이지로 디코딩해 한글이 깨지는 문제가 있어(DEC-039
+    후속 수정), PageBreakDebug의 출력 방식이 파일 쓰기로 바뀌었다."""
+    import tempfile
+
     from app.converters import hwp as hwp_mod
     java = hwp_mod._java()
     cp = hwp_mod._classpath()
-    proc = subprocess.run([java, "-cp", cp, "PageBreakDebug", str(hwp_path)],
-                           capture_output=True, text=True, timeout=30)
-    assert proc.returncode == 0, proc.stderr
+    with tempfile.TemporaryDirectory() as tmp:
+        out_path = Path(tmp) / "pagebreak-debug.txt"
+        proc = subprocess.run([java, "-cp", cp, "PageBreakDebug", str(hwp_path), str(out_path)],
+                               capture_output=True, text=True, timeout=30)
+        assert proc.returncode == 0, proc.stderr
+        content = out_path.read_text(encoding="utf-8")
     rows = []
-    for line in proc.stdout.strip().splitlines():
+    for line in content.strip().splitlines():
         idx, page_break_before, text = line.split("\t", 2)
         rows.append((int(idx), page_break_before == "true", text))
     return rows

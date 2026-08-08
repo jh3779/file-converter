@@ -86,6 +86,34 @@ class TestPdfToHwpPageBreaks(Base):
         self.assertTrue(blocks[1]["pageBreakBefore"])
         self.assertTrue(blocks[2]["pageBreakBefore"])
 
+    def test_whitespace_only_first_container_does_not_consume_page_break(self):
+        """JsonToHwp.java는 text.trim().isEmpty()인 문단을 버린다 — 페이지
+        첫 컨테이너가 공백뿐이면 그 문단이 pageBreakBefore를 달고 있어도
+        JsonToHwp 쪽에서 통째로 버려져, 실제 첫(비공백) 문단에는 쪽 나눔이
+        반영되지 않는 회귀가 있었다(자동 리뷰로 발견). 공백뿐인 컨테이너는
+        first_on_page를 소비하지 않아야 한다.
+
+        실제 PDF로 재현하면 pdfminer의 레이아웃 그룹핑이 컨테이너 순서를
+        보장하지 않아(공백 컨테이너가 먼저 온다고 확신할 수 없음) 결과가
+        들쭉날쭉해진다 — _paragraph_candidates를 모킹해 "페이지 첫 컨테이너가
+        공백뿐"인 순서를 직접 통제한다."""
+        from unittest.mock import patch
+
+        # extract_pages는 _extract_pdf_blocks_by_page 안에서 지역 import되므로
+        # pdf_mod 네임스페이스가 아니라 pdfminer.high_level 자체를 패치해야 한다.
+        with patch("pdfminer.high_level.extract_pages", return_value=["page0", "page1"]), \
+             patch.object(pdf_mod, "_paragraph_candidates",
+                           side_effect=lambda page: ["c1"] if page == "page0" else ["ws", "c2"]), \
+             patch.object(pdf_mod, "_container_to_runs",
+                           side_effect=lambda c: [{"text": {"c1": "First page", "ws": "   ",
+                                                             "c2": "Real second-page text"}[c]}]):
+            blocks = pdf_mod._extract_pdf_blocks_by_page(Path("dummy.pdf"))
+
+        texts = [b["text"] for b in blocks]
+        self.assertNotIn("   ", texts)  # 공백뿐인 컨테이너 자체가 블록으로 안 남아야 함
+        real_second_page = next(b for b in blocks if b["text"] == "Real second-page text")
+        self.assertTrue(real_second_page.get("pageBreakBefore"))
+
 
 class TestCsvXlsx(Base):
     def test_roundtrip_korean(self):
