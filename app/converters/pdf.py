@@ -167,6 +167,49 @@ def _extract_pdf_blocks(src: Path) -> list[dict]:
     return blocks
 
 
+def _extract_pdf_blocks_by_page(src: Path) -> list[dict]:
+    """PDF → 문단 블록(평문, 페이지 경계 보존 — DEC-039). pdf_to_hwp 전용.
+
+    기존 pdf_to_hwp는 pdf_to_txt()(pdfminer extract_text())로 문서 전체를
+    한 문자열로 뽑은 뒤 빈 줄 기준으로만 문단을 나눴는데, extract_text()가
+    페이지가 바뀌는 지점을 별도로 표시하지 않아 PDF 여러 페이지의 텍스트가
+    HWP 안에서 페이지 구분 없이 한 페이지처럼 이어 붙어 보였다(외부 QA
+    피드백으로 재현 확인). extract_pages()로 페이지 단위로 직접 순회해 각
+    페이지 첫 문단에 pageBreakBefore를 표시한다(JsonToHwp.java가 이를 실제
+    쪽 나눔으로 반영). 서식(굵게 등)은 이 경로에서 필요 없어
+    _container_to_runs로 뽑은 run들의 텍스트만 이어붙인다.
+    """
+    from pdfminer.high_level import extract_pages
+    from pdfminer.pdfdocument import PDFPasswordIncorrect
+    from pdfminer.psparser import PSException
+
+    blocks = []
+    try:
+        for page_index, page in enumerate(extract_pages(str(src))):
+            first_on_page = True
+            for container in _paragraph_candidates(page):
+                text = "".join(r["text"] for r in _container_to_runs(container))
+                # JsonToHwp.java는 text.trim().isEmpty()인 문단을 버린다
+                # (sidecar/hwp/JsonToHwp.java) — 여기서 공백뿐인 컨테이너를
+                # "의미 있는 첫 문단"으로 인정하면, pageBreakBefore가 그
+                # 컨테이너에 붙었다가 JsonToHwp 쪽에서 통째로 버려져 실제
+                # 첫 문단에는 쪽 나눔이 반영되지 않는 버그가 있었다(자동
+                # 리뷰로 발견) — 같은 기준(strip 후 빈 문자열)으로 걸러
+                # first_on_page를 소비하지 않게 한다.
+                if not text.strip():
+                    continue
+                block = {"type": "p", "text": text}
+                if page_index > 0 and first_on_page:
+                    block["pageBreakBefore"] = True
+                blocks.append(block)
+                first_on_page = False
+    except PDFPasswordIncorrect:
+        raise ConversionError("err.password")
+    except (PSException, ValueError, OSError) as e:
+        raise ConversionError("err.corrupted", str(e))
+    return blocks
+
+
 def _paragraph_candidates(obj):
     """레이아웃 트리를 재귀 순회하며 "문단 하나"로 취급할 컨테이너를 찾는다.
 
@@ -228,7 +271,7 @@ def _container_to_runs(container) -> list[dict]:
             # LTAnno(가상 문자 — 줄바꿈·자간 보정 등, 폰트 정보 없음): 현재
             # run에 그대로 이어붙이고 서식 전환은 트리거하지 않는다. PDF의
             # 줄바꿈은 문단 내부 개행일 뿐이라(문단 경계는 컨테이너 단위로
-            # 이미 나뉨) 공백으로 정규화한다(text_to_blocks()와 같은 원칙).
+            # 이미 나뉨) 공백으로 정규화한다.
             text = ch.get_text()
             text = " " if text == "\n" else text
             style = cur_style
