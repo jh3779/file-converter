@@ -115,6 +115,11 @@ _S = {
                          "표 테두리·이미지 등은 옮겨지지 않아요",
                          "Text is rebuilt into slides at its original position — "
                          "table borders and images are not carried over"),
+    "note.pdf_to_docx": ("텍스트는 원래 위치에 맞춰 배치돼요 — 줄마다 고정된 위치라 "
+                         "이어서 입력하면 다음 줄과 자연스럽게 안 이어질 수 있어요",
+                         "Text is placed to match its original position — since each "
+                         "line sits at a fixed spot, typing across lines may not flow "
+                         "naturally"),
     "err.notyet": ("이 변환은 다음 버전에서 지원될 예정입니다.",
                    "This conversion is coming in a future update."),
 }

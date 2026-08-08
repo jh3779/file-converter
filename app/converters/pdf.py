@@ -20,14 +20,112 @@ def pdf_to_txt(src: Path, tmpdir: Path) -> Path:
 
 
 def pdf_to_docx(src: Path, tmpdir: Path) -> Path:
-    """PDF → 텍스트+서식 추출 → DOCX (레이아웃 단순화는 여전함 — DEC-010 고지
-    문안과 연동. 문자 서식(굵게/기울임/크기)은 DEC-027부터 반영).
+    """PDF → DOCX, 줄 단위로 원본과 같은 절대 위치에 배치해 재구성한다
+    (DEC-037) — pdf_to_pptx(DEC-030)의 줄 단위 재구성과 같은 원리를, DOCX의
+    레거시 "프레임" 기능(`w:framePr` — 문단을 페이지 절대좌표에 고정, Word·
+    LibreOffice 둘 다 지원)으로 구현한다. 이전에는 문단을 순서대로 이어붙여
+    흐르게 하는 방식으로 단순화했었다(DEC-010) — 이제 원본과 시각적으로
+    훨씬 가까운 배치를 낸다. HWP→DOCX는 아직 이 방식으로 바뀌지 않았다
+    (HWP 쪽 줄 단위 위치 정보를 새로 뽑아야 해서 범위 밖 — hwp.py의
+    docx 변환은 여전히 blocks_to_docx 기반 흐르는 문서).
 
     pdf2docx(PyMuPDF)는 AGPL이라 사용 금지(DEC-007과 동일한 라이선스 원칙).
+
+    **트레이드오프(사용자 확인 후 채택, 정직하게 문서화)**: 각 줄이 독립된
+    프레임이 되므로, 결과 DOCX는 일반적인 "이어서 타이핑하면 자연스럽게
+    다음 줄로 흐르는" 문서가 아니다 — 문장 중간에 텍스트를 추가해 그 줄
+    프레임의 폭을 넘기면 다음 줄과 자연스럽게 안 이어진다(PDF→PPTX와
+    동일한 트레이드오프 — 위치 정확도와 자유 편집 사이의 근본적 상충).
+
+    **알려진 한계**: (1) 이미지·표 테두리 등 비텍스트 요소는 이번 범위 밖
+    (pdf_to_pptx의 이미지/도형 추출과 달리 텍스트만 재구성 — 후속 작업으로
+    분리, PPTX 쪽 이미지/도형 추출 PR이 아직 병합 전이라 의존성을 피하려
+    독립적으로 좁힘). (2) 재구성에 항상 Noto Sans KR을 지정하므로(DEC-015와
+    같은 이유) 원본 폰트와 글자 폭이 달라 드물게 줄바꿈이 살짝 밀릴 수
+    있다. (3) 기울임은 한글 글꼴 대부분에 별도 이탤릭 글리프가 없어(CJK
+    타이포그래피 관행) 감지되지 않는 경우가 흔함(pdf_to_pptx와 동일한 제약).
     """
-    from .docx_build import blocks_to_docx
-    blocks = _extract_pdf_blocks(src)
-    return blocks_to_docx(blocks, tmpdir / (src.stem + ".docx"))
+    from docx import Document
+    from docx.enum.section import WD_SECTION
+    from docx.shared import Emu, Pt
+
+    from .docx_build import _apply_run_style, _set_font
+
+    EMU_PER_PT = 12700
+    layout = _extract_pdf_layout(src)
+    if not layout:
+        raise ConversionError("err.corrupted", "페이지 없음")
+
+    doc = Document()
+
+    def _size_section(section, page):
+        section.page_width = Emu(round(page["width"] * EMU_PER_PT))
+        section.page_height = Emu(round(page["height"] * EMU_PER_PT))
+        for attr in ("left_margin", "right_margin", "top_margin", "bottom_margin"):
+            setattr(section, attr, Emu(0))
+
+    _size_section(doc.sections[0], layout[0])
+    current_size = (layout[0]["width"], layout[0]["height"])
+
+    for page_index, page in enumerate(layout):
+        if page_index > 0:
+            page_size = (page["width"], page["height"])
+            if page_size == current_size:
+                doc.add_page_break()
+            else:
+                # 페이지 크기가 바뀌는 경우(스캔 첨부문서의 가로/세로 혼합 등)
+                # — 단순 페이지 나눔만으로는 section의 page_width/height가
+                # 첫 페이지 크기로 고정된 채라, 아래 vAnchor="page" 기준
+                # y좌표(page_h - y1) 계산이 실제 렌더링 페이지 높이와 어긋나
+                # 텍스트가 밀려 보이는 버그가 있었다(PR 콘텐츠 리뷰로 발견).
+                # 크기가 실제로 바뀔 때만 새 섹션을 열어 그 페이지 실제
+                # 크기로 맞춘다 — 흔한 동일 크기 다중 페이지는 기존과 동일하게
+                # 단순 페이지 나눔을 그대로 쓴다.
+                section = doc.add_section(WD_SECTION.NEW_PAGE)
+                _size_section(section, page)
+                current_size = page_size
+        page_h = page["height"]
+        for line in page["lines"]:
+            x0, y0, x1, y1 = line["bbox"]
+            p = doc.add_paragraph()
+            pf = p.paragraph_format
+            pf.space_before = Pt(0)
+            pf.space_after = Pt(0)
+            pf.line_spacing = 1.0
+            for run_dict in line["runs"]:
+                run = p.add_run(run_dict["text"])
+                _set_font(run)
+                _apply_run_style(run, run_dict)
+            _set_frame_pr(p, x_pt=x0, y_pt=page_h - y1,
+                          w_pt=max(x1 - x0, 1), h_pt=max(y1 - y0, 1))
+
+    out = tmpdir / (src.stem + ".docx")
+    doc.save(out)
+    return out
+
+
+def _set_frame_pr(paragraph, x_pt: float, y_pt: float, w_pt: float, h_pt: float):
+    """문단을 페이지 절대좌표에 고정한다(`w:framePr`) — DrawingML 플로팅
+    도형보다 훨씬 단순한 레거시 기능이지만 Word·LibreOffice 둘 다 지원하며,
+    이 용도(줄 단위 위치 재현)엔 충분하다. 스파이크로 실측: 지정한 x/y와
+    LibreOffice로 렌더링한 PDF의 실제 텍스트 위치가 2pt 이내로 일치함을
+    확인(hAnchor/vAnchor="page" 기준, 페이지 여백은 0으로 맞춰 좌표계를
+    pdf_to_pptx의 EMU 변환과 동일하게 단순화)."""
+    from docx.oxml.ns import qn
+
+    TWIPS_PER_PT = 20
+    pPr = paragraph._p.get_or_add_pPr()
+    frame_pr = pPr.makeelement(qn("w:framePr"), {
+        qn("w:w"): str(max(round(w_pt * TWIPS_PER_PT), 1)),
+        qn("w:h"): str(max(round(h_pt * TWIPS_PER_PT), 1)),
+        qn("w:hRule"): "exact",
+        qn("w:hAnchor"): "page",
+        qn("w:vAnchor"): "page",
+        qn("w:x"): str(round(x_pt * TWIPS_PER_PT)),
+        qn("w:y"): str(round(y_pt * TWIPS_PER_PT)),
+        qn("w:wrap"): "none",
+    })
+    pPr.append(frame_pr)
 
 
 def pdf_to_pptx(src: Path, tmpdir: Path) -> Path:
@@ -102,9 +200,9 @@ def _iter_lines(container):
 
 
 def _extract_pdf_layout(src: Path) -> list[dict]:
-    """PDF → 페이지별 [{"width","height","lines":[{"bbox","runs"}]}] — pdf_to_pptx
-    전용, 줄 단위 위치(bbox)까지 필요해 문단 단위로 합치는 _extract_pdf_blocks와는
-    분리했다(서식 판정 로직 자체는 _container_to_runs를 그대로 재사용)."""
+    """PDF → 페이지별 [{"width","height","lines":[{"bbox","runs"}]}] — pdf_to_docx·
+    pdf_to_pptx 공용. 줄 단위 절대 위치(bbox)가 필요한 두 변환이 함께 쓴다
+    (서식 판정 로직은 _container_to_runs를 그대로 재사용)."""
     from pdfminer.high_level import extract_pages
     from pdfminer.pdfdocument import PDFPasswordIncorrect
     from pdfminer.psparser import PSException
@@ -124,47 +222,6 @@ def _extract_pdf_layout(src: Path) -> list[dict]:
     except (PSException, ValueError, OSError) as e:
         raise ConversionError("err.corrupted", str(e))
     return pages
-
-
-def _extract_pdf_blocks(src: Path) -> list[dict]:
-    """PDF → 문단 블록(서식 포함, DEC-027). pdfminer의 레이아웃 트리를 재귀
-    순회해 "문단 하나"로 볼 수 있는 단위마다 글자 단위로 훑어 굵게/기울임/
-    크기가 바뀌는 지점마다 run을 새로 만든다.
-
-    굵게/기울임 판정은 pdfminer가 넘겨주는 폰트 리소스 이름(LTChar.fontname,
-    예: "Caladea-Bold")에 "Bold"/"Italic"/"Oblique" 문자열이 포함되는지 보는
-    휴리스틱이다 — PDF 자체에 "이 글자가 굵다"는 명시적 플래그가 없어 폰트
-    이름에 의존할 수밖에 없다. **로컬 검증 결과, 이 휴리스틱은 굵기별로
-    폰트 파일이 실제로 분리돼 있을 때만(한글 폰트 포함, 예: NotoSansKR-Bold·
-    AppleSDGothicNeo-Bold 등 — 실사용 문서 대부분이 이런 폰트를 씀) 정확히
-    동작함을 확인했다.** 다만 두 가지 알려진 한계가 있다: (1) 문서에 동아시아
-    글꼴을 명시하지 않아 렌더러가 임의의 대체 글꼴 하나로 뭉뚱그려 그리면
-    굵기 정보 자체가 사라져 감지 불가(로컬 재현 확인), (2) 기울임은 한글
-    글꼴 대부분이 별도 이탤릭 글리프가 없어(CJK 타이포그래피 관행) 애초에
-    렌더러가 반영하지 않는 경우가 흔함 — 이 경우 우리 휴리스틱의 실패가
-    아니라 원본 자체에 감지할 서식이 없는 것. **밑줄은 감지하지 않는다** —
-    PDF는 밑줄을 폰트 속성이 아니라 별도의 벡터 선(그림)으로 그리는 경우가
-    많아 이 휴리스틱(폰트 이름 기반)으로는 원천적으로 판별할 수 없다(모든
-    PDF run은 항상 underline=False — HWP→DOCX만 밑줄을 지원, DEC-027).
-    텍스트 보존은 서식 감지 실패와 무관하게 항상 보장한다(서식 불명 시
-    bold=False/italic=False로 안전하게 처리).
-    """
-    from pdfminer.high_level import extract_pages
-    from pdfminer.pdfdocument import PDFPasswordIncorrect
-    from pdfminer.psparser import PSException
-
-    blocks = []
-    try:
-        for page in extract_pages(str(src)):
-            for container in _paragraph_candidates(page):
-                runs = _container_to_runs(container)
-                if runs:
-                    blocks.append({"type": "p", "runs": runs})
-    except PDFPasswordIncorrect:
-        raise ConversionError("err.password")
-    except (PSException, ValueError, OSError) as e:
-        raise ConversionError("err.corrupted", str(e))
-    return blocks
 
 
 def _paragraph_candidates(obj):
@@ -205,6 +262,27 @@ def _iter_chars(container):
 
 
 def _container_to_runs(container) -> list[dict]:
+    """컨테이너(문단 또는 줄)를 글자 단위로 훑어 굵게/기울임/크기가 바뀌는
+    지점마다 run을 새로 만든다(DEC-027, pdf_to_docx·pdf_to_pptx 공용).
+
+    굵게/기울임 판정은 pdfminer가 넘겨주는 폰트 리소스 이름(LTChar.fontname,
+    예: "Caladea-Bold")에 "Bold"/"Italic"/"Oblique" 문자열이 포함되는지 보는
+    휴리스틱이다 — PDF 자체에 "이 글자가 굵다"는 명시적 플래그가 없어 폰트
+    이름에 의존할 수밖에 없다. **로컬 검증 결과, 이 휴리스틱은 굵기별로
+    폰트 파일이 실제로 분리돼 있을 때만(한글 폰트 포함, 예: NotoSansKR-Bold·
+    AppleSDGothicNeo-Bold 등 — 실사용 문서 대부분이 이런 폰트를 씀) 정확히
+    동작함을 확인했다.** 다만 두 가지 알려진 한계가 있다: (1) 문서에 동아시아
+    글꼴을 명시하지 않아 렌더러가 임의의 대체 글꼴 하나로 뭉뚱그려 그리면
+    굵기 정보 자체가 사라져 감지 불가(로컬 재현 확인), (2) 기울임은 한글
+    글꼴 대부분이 별도 이탤릭 글리프가 없어(CJK 타이포그래피 관행) 애초에
+    렌더러가 반영하지 않는 경우가 흔함 — 이 경우 우리 휴리스틱의 실패가
+    아니라 원본 자체에 감지할 서식이 없는 것. **밑줄은 감지하지 않는다** —
+    PDF는 밑줄을 폰트 속성이 아니라 별도의 벡터 선(그림)으로 그리는 경우가
+    많아 이 휴리스틱(폰트 이름 기반)으로는 원천적으로 판별할 수 없다(모든
+    PDF run은 항상 underline=False — HWP→DOCX만 밑줄을 지원, DEC-027).
+    텍스트 보존은 서식 감지 실패와 무관하게 항상 보장한다(서식 불명 시
+    bold=False/italic=False로 안전하게 처리).
+    """
     from pdfminer.layout import LTChar
 
     runs = []
