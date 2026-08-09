@@ -163,13 +163,3 @@ def blocks_to_docx(blocks: list[dict], out_path: Path) -> Path:
                 _apply_run_style(run, run_dict)
     doc.save(out_path)
     return out_path
-
-
-def text_to_blocks(text: str) -> list[dict]:
-    """평문 → 문단 블록 (빈 줄 기준 분리)."""
-    blocks = []
-    for para in text.split("\n\n"):
-        cleaned = " ".join(line.strip() for line in para.splitlines() if line.strip())
-        if cleaned:
-            blocks.append({"type": "p", "text": cleaned})
-    return blocks
