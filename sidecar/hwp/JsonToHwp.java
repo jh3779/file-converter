@@ -151,7 +151,12 @@ public class JsonToHwp {
     }
 
     /** 파싱된 표 블록 — 행마다 "그 행에서 처음 등장하는 셀"만 담는다(docx_extract.py와
-     * 같은 표현: 세로 병합이 위에서 내려와 차지한 칸은 그 행에 아예 안 실림). */
+     * 같은 표현: 세로 병합이 위에서 내려와 차지한 칸은 그 행에 아예 안 실림).
+     * 세로 병합이 어떤 행 전체를 덮으면 그 행은 빈 배열(`[]`)로 표현되는데,
+     * 그래도 반드시 spec.rows에 그대로 보존해야 한다 — 빈 행을 버리면
+     * rows.size()(=rowCount)가 원본 행 수보다 줄어 addTableBlock의
+     * reservedUntilRow 추적(행 인덱스 기준)이 어긋나 표 구조가 깨진다
+     * (자동 리뷰로 발견). */
     private static class TableSpec {
         List<List<Map<String, Object>>> rows;
         double[] colWidthsMm; // null이면 기존 열 개수 비례 근사치로 대체
@@ -174,7 +179,7 @@ public class JsonToHwp {
                 normalized.put("rowSpan", cell.get("rowSpan"));
                 row.add(normalized);
             }
-            if (!row.isEmpty()) spec.rows.add(row);
+            spec.rows.add(row);
         }
         if (spec.rows.isEmpty()) return null;
 
