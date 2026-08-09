@@ -43,6 +43,7 @@ _S = {
     "result.renamed": ("이름이 겹쳐 {name}(으)로 저장했습니다",
                        "Saved as {name} to avoid a name clash"),
     "result.openfolder": ("결과 폴더 열기", "Open folder"),
+    "result.location_more": ("외 {n}곳 더", "and {n} more location(s)"),
 
     "history.title": ("최근 기록", "Recent history"),
     "history.local": ("기록은 이 컴퓨터에만 저장됩니다", "History is stored only on this computer"),

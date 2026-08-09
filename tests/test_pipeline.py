@@ -36,6 +36,74 @@ def _run_linesegdebug(hwp_path: Path):
     return rows
 
 
+def _run_pagebreakdebug(hwp_path: Path):
+    """PageBreakDebug(테스트 전용 디버그 도구, sidecar/hwp/PageBreakDebug.java)를
+    직접 실행해 문단별 (pageBreakBefore, 텍스트)를 돌려준다 — DEC-039.
+    HwpToText/HwpToJson 둘 다 ParaShape의 이 속성을 안 보므로 hwplib로
+    직접 열어 확인해야 한다.
+
+    결과를 stdout이 아니라 UTF-8 파일로 받는다 — PowerShell이 외부 프로세스
+    stdout을 콘솔 코드페이지로 디코딩해 한글이 깨지는 문제가 있어(DEC-039
+    후속 수정), PageBreakDebug의 출력 방식이 파일 쓰기로 바뀌었다."""
+    import tempfile
+
+    from app.converters import hwp as hwp_mod
+    java = hwp_mod._java()
+    cp = hwp_mod._classpath()
+    with tempfile.TemporaryDirectory() as tmp:
+        out_path = Path(tmp) / "pagebreak-debug.txt"
+        proc = subprocess.run([java, "-cp", cp, "PageBreakDebug", str(hwp_path), str(out_path)],
+                               capture_output=True, text=True, timeout=30)
+        assert proc.returncode == 0, proc.stderr
+        content = out_path.read_text(encoding="utf-8")
+    rows = []
+    for line in content.strip().splitlines():
+        idx, page_break_before, text = line.split("\t", 2)
+        rows.append((int(idx), page_break_before == "true", text))
+    return rows
+
+
+def _mini_pdf_pages(path: Path, texts: list[str]):
+    """_mini_pdf와 같은 원리의 최소 PDF를 페이지마다 다른 텍스트로 생성
+    (tests/test_pdf_images.py의 _mini_pdf_pages와 같은 원리, 페이지별
+    텍스트를 직접 지정할 수 있게 확장 — DEC-039 페이지 구분 테스트용)."""
+    n = len(texts)
+    page_obj_start = 3
+    font_obj_num = page_obj_start + 2 * n
+    kids, page_bodies, content_bodies = [], [], []
+    for i, text in enumerate(texts):
+        page_idx = page_obj_start + 2 * i
+        content_idx = page_idx + 1
+        kids.append(f"{page_idx} 0 R")
+        content = f"BT /F1 18 Tf 40 700 Td ({text}) Tj ET".encode()
+        stream = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
+        page_bodies.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_idx} 0 R"
+            f" /Resources << /Font << /F1 {font_obj_num} 0 R >> >> >>".encode())
+        content_bodies.append(stream)
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        ("<< /Type /Pages /Kids [" + " ".join(kids) + f"] /Count {n} >>").encode(),
+    ]
+    for pb, cb in zip(page_bodies, content_bodies):
+        objs.append(pb)
+        objs.append(cb)
+    objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    buf = b"%PDF-1.4\n"
+    offsets = []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(buf))
+        buf += f"{i} 0 obj\n".encode() + o + b"\nendobj\n"
+    xref = len(buf)
+    buf += b"xref\n0 " + str(len(objs) + 1).encode() + b"\n0000000000 65535 f \n"
+    for off in offsets:
+        buf += f"{off:010d} 00000 n \n".encode()
+    buf += (b"trailer\n<< /Size " + str(len(objs) + 1).encode() +
+            b" /Root 1 0 R >>\nstartxref\n" + str(xref).encode() + b"\n%%EOF")
+    path.write_bytes(buf)
+
+
 def _mini_pdf(path: Path):
     content = b"BT /F1 18 Tf 40 700 Td (Hello Converter) Tj ET"
     stream = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
@@ -144,6 +212,33 @@ class TestHwp(Base):
         back_dir.mkdir()
         back = converters.convert(out, "txt", back_dir)
         self.assertIn("Hello Converter", back.read_text(encoding="utf-8"))
+
+    def test_pdf_to_hwp_preserves_page_breaks(self):
+        """DEC-039(외부 QA 피드백): PDF 여러 페이지가 HWP 안에서 페이지 구분
+        없이 하나로 이어 붙던 버그 — extract_text()가 페이지 경계를 버리는
+        게 원인이었다. 이제 페이지 단위로 직접 추출해 각 페이지 첫 문단에
+        pageBreakBefore를 표시하고, JsonToHwp가 그 문단에만 "문단 앞에서
+        항상 쪽 나눔" ParaShape을 건다 — PageBreakDebug로 문단별 실제
+        ParaShape 속성을 확인(HwpToText/HwpToJson은 이 속성을 안 봄)."""
+        src = self.tmp / "pages.pdf"
+        _mini_pdf_pages(src, ["Page One Text", "Page Two Text", "Page Three Text"])
+        out = converters.convert(src, "hwp", self.tmp)
+
+        rows = _run_pagebreakdebug(out)
+        by_text = {text: page_break_before for _, page_break_before, text in rows}
+        self.assertEqual(by_text.get("Page One Text"), False)
+        self.assertEqual(by_text.get("Page Two Text"), True)
+        self.assertEqual(by_text.get("Page Three Text"), True)
+
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "txt", back_dir)
+        back_text = back.read_text(encoding="utf-8")
+        self.assertIn("Page One Text", back_text)
+        self.assertIn("Page Two Text", back_text)
+        self.assertIn("Page Three Text", back_text)
+        self.assertLess(back_text.index("Page One Text"), back_text.index("Page Two Text"))
+        self.assertLess(back_text.index("Page Two Text"), back_text.index("Page Three Text"))
 
     @unittest.skipUnless(HWP_DISTRIBUTION.exists(), "distribution.hwp 샘플 없음")
     def test_distribution_protected_hwp_still_readable(self):
