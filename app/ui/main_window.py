@@ -106,17 +106,23 @@ class FileRow(QFrame):
 
     def _update_note(self):
         """레이아웃/구조 단순화 고지 (muted, 오류 아님).
-        DEC-010: PDF/HWP → DOCX 선택 시. DEC-028부터 DOCX → HWP도 표는 실제
-        HWP 표로 만들어지지만(DEC-017 정정) 셀 병합·정밀한 레이아웃까지는
-        아니라 같은 고지를 쓴다. DEC-023: PDF → HWP도 텍스트 기반이라 같은
-        고지(PDF 자체가 표 구조를 안 담고 있어 표 전용 문구는 아님). XLSX →
-        CSV 선택 시 시트가 여러 개면 고지(첫 시트만 변환 — 여러 파일로 나눠
-        출력하는 방안은 데이터 모델을 바꿔야 해서 별도 과제로 보류). 애니메이션
-        이미지(GIF/WEBP) → 다른 이미지 포맷 선택 시 첫 프레임만 남는다는
-        고지(항상 단일 프레임으로 단순화). DEC-025: PDF → 이미지 선택 시
-        결과가 폴더로 저장된다는 고지. DEC-030: PDF → PPTX 선택 시 표
-        테두리·이미지는 옮겨지지 않는다는 고지(텍스트는 위치까지 재구성됨)."""
-        if self.item.target_fmt == "docx" and self.item.source_fmt in ("pdf", "hwp"):
+        DEC-037부터 PDF → DOCX는 줄 단위 절대 위치로 재구성돼(DEC-010의
+        "흐르는 문서로 단순화"에서 전환) 전용 고지(note.pdf_to_docx, 편집
+        시 줄이 자연스럽게 안 이어질 수 있다는 트레이드오프 안내)를 쓴다.
+        HWP → DOCX는 아직 이 전환 전이라 기존 단순화 고지 그대로. DEC-028부터
+        DOCX → HWP도 표는 실제 HWP 표로 만들어지지만(DEC-017 정정) 셀 병합·
+        정밀한 레이아웃까지는 아니라 같은 고지를 쓴다. DEC-023: PDF → HWP도
+        텍스트 기반이라 같은 고지(PDF 자체가 표 구조를 안 담고 있어 표 전용
+        문구는 아님). XLSX → CSV 선택 시 시트가 여러 개면 고지(첫 시트만
+        변환 — 여러 파일로 나눠 출력하는 방안은 데이터 모델을 바꿔야 해서
+        별도 과제로 보류). 애니메이션 이미지(GIF/WEBP) → 다른 이미지 포맷
+        선택 시 첫 프레임만 남는다는 고지(항상 단일 프레임으로 단순화).
+        DEC-025: PDF → 이미지 선택 시 결과가 폴더로 저장된다는 고지.
+        DEC-030: PDF → PPTX 선택 시 표 테두리·이미지는 옮겨지지 않는다는
+        고지(텍스트는 위치까지 재구성됨)."""
+        if self.item.target_fmt == "docx" and self.item.source_fmt == "pdf":
+            note_key = "note.pdf_to_docx"
+        elif self.item.target_fmt == "docx" and self.item.source_fmt == "hwp":
             note_key = "note.simplified"
         elif self.item.target_fmt == "hwp" and self.item.source_fmt in ("docx", "pdf"):
             note_key = "note.simplified"

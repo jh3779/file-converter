@@ -48,9 +48,18 @@ class TestFormatNote(unittest.TestCase):
         visible, text = self._note_for("docx", "hwp")
         self.assertTrue(visible)
 
-    def test_pdf_to_docx_shows_layout_simplified_note(self):
+    def test_pdf_to_docx_shows_absolute_position_note(self):
+        """DEC-037: PDF→DOCX가 줄 단위 절대 위치 재구성으로 바뀌면서
+        전용 고지(note.pdf_to_docx)로 갈아탔다 — 편집 시 줄이 자연스럽게
+        안 이어질 수 있다는 트레이드오프 안내와, 이미지·표 테두리 등
+        비텍스트 요소가 옮겨지지 않는다는 안내(자동 PR 리뷰가 3차례
+        연속 지적한 누락 — 실제 구현 범위(DEC-037, 텍스트만 재구성)와
+        고지 문구가 어긋나 있었음) 둘 다가 핵심."""
         visible, text = self._note_for("pdf", "docx")
         self.assertTrue(visible)
+        self.assertIn("고정된 위치", text)
+        self.assertIn("이미지", text)
+        self.assertIn("표 테두리", text)
 
     def test_hwp_to_docx_shows_layout_simplified_note(self):
         visible, text = self._note_for("hwp", "docx")

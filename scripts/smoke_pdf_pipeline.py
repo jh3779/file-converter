@@ -353,6 +353,31 @@ def main():
         except Exception as e:
             check("PDF→PPTX 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
+        # 10) PDF -> DOCX(줄 단위 절대 위치 재구성, DEC-037). w:framePr로 각
+        #     줄을 페이지 절대좌표에 고정하는 방식 — python-docx엔 고수준
+        #     API가 없는 raw XML 조작이라 패키징 후에도 깨지지 않는지 확인
+        #     해둘 가치가 있다. framePr이 실제로 붙었는지(존재 자체가
+        #     핵심 회귀 신호)와 텍스트 보존을 함께 확인한다.
+        try:
+            from docx import Document
+            from docx.oxml.ns import qn
+            out = converters.convert(src_docx, "pdf", tmp)
+            docx_out = converters.convert(out, "docx", tmp)
+            check("PDF→DOCX 변환 완료", docx_out.exists())
+            doc = Document(docx_out)
+            texts = " ".join(p.text for p in doc.paragraphs)
+            check("PDF→DOCX: 텍스트 내용 보존", "뷁 밟 닳 넋 앎 옳" in texts, repr(texts[:120]))
+            has_frame_pr = any(
+                p._p.find(qn("w:pPr")) is not None
+                and p._p.find(qn("w:pPr")).find(qn("w:framePr")) is not None
+                for p in doc.paragraphs if p.text.strip()
+            )
+            check("PDF→DOCX: 줄이 w:framePr로 절대 위치 고정됨", has_frame_pr)
+        except ConversionError as e:
+            check("PDF→DOCX 변환 완료", False, f"{e.key}: {e.detail}")
+        except Exception as e:
+            check("PDF→DOCX 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
+
         print("스모크 전체 통과")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
