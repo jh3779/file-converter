@@ -1,9 +1,21 @@
 """DOCX → 구조 블록 (python-docx). DOCX→HWP 파이프라인 1단계 (docx_build.blocks_to_docx의 역방향).
 
-블록 형식: {"type":"p","text":str} | {"type":"table","rows":[[str,...],...]}
+블록 형식: {"type":"p","text":str} |
+{"type":"table","rows":[[{"text":str,"colSpan":int,"rowSpan":int},...],...],"colWidthsMm":[float,...]}
 문서 순서(본문에 등장하는 순서)대로 문단·표를 함께 추출한다 — python-docx는
 document.paragraphs/document.tables를 각각 따로 주기 때문에 body XML을 직접
 순회해야 순서가 보존된다.
+
+표 셀 병합·열 너비(DEC-035): python-docx의 `table.cell(r, c)`는 병합된
+영역의 모든 그리드 위치에서 **같은 `_tc`(내부 XML 요소) 객체**를 돌려준다
+(가로 병합·세로 병합 둘 다, 직접 만든 병합 DOCX로 실측 확인) — 이 객체
+동일성으로 병합 영역을 감지한다. 각 행의 `rows[r]`는 그 행에서 처음
+등장하는(=병합의 왼쪽 위 모서리인) 셀만 담고, 이전 행의 세로 병합이
+차지한 칸은 건너뛴다 — 소비하는 쪽(JsonToHwp.java)이 HTML 표 렌더링과
+같은 원리로 "위에서 내려오는 rowSpan이 점유한 칸"을 추적하며 채워야
+한다. 열 너비는 `table.columns[i].width`(EMU)를 mm로 변환해 그대로
+전달 — DOCX table.add_table()로 만든 문서도 이 값이 항상 채워져 있음을
+확인(명시적으로 지정 안 하면 기본값이 채워짐, None이 되는 경우 없음).
 
 번호·불릿 목록 주의: DOCX의 자동 번호("1.", "가.")·불릿("•")은 문단의 실제
 텍스트(w:t)가 아니라 numbering.xml에 정의된 서식이 뷰어에 의해 화면에만
@@ -135,6 +147,55 @@ def _paragraph_numpr(paragraph):
     return num_id, ilvl
 
 
+_EMU_PER_MM = 36000
+
+
+def _column_widths_mm(table) -> list[float] | None:
+    widths = []
+    for col in table.columns:
+        w = col.width
+        if w is None:
+            return None
+        widths.append(round(w / _EMU_PER_MM, 2))
+    return widths
+
+
+def _table_rows_with_spans(table) -> list[list[dict]]:
+    """행마다 그 행에서 처음 등장하는 셀만 담되(병합의 왼쪽 위 모서리),
+    colSpan/rowSpan을 함께 기록한다. table.cell(r, c)는 그리드의 모든
+    칸에 대해 값을 돌려주므로(병합 영역은 같은 _tc 객체가 반복됨) 항상
+    n_cols개씩 순회할 수 있다 — 병합으로 "칸이 비는" 현상은 아예 없고,
+    같은 _tc가 반복되는 것만 걸러내면 된다."""
+    n_rows = len(table.rows)
+    n_cols = len(table.columns)
+    row_tcs = [list(table.rows[r].cells) for r in range(n_rows)]
+    seen = set()
+    rows_out = []
+    for r in range(n_rows):
+        row_out = []
+        cells = row_tcs[r]
+        for c in range(min(n_cols, len(cells))):
+            tc_id = id(cells[c]._tc)
+            if tc_id in seen:
+                continue
+            seen.add(tc_id)
+            col_span = 1
+            while c + col_span < len(cells) and id(cells[c + col_span]._tc) == tc_id:
+                col_span += 1
+            row_span = 1
+            while r + row_span < n_rows:
+                below = row_tcs[r + row_span]
+                if c < len(below) and id(below[c]._tc) == tc_id:
+                    row_span += 1
+                else:
+                    break
+            text = cells[c].text.strip().replace("\n", " ")
+            entry = {"text": text, "colSpan": col_span, "rowSpan": row_span}
+            row_out.append(entry)
+        rows_out.append(row_out)
+    return rows_out
+
+
 def _iter_block_items(document):
     from docx.oxml.table import CT_Tbl
     from docx.oxml.text.paragraph import CT_P
@@ -158,9 +219,13 @@ def docx_to_blocks(src: Path) -> list[dict]:
     blocks: list[dict] = []
     for item in _iter_block_items(doc):
         if isinstance(item, Table):
-            rows = [[cell.text.strip() for cell in row.cells] for row in item.rows]
-            if any(cell for row in rows for cell in row):
-                blocks.append({"type": "table", "rows": rows})
+            rows = _table_rows_with_spans(item)
+            if any(cell["text"] for row in rows for cell in row):
+                block = {"type": "table", "rows": rows}
+                col_widths = _column_widths_mm(item)
+                if col_widths is not None:
+                    block["colWidthsMm"] = col_widths
+                blocks.append(block)
         else:
             text = item.text.strip()
             if not text:

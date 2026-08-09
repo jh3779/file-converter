@@ -2,11 +2,17 @@
 
 블록 형식: {"type":"p","runs":[{"text":str,"bold":bool,"italic":bool,"underline":bool,
 "size":float,"color":"RRGGBB"}, ...]} | {"type":"p","text":str}(구버전 호환, 서식 없는
-단일 run으로 취급) | {"type":"table","rows":[[str,...],...]}
+단일 run으로 취급) | {"type":"table","rows":[[cell,...],...]} — cell은 평문 문자열
+(병합 없음) 또는 {"text":str,"colSpan":int,"rowSpan":int}(병합 셀, HwpToJson.java
+DEC-035 출력)이며, 한 행에는 그 행에서 "처음 등장하는" 셀만 담긴다(세로 병합이
+위에서 내려와 차지한 칸은 생략) — JsonToHwp.java·docx_extract.py와 같은 표현.
 레이아웃(정확한 위치·다단·이미지 등)은 여전히 단순화된다 — 기대치 고지는
 OQ-003/DEC-010 문안으로 UI에서 안내. 문자 서식(굵게/기울임/밑줄/크기/색상)은
 DEC-027부터 HWP→DOCX·PDF→DOCX 양쪽에서 반영된다. 표 셀 내용은 여전히
-서식 없는 평문이다(표 자체가 이미 텍스트만 옮기는 게 원칙 — DEC-010).
+서식 없는 평문이다(표 자체가 이미 텍스트만 옮기는 게 원칙 — DEC-010). 셀 병합은
+DEC-035부터 python-docx의 cell.merge()로 재현한다(열 너비까지는 이 방향에서
+아직 전달되지 않음 — HwpToJson.java가 colWidthsMm을 내지 않음, 표 전체 폭은
+python-docx/Word 기본 렌더링에 맡긴다).
 
 한글 글꼴을 모든 run에 명시적으로 지정한다(DEC-015) — python-docx 기본
 스타일(Calibri)은 한글 글리프가 없고, 지정을 생략하면 뷰어·OS별로 대체
@@ -74,6 +80,50 @@ def _runs_for(block: dict) -> list[dict]:
     return [{"text": text}] if text else []
 
 
+def _place_cells_with_spans(rows: list) -> tuple[list[dict], int, int]:
+    """행마다 "그 행에서 처음 등장하는 셀"만 담긴 rows(HwpToJson.java와 같은
+    표현, 평문 문자열·병합 객체 혼재 가능)를 받아 각 셀의 그리드 좌표를
+    복원한다. reservedUntilRow로 세로 병합이 점유 중인 칸을 건너뛰는 알고리즘은
+    JsonToHwp.java의 addTableBlock과 동일하다(HTML 표의 rowspan 렌더링과 같은
+    원리) — 두 방향(쓰기/읽기)이 같은 표현을 쓰므로 재구성 로직도 같아야 한다."""
+    n_rows = len(rows)
+    norm_rows = []
+    for row in rows:
+        norm_row = []
+        for cell in row:
+            if isinstance(cell, str):
+                norm_row.append({"text": cell, "colSpan": 1, "rowSpan": 1})
+            else:
+                norm_row.append({
+                    "text": cell.get("text") or "",
+                    "colSpan": cell.get("colSpan") or 1,
+                    "rowSpan": cell.get("rowSpan") or 1,
+                })
+        norm_rows.append(norm_row)
+
+    n_cols = sum(c["colSpan"] for c in norm_rows[0]) if norm_rows and norm_rows[0] else 0
+    reserved_until_row = [-1] * n_cols
+    placed = []
+    for r in range(n_rows):
+        col = 0
+        cell_idx = 0
+        row_cells = norm_rows[r]
+        while col < n_cols and cell_idx < len(row_cells):
+            if reserved_until_row[col] >= r:
+                col += 1
+                continue
+            cell = row_cells[cell_idx]
+            cell_idx += 1
+            col_span = cell["colSpan"]
+            row_span = cell["rowSpan"]
+            placed.append({"text": cell["text"], "row": r, "col": col, "colSpan": col_span, "rowSpan": row_span})
+            if row_span > 1:
+                for cc in range(col, min(col + col_span, n_cols)):
+                    reserved_until_row[cc] = r + row_span - 1
+            col += col_span
+    return placed, n_rows, n_cols
+
+
 def blocks_to_docx(blocks: list[dict], out_path: Path) -> Path:
     from docx import Document
 
@@ -83,16 +133,23 @@ def blocks_to_docx(blocks: list[dict], out_path: Path) -> Path:
             rows = block.get("rows") or []
             if not rows:
                 continue
-            n_cols = max(len(r) for r in rows)
-            table = doc.add_table(rows=len(rows), cols=n_cols)
+            placed, n_rows, n_cols = _place_cells_with_spans(rows)
+            if n_cols == 0:
+                continue
+            table = doc.add_table(rows=n_rows, cols=n_cols)
             table.style = "Table Grid"
-            for i, row in enumerate(rows):
-                for j, cell_text in enumerate(row):
-                    cell = table.cell(i, j)
-                    cell.text = cell_text
-                    for paragraph in cell.paragraphs:
-                        for run in paragraph.runs:
-                            _set_font(run)
+            for item in placed:
+                cell = table.cell(item["row"], item["col"])
+                if item["colSpan"] > 1 or item["rowSpan"] > 1:
+                    other = table.cell(
+                        item["row"] + item["rowSpan"] - 1,
+                        item["col"] + item["colSpan"] - 1,
+                    )
+                    cell = cell.merge(other)
+                cell.text = item["text"]
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        _set_font(run)
         else:
             runs = [r for r in _runs_for(block) if r.get("text")]
             # 문단 전체가 공백뿐이면(실제 내용 없음) 문단 자체를 건너뛴다(기존 동작 유지).
@@ -106,13 +163,3 @@ def blocks_to_docx(blocks: list[dict], out_path: Path) -> Path:
                 _apply_run_style(run, run_dict)
     doc.save(out_path)
     return out_path
-
-
-def text_to_blocks(text: str) -> list[dict]:
-    """평문 → 문단 블록 (빈 줄 기준 분리)."""
-    blocks = []
-    for para in text.split("\n\n"):
-        cleaned = " ".join(line.strip() for line in para.splitlines() if line.strip())
-        if cleaned:
-            blocks.append({"type": "p", "text": cleaned})
-    return blocks
