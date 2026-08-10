@@ -22,10 +22,13 @@ import kr.dogfoot.hwplib.object.bodytext.control.table.Table;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.Paragraph;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.charshape.ParaCharShape;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.header.ParaHeader;
+import kr.dogfoot.hwplib.object.bodytext.paragraph.text.HWPChar;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.lineseg.LineSegItem;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.lineseg.ParaLineSeg;
 import kr.dogfoot.hwplib.object.docinfo.BorderFill;
+import kr.dogfoot.hwplib.object.docinfo.CharShape;
 import kr.dogfoot.hwplib.object.docinfo.ParaShape;
+import kr.dogfoot.hwplib.object.docinfo.charshape.UnderLineSort;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.BackSlashDiagonalShape;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.BorderThickness;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.BorderType;
@@ -47,8 +50,13 @@ import java.util.Map;
 /**
  * 구조 JSON → HWP 사이드카 (DOCX→HWP 파이프라인의 2단계, HwpToJson의 역방향).
  * 사용: java JsonToHwp <in.blocks.json> <out.hwp>
- * 입력: {"blocks":[{"type":"p","text":"...","pageBreakBefore":bool} |
- *   {"type":"table","rows":[["c1","c2"],...],"pageBreakBefore":bool}]}
+ * 입력: {"blocks":[
+ *   {"type":"p","runs":[{"text":str,"bold":bool,"italic":bool,"underline":bool,
+ *     "size":float,"color":"RRGGBB"}, ...],"pageBreakBefore":bool} |
+ *   {"type":"p","text":str,"pageBreakBefore":bool}(구버전 호환, pdf_to_hwp가
+ *     여전히 이 형태를 씀 — 서식 없는 단일 run으로 취급) |
+ *   {"type":"table","rows":[["c1","c2"],...],"pageBreakBefore":bool}
+ * ]}
  * pageBreakBefore(DEC-039)는 이 블록 앞에서 항상 새 쪽에서 시작하라는
  * 표시다 — pdf_to_hwp가 PDF 페이지 경계를 유지하려고 쓴다(원래는 pdfminer의
  * extract_text()가 페이지 구분 없이 전체를 한 문자열로 뭉개, 여러 페이지의
@@ -59,7 +67,10 @@ import java.util.Map;
  * `src/test/sample/Inserting_Table.java`가 정확히 이 방법을 보여준다.
  * 이 파일의 표 생성 로직은 그 샘플을 병합 없는 단순 N×M 표에 맞게 이식한
  * 것이다(스파이크: spike/hwplib/SpikeTable.java에서 왕복 검증 완료).
- * 셀 병합, 셀 안 서식(굵게 등)은 이번 범위 밖 — 셀 텍스트는 평문 한 문단.
+ * 문단 문자 서식(굵게/기울임/밑줄/크기/색상)은 DEC-038부터 반영된다(문단의
+ * ParaCharShape에 run별로 DocInfo의 CharShape을 새로 만들거나 재사용해
+ * 연결 — HwpToJson.java의 읽기 로직과 대칭). **표 셀 병합·셀 안 서식은
+ * 여전히 이번 범위 밖** — 셀 텍스트는 평문 한 문단.
  * **실제 한글/한워드 뷰어에서의 최종 렌더링은 hwplib 자체 왕복 검증으로는
  * 확인할 수 없다**(DEC-018과 동일한 근본적 제약, Mac 개발 환경에는 뷰어가
  * 없음) — Windows 실사용자 테스트 필요.
@@ -98,7 +109,7 @@ public class JsonToHwp {
         // 빈 블록(공백뿐인 문단, 빈 표)은 미리 걸러낸다 — 몇 번째가
         // "문서의 첫 블록"인지(=BlankFileMaker가 이미 만들어 둔 첫 문단을
         // 재사용해야 하는지)를 정확히 판단하기 위해서다.
-        List<Object[]> items = new ArrayList<>(); // {"p", text, pageBreakBefore} or {"table", TableSpec, pageBreakBefore}
+        List<Object[]> items = new ArrayList<>(); // {"p", runs, pageBreakBefore} or {"table", TableSpec, pageBreakBefore}
         for (Object o : blocks) {
             Map<String, Object> block = (Map<String, Object>) o;
             String type = (String) block.get("type");
@@ -107,8 +118,9 @@ public class JsonToHwp {
                 TableSpec spec = parseTableSpec(block);
                 if (spec != null) items.add(new Object[]{"table", spec, pageBreakBefore});
             } else {
-                String text = (String) block.get("text");
-                if (text != null && !text.trim().isEmpty()) items.add(new Object[]{"p", text.trim(), pageBreakBefore});
+                List<Object> rawRuns = (List<Object>) block.get("runs");
+                List<Map<String, Object>> runs = normalizeRuns(rawRuns, (String) block.get("text"));
+                if (!runs.isEmpty()) items.add(new Object[]{"p", runs, pageBreakBefore});
             }
         }
 
@@ -131,17 +143,16 @@ public class JsonToHwp {
                     Paragraph host = isFirst ? section.getParagraph(0) : section.addNewParagraph();
                     vpos = addTableBlock(section, host, spec, isFirst, isLast, vpos, pageBreakBefore);
                 } else {
-                    String text = (String) items.get(i)[1];
+                    List<Map<String, Object>> runs = (List<Map<String, Object>>) items.get(i)[1];
                     if (isFirst) {
                         Paragraph first = section.getParagraph(0);
-                        if (first.getText() == null) first.createText();
-                        first.getText().addString(text);
+                        String fullText = addRunsToParagraph(first, runs);
                         // +2: BlankFileMaker가 첫 문단에 이미 넣어 둔 섹션/컬럼정의 확장문자.
-                        first.getHeader().setCharacterCount(text.length() + 1 + 2);
+                        first.getHeader().setCharacterCount(fullText.length() + 1 + 2);
                         first.getHeader().setLastInList(isLast);
-                        vpos = applyLineSeg(first, text, vpos);
+                        vpos = applyLineSeg(first, fullText, vpos);
                     } else {
-                        vpos = addTextParagraph(section, text, isLast, vpos, pageBreakBefore);
+                        vpos = addTextParagraph(section, runs, isLast, vpos, pageBreakBefore);
                     }
                 }
             }
@@ -194,30 +205,155 @@ public class JsonToHwp {
         return spec;
     }
 
-    private static int addTextParagraph(Section section, String content, boolean last, int startVpos,
+    private static int addTextParagraph(Section section, List<Map<String, Object>> runs, boolean last, int startVpos,
                                          boolean pageBreakBefore) throws Exception {
         Paragraph paragraph = section.addNewParagraph();
 
         ParaHeader header = paragraph.getHeader();
         header.setLastInList(last);
-        header.setCharacterCount(content.length() + 1);
         header.getControlMask().setValue(0);
         header.setParaShapeId(findOrCreateParaShape(pageBreakBefore));
         header.setStyleId((short) 0);
         header.getDivideSort().setValue((short) 0);
-        header.setCharShapeCount(1);
         header.setRangeTagCount(0);
         header.setInstanceID(0);
         header.setIsMergedByTrack(0);
 
-        paragraph.createText();
-        paragraph.getText().addString(content);
+        String fullText = addRunsToParagraph(paragraph, runs);
+        header.setCharacterCount(fullText.length() + 1);
 
-        paragraph.createCharShape();
+        return applyLineSeg(paragraph, fullText, startVpos);
+    }
+
+    /** rawRuns(신버전)가 있으면 그대로 쓰고, 없으면 flatText(구버전, pdf_to_hwp가
+     * 여전히 이 형태를 씀)를 서식 없는 단일 run으로 감싼다. 빈 텍스트 run은
+     * 걸러낸다(문단 자체가 공백뿐이면 빈 리스트를 돌려줘 상위에서 블록째
+     * 건너뛰게 한다). */
+    private static List<Map<String, Object>> normalizeRuns(List<Object> rawRuns, String flatText) {
+        List<Map<String, Object>> runs = new ArrayList<>();
+        if (rawRuns != null) {
+            for (Object o : rawRuns) {
+                Map<String, Object> run = (Map<String, Object>) o;
+                String text = stringField(run, "text");
+                if (text == null || text.isEmpty()) continue;
+                runs.add(run);
+            }
+        } else if (flatText != null && !flatText.trim().isEmpty()) {
+            Map<String, Object> run = new java.util.LinkedHashMap<>();
+            run.put("text", flatText.trim());
+            runs.add(run);
+        }
+        return runs;
+    }
+
+    /** run별 텍스트를 문단에 이어붙이고, 각 run의 서식(굵게/기울임/밑줄/크기/
+     * 색상)을 ParaCharShape에 위치별로 연결한다(HwpToJson.java의 읽기 로직과
+     * 대칭 — 다만 이쪽은 "위치→글자모양" 목록을 새로 만드는 쪽). 위치는 지금까지
+     * 이어붙인 순수 텍스트 길이를 그대로 쓴다 — 확장/인라인 컨트롤 문자(하이퍼링크
+     * 등, 가중치 8)를 이 경로에서는 절대 삽입하지 않으므로 일반 글자는 항상
+     * 가중치 1이라 누적 길이가 곧 가중치 위치와 같다(HwpToJson.java의
+     * weightedPositionToIndex와 반대 방향이지만 이 전제 덕분에 변환이 필요 없음).
+     * 문단이 BlankFileMaker가 만들어 둔 첫 문단이면 이미 있는 텍스트/글자모양
+     * 객체를 재사용하고(새로 만들면 섹션/컬럼정의 확장 문자가 날아감), 그 외엔
+     * 새로 만든다. */
+    private static String addRunsToParagraph(Paragraph paragraph, List<Map<String, Object>> runs) throws Exception {
+        if (paragraph.getText() == null) paragraph.createText();
+        if (paragraph.getCharShape() == null) paragraph.createCharShape();
         ParaCharShape charShape = paragraph.getCharShape();
-        charShape.addParaCharShape(0, 0);
+        charShape.getPositonShapeIdPairList().clear();
 
-        return applyLineSeg(paragraph, content, startVpos);
+        // ParaCharShape의 position은 문단 charList 맨 앞(인덱스 0)부터 가중치
+        // 누적(HWPChar.getCharSize() 합)한 값이다(HwpToJson.java의
+        // weightedPositionToIndex가 읽는 방식과 대칭). 새로 만든 빈 문단은
+        // addString() 전 charList가 완전히 비어 있어 오프셋 0. 반면 첫 문단
+        // (BlankFileMaker가 만들어 둔 것)은 addString() 전에도 이미 3개짜리
+        // charList(섹션/컬럼정의 확장문자 2개 — 가중치 8×2 — + 문단 끝 표시용
+        // 컨트롤 문자 1개 — 가중치 1)를 갖고 있고, addString()은 그 끝 컨트롤
+        // 문자 "앞"에 텍스트를 끼워 넣는다(직접 CharShapeDump로 실측 확인 —
+        // 처음엔 전체 가중치 17을 그대로 오프셋으로 썼다가 모든 run 경계가
+        // 1글자씩 밀리는 회귀를 재현해 발견). 그래서 오프셋은 "끝 컨트롤
+        // 문자를 뺀" 나머지 가중치여야 한다 — 이 문단 생성 경로는 오직 이
+        // 두 경우(완전히 빈 새 문단 / BlankFileMaker의 첫 문단)만 존재하므로,
+        // 마지막 원소가 있으면 그 하나만 제외하는 것으로 두 경우 모두 맞다.
+        // 우리가 addString()으로 넣는 일반 글자는 전부 가중치 1이라(직접
+        // 실측 확인) 그 뒤로는 누적 텍스트 길이를 그대로 더하면 된다.
+        ArrayList<HWPChar> existingChars = paragraph.getText().getCharList();
+        int positionOffset = 0;
+        int prefixCount = Math.max(0, existingChars.size() - 1);
+        for (int i = 0; i < prefixCount; i++) {
+            positionOffset += existingChars.get(i).getCharSize();
+        }
+
+        StringBuilder fullText = new StringBuilder();
+        for (Map<String, Object> run : runs) {
+            String text = stringField(run, "text");
+            if (text == null || text.isEmpty()) continue;
+            int shapeId = findOrCreateCharShape(
+                    boolField(run, "bold"), boolField(run, "italic"), boolField(run, "underline"),
+                    doubleField(run, "size"), stringField(run, "color"));
+            charShape.addParaCharShape(positionOffset + fullText.length(), shapeId);
+            fullText.append(text);
+        }
+        if (charShape.getPositonShapeIdPairList().isEmpty()) {
+            charShape.addParaCharShape(positionOffset, 0); // 방어적 fallback — 호출자가 이미 빈 run을 걸러내므로 정상 경로에선 안 옴
+        }
+        paragraph.getText().addString(fullText.toString());
+        paragraph.getHeader().setCharShapeCount(charShape.getPositonShapeIdPairList().size());
+        return fullText.toString();
+    }
+
+    // (bold,italic,underline,size,color) 조합 → DocInfo.CharShapeList 인덱스.
+    // 같은 조합이 문서 안에서 반복되면(흔함 — 같은 스타일의 여러 문단) 매번 새
+    // 레코드를 만들지 않고 캐시로 재사용한다.
+    private static final Map<String, Integer> charShapeCache = new java.util.HashMap<>();
+
+    private static int findOrCreateCharShape(boolean bold, boolean italic, boolean underline,
+                                              Double sizePt, String colorHex) {
+        String key = bold + "|" + italic + "|" + underline + "|" + sizePt + "|" + colorHex;
+        Integer cached = charShapeCache.get(key);
+        if (cached != null) return cached;
+        if (!bold && !italic && !underline && sizePt == null && colorHex == null) {
+            charShapeCache.put(key, 0); // 서식 없음 — 기본 글자모양(0) 그대로
+            return 0;
+        }
+
+        // 기본 글자모양(BlankFileMaker가 만든 것)을 복제해 언어별 글꼴 참조 등
+        // 나머지 필드는 그대로 유지하고, 요청받은 서식만 덮어쓴다 — 글꼴 자체를
+        // 바꾸는 건 이번 범위 밖(DEC-015처럼 항상 문서 기본 글꼴을 씀).
+        CharShape base = hwp.getDocInfo().getCharShapeList().get(0);
+        CharShape cs = base.clone();
+        cs.getProperty().setBold(bold);
+        cs.getProperty().setItalic(italic);
+        cs.getProperty().setUnderLineSort(underline ? UnderLineSort.Bottom : UnderLineSort.None);
+        if (sizePt != null) cs.setBaseSize((int) Math.round(sizePt * 100));
+        if (colorHex != null && colorHex.matches("[0-9A-Fa-f]{6}")) {
+            int r = Integer.parseInt(colorHex.substring(0, 2), 16);
+            int g = Integer.parseInt(colorHex.substring(2, 4), 16);
+            int b = Integer.parseInt(colorHex.substring(4, 6), 16);
+            cs.getCharColor().setValue(0);
+            cs.getCharColor().setR((short) r);
+            cs.getCharColor().setG((short) g);
+            cs.getCharColor().setB((short) b);
+        }
+        hwp.getDocInfo().getCharShapeList().add(cs);
+        int id = hwp.getDocInfo().getCharShapeList().size() - 1;
+        charShapeCache.put(key, id);
+        return id;
+    }
+
+    private static boolean boolField(Map<String, Object> run, String key) {
+        Object v = run.get(key);
+        return v != null && (Boolean) v;
+    }
+
+    private static Double doubleField(Map<String, Object> run, String key) {
+        Object v = run.get(key);
+        return v == null ? null : (Double) v;
+    }
+
+    private static String stringField(Map<String, Object> run, String key) {
+        Object v = run.get(key);
+        return v == null ? null : String.valueOf(v);
     }
 
     /**
@@ -592,6 +728,7 @@ public class JsonToHwp {
             if (c == '"') return readString();
             if (c == 't') { expectLiteral("true"); return Boolean.TRUE; }
             if (c == 'f') { expectLiteral("false"); return Boolean.FALSE; }
+            if (c == 'n') { expectLiteral("null"); return null; } // run의 color 등 nullable 필드(DEC-038)
             if (c == '-' || (c >= '0' && c <= '9')) return readNumber();
             throw new RuntimeException("지원하지 않는 JSON 값 (pos=" + pos + ")");
         }
@@ -603,8 +740,9 @@ public class JsonToHwp {
             pos += literal.length();
         }
 
-        /** 정수·소수 리터럴을 Double로 반환한다(colSpan/rowSpan/colWidthsMm 전용
-         * — 이 스키마가 필요로 하는 숫자는 그 정도뿐이라 별도 Long 분기는 두지 않는다). */
+        /** 정수·소수 리터럴을 Double로 반환한다(colSpan/rowSpan/colWidthsMm·run의
+         * size 전용 — 이 스키마가 필요로 하는 숫자는 그 정도뿐이라 별도 Long
+         * 분기는 두지 않는다). */
         Double readNumber() {
             int start = pos;
             if (s.charAt(pos) == '-') pos++;

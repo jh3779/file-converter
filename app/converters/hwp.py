@@ -12,9 +12,12 @@ DEC-017 정정(DEC-028): "hwplib에는 표를 처음부터 새로 만드는 도�
 `src/test/sample/Inserting_Table.java`가 정확히 그 방법을 보여준다(이전
 조사에서 놓침). DOCX의 표는 이제 실제 HWP 표 컨트롤로 새로 생성된다
 (spike/hwplib/SpikeTable.java에서 왕복 검증 후 sidecar/hwp/JsonToHwp.java에
-일반화 — 셀 병합은 아직 미지원, 셀 텍스트는 평문 한 문단). 문단 텍스트
-서식(굵게 등)은 이미 Phase 3(DEC-027)에서 HWP→DOCX 읽기 방향에 반영됨 —
-DOCX→HWP 쓰기 방향의 문자 서식은 아직 범위 밖.
+일반화 — 셀 병합은 아직 미지원, 셀 텍스트는 평문 한 문단). 문단 문자
+서식(굵게/기울임/밑줄/크기/색상)은 Phase 3(DEC-027)에서 HWP→DOCX 읽기
+방향에 먼저 반영됐고, DEC-038부터 DOCX→HWP 쓰기 방향에도 반영된다 —
+docx_extract.py가 run별 서식을 추출해 JsonToHwp.java가 DocInfo에 CharShape을
+새로 만들거나 재사용해 ParaCharShape에 위치별로 연결한다(표 셀 안 서식은
+여전히 범위 밖).
 
 번호·불릿 목록(docx_extract.docx_to_blocks): DOCX의 자동 번호("1.")·불릿("•")은
 문단의 실제 텍스트가 아니라 numbering.xml 서식으로 뷰어가 화면에만 그리는
