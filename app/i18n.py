@@ -10,10 +10,14 @@ LANGS = ("ko", "en")
 _S = {
     "app.title": ("파일 변환기", "File Converter"),
     "drop.title": ("파일을 여기에 끌어다 놓으세요", "Drop files here"),
-    "drop.sub": ("또는 클릭해서 선택 · DOCX PPTX PDF HWP HWPX CSV XLSX JSON · AVI MOV MKV 등 영상 · "
-                 "JPG PNG 등 이미지",
-                 "or click to browse · DOCX PPTX PDF HWP HWPX CSV XLSX JSON · AVI MOV MKV and other "
-                 "video · JPG PNG and other images"),
+    # 지원 포맷 목록(DEC-044로 HWPX가 추가되며 더 길어짐)이 한 줄이면 698px나
+    # 필요해 저해상도(작업표시줄 뺀 가로 폭이 640px보다 좁은 화면)에서 잘릴
+    # 수 있었다(QA(e), 실측 확인) — QPushButton은 자동 줄바꿈을 지원하지
+    # 않아(Qt 자체 제약, 명시적 \n만 줄바꿈됨) 여기서 직접 세 줄로 나눈다.
+    "drop.sub": ("또는 클릭해서 선택\nDOCX PPTX PDF HWP HWPX CSV XLSX JSON\n"
+                 "AVI MOV MKV 등 영상 · JPG PNG 등 이미지",
+                 "or click to browse\nDOCX PPTX PDF HWP HWPX CSV XLSX JSON\n"
+                 "AVI MOV MKV and other video · JPG PNG and other images"),
     "drop.strip": ("＋ 파일 추가 또는 끌어다 놓기", "＋ Add files or drag & drop"),
     "convert": ("변환하기", "Convert"),
     "cancel": ("취소", "Cancel"),
