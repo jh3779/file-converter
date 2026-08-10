@@ -156,6 +156,7 @@ def main():
         doc = Document()
         doc.add_paragraph("LibreOffice 번들 스모크 테스트 — 드문 자모: 뷁 밟 닳 넋 앎 옳")
         table = doc.add_table(rows=2, cols=2)
+        table.style = "Table Grid"  # 테두리가 있어야 PDF에 LTLine으로 그려짐(9번 검증용)
         table.cell(0, 0).text = "항목"
         table.cell(0, 1).text = "값"
         table.cell(1, 0).text = "결과"
@@ -342,10 +343,12 @@ def main():
         except Exception as e:
             check("PDF→이미지 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
-        # 9) PDF -> PPTX(줄 단위 위치 재구성, DEC-030). python-pptx도 새 런타임
-        #    의존성이라 패키징 경로 검증이 필요함. 자체 생성 DOCX→PDF를 다시
-        #    PPTX로 변환해 슬라이드 수·텍스트 보존을 확인한다.
+        # 9) PDF -> PPTX(줄 단위 위치 재구성, DEC-030 + 이미지·표 테두리 재구성,
+        #    DEC-036). python-pptx도 새 런타임 의존성이라 패키징 경로 검증이
+        #    필요함. 자체 생성 DOCX→PDF를 다시 PPTX로 변환해 슬라이드 수·텍스트
+        #    보존·표 테두리(LTLine → LINE 커넥터) 재구성을 확인한다.
         try:
+            from pptx.enum.shapes import MSO_SHAPE_TYPE
             from pptx import Presentation
             out = converters.convert(src_docx, "pdf", tmp)
             pptx_out = converters.convert(out, "pptx", tmp)
@@ -356,10 +359,38 @@ def main():
             texts = " ".join(s.text_frame.text for slide in slides
                               for s in slide.shapes if s.has_text_frame)
             check("PDF→PPTX: 텍스트 내용 보존", "뷁 밟 닳 넋 앎 옳" in texts, repr(texts[:120]))
+            n_lines = sum(1 for slide in slides for s in slide.shapes
+                          if s.shape_type == MSO_SHAPE_TYPE.LINE)
+            check("PDF→PPTX: 표 테두리(LTLine→LINE) 재구성", n_lines >= 1, str(n_lines))
         except ConversionError as e:
             check("PDF→PPTX 변환 완료", False, f"{e.key}: {e.detail}")
         except Exception as e:
             check("PDF→PPTX 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
+
+        # 10) PDF -> DOCX(줄 단위 절대 위치 재구성, DEC-037). w:framePr로 각
+        #     줄을 페이지 절대좌표에 고정하는 방식 — python-docx엔 고수준
+        #     API가 없는 raw XML 조작이라 패키징 후에도 깨지지 않는지 확인
+        #     해둘 가치가 있다. framePr이 실제로 붙었는지(존재 자체가
+        #     핵심 회귀 신호)와 텍스트 보존을 함께 확인한다.
+        try:
+            from docx import Document
+            from docx.oxml.ns import qn
+            out = converters.convert(src_docx, "pdf", tmp)
+            docx_out = converters.convert(out, "docx", tmp)
+            check("PDF→DOCX 변환 완료", docx_out.exists())
+            doc = Document(docx_out)
+            texts = " ".join(p.text for p in doc.paragraphs)
+            check("PDF→DOCX: 텍스트 내용 보존", "뷁 밟 닳 넋 앎 옳" in texts, repr(texts[:120]))
+            has_frame_pr = any(
+                p._p.find(qn("w:pPr")) is not None
+                and p._p.find(qn("w:pPr")).find(qn("w:framePr")) is not None
+                for p in doc.paragraphs if p.text.strip()
+            )
+            check("PDF→DOCX: 줄이 w:framePr로 절대 위치 고정됨", has_frame_pr)
+        except ConversionError as e:
+            check("PDF→DOCX 변환 완료", False, f"{e.key}: {e.detail}")
+        except Exception as e:
+            check("PDF→DOCX 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
         print("스모크 전체 통과")
     finally:

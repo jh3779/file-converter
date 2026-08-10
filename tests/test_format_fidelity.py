@@ -135,6 +135,83 @@ def _mini_pdf_mixed_size_same_style(path: Path):
     path.write_bytes(buf)
 
 
+def _helvetica_width(text: str, size: float) -> float:
+    """Helvetica 12pt 기준 문자열 렌더 폭(pt) — pdfminer가 실제로 파싱할 때
+    쓰는 것과 같은 내장 AFM 폭 테이블(pdfminer.pdffont.FONT_METRICS)을
+    그대로 재사용한다(같은 데이터 소스라 pdfminer의 실측 bbox와 정확히
+    맞아떨어짐). DEC-040 정렬 감지 테스트용 — 오른쪽/가운데/양쪽 정렬처럼
+    정확한 좌표 계산이 필요한 고정 PDF를 만들 때 쓴다."""
+    from pdfminer.pdffont import FONT_METRICS
+    _, metrics = FONT_METRICS["Helvetica"]
+    default = metrics.get(" ", 500)
+    return sum(metrics.get(ch, default) for ch in text) / 1000.0 * size
+
+
+def _mini_pdf_with_alignment(path: Path):
+    """왼쪽(기본, 서식 없음)·오른쪽·가운데·양쪽 정렬 문단이 각각 하나씩
+    있는 최소 PDF — DEC-040 검증용. 각 줄의 절대 좌표(Tm)를
+    _helvetica_width로 정확히 계산해 배치한다(폰트 메트릭이 pdfminer의
+    실제 파싱 결과와 같은 소스라 좌우 정렬·양쪽 정렬 판정에 필요한
+    ±3pt 이내 정밀도가 보장됨 — 로컬에서 _classify_alignment로 직접
+    검증한 방식과 동일)."""
+    size = 12
+    left_x, right_x, page_w, page_h = 72, 540, 612, 792
+
+    def esc(s):
+        return s.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
+
+    lines = []
+    y = 700
+
+    for text in ["Left aligned line one", "Short", "This is a longer left aligned sample line"]:
+        lines.append((left_x, y, text))
+        y -= 14
+    y -= 30
+
+    for text in ["Right aligned short", "A medium length right line", "X"]:
+        lines.append((right_x - _helvetica_width(text, size), y, text))
+        y -= 14
+    y -= 30
+
+    center_text = "Centered Title Text"
+    lines.append(((page_w - _helvetica_width(center_text, size)) / 2, y, center_text))
+    y -= 30
+
+    space_w = _helvetica_width(" ", size)
+    target = right_x - left_x
+    for text in ["Justify line number one padded", "Justify line number two padded"]:
+        pad = max(int(round((target - _helvetica_width(text, size)) / space_w)), 0)
+        lines.append((left_x, y, text + " " * pad))
+        y -= 14
+    lines.append((left_x, y, "Short last line"))
+
+    content = "\n".join(
+        f"BT /F1 {size} Tf 1 0 0 1 {x:.2f} {yy:.2f} Tm ({esc(t)}) Tj ET"
+        for x, yy, t in lines
+    ).encode()
+    stream = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        (f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_w} {page_h}] /Contents 4 0 R"
+         f" /Resources << /Font << /F1 5 0 R >> >> >>").encode(),
+        stream,
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    buf = b"%PDF-1.4\n"
+    offsets = []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(buf))
+        buf += f"{i} 0 obj\n".encode() + o + b"\nendobj\n"
+    xref = len(buf)
+    buf += b"xref\n0 " + str(len(objs) + 1).encode() + b"\n0000000000 65535 f \n"
+    for off in offsets:
+        buf += f"{off:010d} 00000 n \n".encode()
+    buf += (b"trailer\n<< /Size " + str(len(objs) + 1).encode() +
+            b" /Root 1 0 R >>\nstartxref\n" + str(xref).encode() + b"\n%%EOF")
+    path.write_bytes(buf)
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -202,6 +279,30 @@ class TestPdfToDocxFormatting(Base):
         by_text = {r.text.strip(): r for r in runs}
         self.assertEqual(by_text["Small size"].font.size, Pt(12))
         self.assertEqual(by_text["Big size"].font.size, Pt(24))
+
+
+class TestPdfToDocxAlignment(Base):
+    """DEC-040: 문단 안 줄들의 가로 위치(bbox)로 정렬을 추정하는 휴리스틱을
+    _mini_pdf_with_alignment(실제 pdfminer 파싱을 거치는 고정 좌표 PDF)로
+    end-to-end 검증한다 — TestPdfAlignmentClassification(test_converters.py)은
+    _classify_alignment 판정 로직만 hand-crafted bbox로 보는 단위 테스트고,
+    이건 _paragraph_candidates·_iter_lines·page.width 연결까지 포함한
+    전체 경로 검증."""
+
+    def test_alignment_detected_from_line_positions(self):
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        src = self.tmp / "align.pdf"
+        _mini_pdf_with_alignment(src)
+        out = converters.convert(src, "docx", self.tmp)
+        paragraphs = Document(out).paragraphs
+
+        def find(snippet):
+            return next(p for p in paragraphs if snippet in p.text)
+
+        self.assertEqual(find("Left aligned line one").alignment, WD_ALIGN_PARAGRAPH.LEFT)
+        self.assertEqual(find("Right aligned short").alignment, WD_ALIGN_PARAGRAPH.RIGHT)
+        self.assertEqual(find("Centered Title Text").alignment, WD_ALIGN_PARAGRAPH.CENTER)
+        self.assertEqual(find("Justify line number one").alignment, WD_ALIGN_PARAGRAPH.JUSTIFY)
 
 
 @unittest.skipUnless(HWP_DISTRIBUTION.exists(), "distribution.hwp 샘플 없음(로컬 spike 빌드 필요)")
