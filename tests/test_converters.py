@@ -351,20 +351,22 @@ class TestPdfAlignmentClassification(unittest.TestCase):
 
     PAGE_W = 612.0
 
-    def test_single_line_no_strong_signal_treated_as_left(self):
-        self.assertEqual(_classify_alignment([(72, 700, 200, 712)], self.PAGE_W), "left")
+    def test_single_line_no_strong_signal_returns_none(self):
+        self.assertIsNone(_classify_alignment([(72, 700, 200, 712)], self.PAGE_W))
 
     def test_single_line_centered(self):
         self.assertEqual(_classify_alignment([(206, 700, 406, 712)], self.PAGE_W), "center")
 
-    def test_single_line_right_not_detected_treated_as_left(self):
-        """한 줄만으로는 오른쪽 정렬을 판단하지 않는다 — "오른쪽 여백이
-        작다"가 문서의 정상적인 여백인지 진짜 오른쪽 정렬인지 한 줄만
-        봐서는 구분할 근거가 없다(로컬 검증 중 발견해 범위를 좁힘). 오른쪽
-        정렬로 확정하지 않는 대신 "left"를 명시적으로 돌려준다 — None을
-        반환하면 HWP 쪽에서 문서 기본 정렬(양쪽 정렬)로 해석되는 회귀가
-        있었다(자동 리뷰로 발견)."""
-        self.assertEqual(_classify_alignment([(400, 700, 540, 712)], self.PAGE_W), "left")
+    def test_single_line_right_leaning_not_detected_as_left_either(self):
+        """한 줄만으로는 왼쪽인지 오른쪽인지 확정하지 않는다 — "오른쪽
+        여백이 작다"가 문서의 정상적인 여백인지 진짜 오른쪽 정렬인지 한
+        줄만 봐서는 구분할 근거가 없다(로컬 검증 중 발견해 범위를 좁힘).
+        한때 "오른쪽으로 확정 안 하니 왼쪽으로"로 구현했었는데, 그러면
+        오른쪽 정렬 날짜·서명 같은 정상 사례를 "left"로 잘못 확정하는
+        반대 방향의 오분류가 생겼다(자동 리뷰로 발견, 재현 확인 후 수정) —
+        왼쪽 여백 400·오른쪽 여백 72처럼 명백히 오른쪽에 가까운 줄도
+        None(판단 보류)을 돌려줘야 한다."""
+        self.assertIsNone(_classify_alignment([(400, 700, 540, 712)], self.PAGE_W))
 
     def test_single_line_flush_with_left_edge_returns_none(self):
         self.assertIsNone(_classify_alignment([(0, 700, 200, 712)], self.PAGE_W))
