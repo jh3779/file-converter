@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from app.converters import data
+from app.converters import pdf as pdf_mod
 from app.converters.base import ConversionError
 from app.converters.docx_build import EAST_ASIAN_FONT, blocks_to_docx
 from app.converters.docx_extract import docx_to_blocks
@@ -20,6 +21,107 @@ class Base(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+
+def _mini_pdf_pages(path: Path, texts: list[str]):
+    """tests/test_pipeline.py의 _mini_pdf_pages와 같은 원리(최소 PDF를
+    페이지마다 다른 텍스트로 생성) — JDK 없이 pdf.py의 순수 파이썬 추출
+    로직만 검증하려고 이 파일에도 둔다(다른 테스트 파일들도 각자 최소 PDF
+    헬퍼를 따로 둠, DRY보다 파일별 독립성 우선)."""
+    n = len(texts)
+    page_obj_start = 3
+    font_obj_num = page_obj_start + 2 * n
+    kids, page_bodies, content_bodies = [], [], []
+    for i, text in enumerate(texts):
+        page_idx = page_obj_start + 2 * i
+        content_idx = page_idx + 1
+        kids.append(f"{page_idx} 0 R")
+        content = f"BT /F1 18 Tf 40 700 Td ({text}) Tj ET".encode()
+        stream = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
+        page_bodies.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_idx} 0 R"
+            f" /Resources << /Font << /F1 {font_obj_num} 0 R >> >> >>".encode())
+        content_bodies.append(stream)
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        ("<< /Type /Pages /Kids [" + " ".join(kids) + f"] /Count {n} >>").encode(),
+    ]
+    for pb, cb in zip(page_bodies, content_bodies):
+        objs.append(pb)
+        objs.append(cb)
+    objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    buf = b"%PDF-1.4\n"
+    offsets = []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(buf))
+        buf += f"{i} 0 obj\n".encode() + o + b"\nendobj\n"
+    xref = len(buf)
+    buf += b"xref\n0 " + str(len(objs) + 1).encode() + b"\n0000000000 65535 f \n"
+    for off in offsets:
+        buf += f"{off:010d} 00000 n \n".encode()
+    buf += (b"trailer\n<< /Size " + str(len(objs) + 1).encode() +
+            b" /Root 1 0 R >>\nstartxref\n" + str(xref).encode() + b"\n%%EOF")
+    path.write_bytes(buf)
+
+
+class TestPdfToHwpPageBreaks(Base):
+    """DEC-039: pdf.py._extract_pdf_blocks_by_page의 순수 파이썬 로직
+    (JDK 불요) — 실제 hwplib 왕복 검증은 tests/test_pipeline.py::TestHwp::
+    test_pdf_to_hwp_preserves_page_breaks(hwplib 로컬 빌드 있을 때만)."""
+
+    def test_first_page_first_block_has_no_page_break(self):
+        pdf = self.tmp / "one.pdf"
+        _mini_pdf_pages(pdf, ["Only Page"])
+        blocks = pdf_mod._extract_pdf_blocks_by_page(pdf)
+        self.assertEqual(len(blocks), 1)
+        self.assertNotIn("pageBreakBefore", blocks[0])
+        self.assertEqual(blocks[0]["text"], "Only Page")
+
+    def test_later_pages_first_block_marked(self):
+        pdf = self.tmp / "three.pdf"
+        _mini_pdf_pages(pdf, ["Page One", "Page Two", "Page Three"])
+        blocks = pdf_mod._extract_pdf_blocks_by_page(pdf)
+        self.assertEqual([b["text"] for b in blocks], ["Page One", "Page Two", "Page Three"])
+        self.assertNotIn("pageBreakBefore", blocks[0])
+        self.assertTrue(blocks[1]["pageBreakBefore"])
+        self.assertTrue(blocks[2]["pageBreakBefore"])
+
+    def test_whitespace_only_first_container_does_not_consume_page_break(self):
+        """JsonToHwp.java는 text.trim().isEmpty()인 문단을 버린다 — 페이지
+        첫 컨테이너가 공백뿐이면 그 문단이 pageBreakBefore를 달고 있어도
+        JsonToHwp 쪽에서 통째로 버려져, 실제 첫(비공백) 문단에는 쪽 나눔이
+        반영되지 않는 회귀가 있었다(자동 리뷰로 발견). 공백뿐인 컨테이너는
+        first_on_page를 소비하지 않아야 한다.
+
+        실제 PDF로 재현하면 pdfminer의 레이아웃 그룹핑이 컨테이너 순서를
+        보장하지 않아(공백 컨테이너가 먼저 온다고 확신할 수 없음) 결과가
+        들쭉날쭉해진다 — _paragraph_candidates를 모킹해 "페이지 첫 컨테이너가
+        공백뿐"인 순서를 직접 통제한다."""
+        from unittest.mock import patch
+
+        # str 서브클래스라 "page0"과의 동일성 비교(side_effect)는 그대로 되면서
+        # page.width(정렬 판정용, DEC-040)도 갖는 가짜 페이지 객체.
+        class _FakePage(str):
+            width = 612.0
+
+        page0, page1 = _FakePage("page0"), _FakePage("page1")
+
+        # extract_pages는 _extract_pdf_blocks_by_page 안에서 지역 import되므로
+        # pdf_mod 네임스페이스가 아니라 pdfminer.high_level 자체를 패치해야 한다.
+        with patch("pdfminer.high_level.extract_pages", return_value=[page0, page1]), \
+             patch.object(pdf_mod, "_paragraph_candidates",
+                           side_effect=lambda page: ["c1"] if page == "page0" else ["ws", "c2"]), \
+             patch.object(pdf_mod, "_container_to_runs",
+                           side_effect=lambda c: [{"text": {"c1": "First page", "ws": "   ",
+                                                             "c2": "Real second-page text"}[c]}]), \
+             patch.object(pdf_mod, "_detect_alignment", return_value=None):
+            blocks = pdf_mod._extract_pdf_blocks_by_page(Path("dummy.pdf"))
+
+        texts = [b["text"] for b in blocks]
+        self.assertNotIn("   ", texts)  # 공백뿐인 컨테이너 자체가 블록으로 안 남아야 함
+        real_second_page = next(b for b in blocks if b["text"] == "Real second-page text")
+        self.assertTrue(real_second_page.get("pageBreakBefore"))
 
 
 class TestCsvXlsx(Base):
@@ -141,6 +243,12 @@ class TestCsvJson(Base):
         self.assertEqual(json.loads(out.read_text()), [{"a": "1", "b": "2"}])
 
 
+def _block_text(block: dict) -> str:
+    """블록의 runs를 이어붙인 평문(DEC-038 — docx_to_blocks가 이제 항상
+    runs를 낸다). 마커·본문이 서로 다른 run에 나뉘어 있어도 하나로 합친다."""
+    return "".join(r["text"] for r in block["runs"])
+
+
 class TestDocxExtractNumbering(Base):
     """코드 리뷰 지적: DOCX 자동 번호·불릿은 numbering.xml 서식일 뿐 문단
     텍스트가 아니므로, item.text만 추출하면 눈에 보이는 마커가 사라진다."""
@@ -156,7 +264,7 @@ class TestDocxExtractNumbering(Base):
         doc.save(src)
 
         blocks = docx_to_blocks(src)
-        texts = [b["text"] for b in blocks]
+        texts = [_block_text(b) for b in blocks]
         self.assertEqual(texts, [
             "일반 문단", "1. 첫 항목", "2. 둘째 항목", "• 불릿 항목",
         ])
@@ -191,7 +299,7 @@ class TestDocxExtractNumbering(Base):
         doc.save(src)
 
         blocks = docx_to_blocks(src)
-        texts = [b["text"] for b in blocks]
+        texts = [_block_text(b) for b in blocks]
         self.assertEqual(texts[2], "목록 사이 일반 문단")
         # numId=1의 서식(decimal/bullet 등)은 기본 템플릿에 따라 달라질 수
         # 있으므로 마커 문자 자체보다 "일반 문단은 그대로, 목록 항목에는
@@ -224,9 +332,9 @@ class TestDocxExtractAlignment(Base):
         doc.save(src)
 
         blocks = docx_to_blocks(src)
-        by_text = {b["text"]: b.get("align") for b in blocks}
+        by_text = {b["runs"][0]["text"]: b.get("align") for b in blocks}
         self.assertIsNone(by_text["기본"])
-        self.assertNotIn("align", next(b for b in blocks if b["text"] == "기본"))
+        self.assertNotIn("align", next(b for b in blocks if b["runs"][0]["text"] == "기본"))
         self.assertEqual(by_text["가운데"], "center")
         self.assertEqual(by_text["오른쪽"], "right")
         self.assertEqual(by_text["왼쪽 명시"], "left")
@@ -278,6 +386,101 @@ class TestPdfAlignmentClassification(unittest.TestCase):
 
     def test_empty_boxes_returns_none(self):
         self.assertIsNone(_classify_alignment([], self.PAGE_W))
+
+
+class TestDocxExtractCharFormatting(Base):
+    """DEC-038: docx_extract.py가 run별 문자 서식(굵게/기울임/밑줄/크기/색상)을
+    추출하는지 — JDK 없이 순수 파이썬 추출 로직만 검증(HWP 왕복까지 포함한
+    통합 테스트는 test_pipeline.py::TestHwp에 있음, hwplib 필요)."""
+
+    def test_bold_italic_underline_size_color_extracted_per_run(self):
+        from docx import Document
+        from docx.shared import Pt, RGBColor
+
+        src = self.tmp / "d.docx"
+        doc = Document()
+        p = doc.add_paragraph()
+        p.add_run("일반 ")
+        bold_run = p.add_run("굵게")
+        bold_run.bold = True
+        styled_run = p.add_run("기울임크게빨강")
+        styled_run.italic = True
+        styled_run.font.size = Pt(18)
+        styled_run.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        self.assertEqual(len(blocks), 1)
+        runs = blocks[0]["runs"]
+        self.assertEqual(runs[0], {"text": "일반 ", "bold": False, "italic": False,
+                                    "underline": False, "size": None, "color": None})
+        self.assertEqual(runs[1], {"text": "굵게", "bold": True, "italic": False,
+                                    "underline": False, "size": None, "color": None})
+        self.assertEqual(runs[2], {"text": "기울임크게빨강", "bold": False, "italic": True,
+                                    "underline": False, "size": 18.0, "color": "FF0000"})
+
+    def test_plain_run_has_no_formatting(self):
+        from docx import Document
+        src = self.tmp / "d.docx"
+        doc = Document()
+        doc.add_paragraph("서식 없는 문단")
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        self.assertEqual(blocks[0]["runs"], [
+            {"text": "서식 없는 문단", "bold": False, "italic": False,
+             "underline": False, "size": None, "color": None},
+        ])
+
+    def test_numbering_marker_prepended_as_unformatted_run(self):
+        """마커(번호/불릿)는 본문 run의 서식과 무관하게 별도의 서식 없는
+        run으로 앞에 붙는다 — 본문이 굵게라도 마커까지 굵어지지 않는다."""
+        from docx import Document
+
+        src = self.tmp / "d.docx"
+        doc = Document()
+        p = doc.add_paragraph("", style="List Number")
+        bold_run = p.add_run("굵은 항목")
+        bold_run.bold = True
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        runs = blocks[0]["runs"]
+        self.assertEqual(runs[0]["text"], "1. ")
+        self.assertFalse(runs[0]["bold"])
+        self.assertEqual(runs[1], {"text": "굵은 항목", "bold": True, "italic": False,
+                                    "underline": False, "size": None, "color": None})
+
+    def test_hyperlink_only_paragraph_not_dropped(self):
+        """`paragraph.runs`(python-docx)는 <w:hyperlink> 안에 중첩된 run을
+        포함하지 않는다 — 문단 전체가 하이퍼링크 하나뿐이면 옛 구현은 runs가
+        빈 리스트가 되어 문단째로 조용히 드롭됐다(회귀, 이번에 수정)."""
+        import docx.oxml
+        import docx.opc.constants
+        from docx import Document
+        from docx.oxml.ns import qn
+
+        src = self.tmp / "d.docx"
+        doc = Document()
+        p = doc.add_paragraph()
+        r_id = p.part.relate_to(
+            "https://example.com",
+            docx.opc.constants.RELATIONSHIP_TYPE.HYPERLINK,
+            is_external=True,
+        )
+        hyperlink = docx.oxml.OxmlElement("w:hyperlink")
+        hyperlink.set(qn("r:id"), r_id)
+        run_el = docx.oxml.OxmlElement("w:r")
+        t = docx.oxml.OxmlElement("w:t")
+        t.text = "링크텍스트"
+        run_el.append(t)
+        hyperlink.append(run_el)
+        p._p.append(hyperlink)
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["runs"][0]["text"], "링크텍스트")
 
 
 class TestDocxBuildFont(Base):

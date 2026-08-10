@@ -94,7 +94,7 @@ jobs:
           # DEC-017/DEC-028: DOCX→HWP 사이드카(JsonToHwp) — 구조 JSON → HWP 생성 → 재읽기 왕복 검증.
           # DEC-028부터 표는 더 이상 텍스트로 단순화되지 않고 실제 HWP 표
           # 컨트롤로 생성된다(spike/hwplib/SpikeTable.java에서 검증한 패턴).
-          Set-Content -Encoding utf8 blocks.json '{"blocks":[{"type":"p","text":"뷁 밟 닳 넋 한글 생성 테스트"},{"type":"table","rows":[["이름","부서"],["김철수","영업1팀"]]}]}'
+          Set-Content -Encoding utf8 blocks.json '{"blocks":[{"type":"p","text":"뷁 밟 닳 넋 한글 생성 테스트"},{"type":"table","rows":[[{"text":"이름","colSpan":1,"rowSpan":1},{"text":"부서","colSpan":1,"rowSpan":1}],[{"text":"김철수","colSpan":1,"rowSpan":1},{"text":"영업1팀","colSpan":1,"rowSpan":1}]]}]}'
           & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwp blocks.json created.hwp
           if (-not (Test-Path created.hwp)) {
             Write-Error "HWP engine smoke failed: JsonToHwp가 HWP 파일을 생성하지 못함"; exit 1
@@ -112,6 +112,60 @@ jobs:
           $createdJson = Get-Content created.json -Encoding utf8 -Raw
           if (-not ($createdJson | Select-String -Pattern '"type":"table","rows":\[\["이름","부서"\],\["김철수","영업1팀"\]\]' -Quiet)) {
             Write-Error "HWP engine smoke failed: JsonToHwp가 만든 표가 실제 표 구조(2행×2열)로 재확인되지 않음(DEC-028 회귀)"; exit 1
+          }
+          # DEC-035: 셀 병합(colSpan/rowSpan) — JsonToHwp가 TableCellMerger로
+          # 실제 병합을 적용하고, HwpToJson이 그 구조(병합 안 된 셀은 평문,
+          # 병합된 셀은 colSpan/rowSpan 객체)를 그대로 재확인해야 한다.
+          Set-Content -Encoding utf8 merge-blocks.json '{"blocks":[{"type":"table","rows":[[{"text":"병합","colSpan":2,"rowSpan":1}],[{"text":"10","colSpan":1,"rowSpan":1},{"text":"11","colSpan":1,"rowSpan":1}]],"colWidthsMm":[30.0,30.0]}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwp merge-blocks.json merged.hwp
+          if (-not (Test-Path merged.hwp)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 병합 표를 생성하지 못함(DEC-035)"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToJson merged.hwp merged.json
+          $mergedJson = Get-Content merged.json -Encoding utf8 -Raw
+          if (-not ($mergedJson | Select-String -Pattern '"type":"table","rows":\[\[\{"text":"병합","colSpan":2,"rowSpan":1\}\],\["10","11"\]\]' -Quiet)) {
+            Write-Error "HWP engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-035 회귀)"; exit 1
+          }
+          # DEC-038: DOCX→HWP 문자 서식(굵게/기울임/밑줄/크기/색상) 반영 —
+          # JsonToHwp가 run별 서식을 CharShape으로 만들어 ParaCharShape에
+          # 위치별로 연결하고, HwpToJson으로 재읽었을 때 run 경계·서식이
+          # 그대로 재확인되어야 한다(DEC-027은 읽기 방향만 검증했다 — 이건
+          # 쓰기 방향 왕복).
+          Set-Content -Encoding utf8 formatted-blocks.json '{"blocks":[{"type":"p","runs":[{"text":"굵은텍스트","bold":true},{"text":"일반텍스트"},{"text":"기울임텍스트","italic":true,"size":18,"color":"FF0000"}]}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwp formatted-blocks.json formatted-created.hwp
+          if (-not (Test-Path formatted-created.hwp)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 서식 있는 문서를 생성하지 못함(DEC-038)"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToJson formatted-created.hwp formatted-created.json
+          $formattedCreatedJson = Get-Content formatted-created.json -Encoding utf8 -Raw
+          if (-not ($formattedCreatedJson | Select-String -Pattern '"text":"굵은텍스트","bold":true,"italic":false,"underline":false' -Quiet)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 쓴 굵게 서식이 왕복 후 재확인되지 않음(DEC-038 회귀)"; exit 1
+          }
+          if (-not ($formattedCreatedJson | Select-String -Pattern '"text":"일반텍스트","bold":false,"italic":false,"underline":false' -Quiet)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 서식 없는 run을 잘못된 서식으로 씀(DEC-038 회귀)"; exit 1
+          }
+          if (-not ($formattedCreatedJson | Select-String -Pattern '"text":"기울임텍스트","bold":false,"italic":true,"underline":false,"size":18(\.0)?,"color":"FF0000"' -Quiet)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 쓴 기울임·크기·색상 서식이 같은 run 안에서 왕복 후 재확인되지 않음(DEC-038 회귀)"; exit 1
+          }
+          # DEC-039: PDF→HWP 페이지 구분(pageBreakBefore) — JsonToHwp가 이
+          # 표시가 있는 문단에만 "문단 앞에서 항상 쪽 나눔" ParaShape을
+          # 걸어야 한다. HwpToText/HwpToJson 둘 다 이 속성을 안 보므로
+          # PageBreakDebug(테스트 전용, 배포용 engine-build/hwp가 아닌
+          # debug-tools에 컴파일)로 직접 확인한다.
+          New-Item -ItemType Directory -Force debug-tools | Out-Null
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/PageBreakDebug.java
+          Set-Content -Encoding utf8 pagebreak-blocks.json '{"blocks":[{"type":"p","text":"1페이지 문단"},{"type":"p","text":"2페이지 문단","pageBreakBefore":true}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwp pagebreak-blocks.json pagebreak.hwp
+          if (-not (Test-Path pagebreak.hwp)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 페이지 구분 있는 문서를 생성하지 못함(DEC-039)"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp "debug-tools;engine-build/hwp" PageBreakDebug pagebreak.hwp pagebreak-out.txt
+          $pageBreakOut = Get-Content -Encoding utf8 pagebreak-out.txt
+          if (-not ($pageBreakOut | Select-String -Pattern "0`tfalse`t1페이지 문단" -SimpleMatch -Quiet)) {
+            Write-Error "HWP engine smoke failed: 1페이지 문단에 쪽 나눔이 잘못 붙음(DEC-039 회귀)"; exit 1
+          }
+          if (-not ($pageBreakOut | Select-String -Pattern "1`ttrue`t2페이지 문단" -SimpleMatch -Quiet)) {
+            Write-Error "HWP engine smoke failed: 2페이지 문단에 쪽 나눔이 반영되지 않음(DEC-039 회귀)"; exit 1
           }
           # DEC-040: 문단 정렬(align) — "align"이 있는 블록은 JsonToHwp가
           # 실제 ParaShape 정렬로 반영하고, "align"이 없는 블록은 HWP 문서
@@ -549,9 +603,11 @@ jobs:
           # 컨트롤로 생성된다(spike/hwplib/SpikeTable.java에서 검증한 패턴).
           python3 <<'PY'
           import json
+          def cell(text):
+              return {"text": text, "colSpan": 1, "rowSpan": 1}
           blocks = {"blocks": [
               {"type": "p", "text": "뷁 밟 닳 넋 한글 생성 테스트"},
-              {"type": "table", "rows": [["이름", "부서"], ["김철수", "영업1팀"]]},
+              {"type": "table", "rows": [[cell("이름"), cell("부서")], [cell("김철수"), cell("영업1팀")]]},
           ]}
           open("blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
           PY
@@ -571,6 +627,80 @@ jobs:
               print("::error::HWP engine smoke failed: JsonToHwp가 만든 표가 실제 표 구조(2행x2열)로 재확인되지 않음(DEC-028 회귀)")
               sys.exit(1)
           PY
+
+          # DEC-035: 셀 병합(colSpan/rowSpan) — JsonToHwp가 TableCellMerger로
+          # 실제 병합을 적용하고, HwpToJson이 그 구조(병합 안 된 셀은 평문,
+          # 병합된 셀은 colSpan/rowSpan 객체)를 그대로 재확인해야 한다.
+          python3 -c '
+          import json
+          blocks = {"blocks": [{"type": "table", "rows": [
+              [{"text": "병합", "colSpan": 2, "rowSpan": 1}],
+              [{"text": "10", "colSpan": 1, "rowSpan": 1}, {"text": "11", "colSpan": 1, "rowSpan": 1}],
+          ], "colWidthsMm": [30.0, 30.0]}]}
+          open("merge-blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          '
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp merge-blocks.json merged.hwp
+          [ -f merged.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 병합 표를 생성하지 못함(DEC-035)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson merged.hwp merged.json
+          python3 <<'PY'
+          import re, sys
+          text = open("merged.json", encoding="utf-8").read()
+          if not re.search(r'"type":"table","rows":\[\[\{"text":"병합","colSpan":2,"rowSpan":1\}\],\["10","11"\]\]', text):
+              print("::error::HWP engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-035 회귀)")
+              sys.exit(1)
+          PY
+
+          # DEC-038: DOCX→HWP 문자 서식(굵게/기울임/밑줄/크기/색상) 반영 —
+          # JsonToHwp가 run별 서식을 CharShape으로 만들어 ParaCharShape에
+          # 위치별로 연결하고, HwpToJson으로 재읽었을 때 run 경계·서식이
+          # 그대로 재확인되어야 한다(DEC-027은 읽기 방향만 검증했다 — 이건
+          # 쓰기 방향 왕복).
+          python3 -c '
+          import json
+          blocks = {"blocks": [{"type": "p", "runs": [
+              {"text": "굵은텍스트", "bold": True},
+              {"text": "일반텍스트"},
+              {"text": "기울임텍스트", "italic": True, "size": 18, "color": "FF0000"},
+          ]}]}
+          open("formatted-blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          '
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp formatted-blocks.json formatted-created.hwp
+          [ -f formatted-created.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 서식 있는 문서를 생성하지 못함(DEC-038)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson formatted-created.hwp formatted-created.json
+          python3 <<'PY'
+          import re, sys
+          text = open("formatted-created.json", encoding="utf-8").read()
+          if not re.search(r'"text":"굵은텍스트","bold":true,"italic":false,"underline":false', text):
+              print("::error::HWP engine smoke failed: JsonToHwp가 쓴 굵게 서식이 왕복 후 재확인되지 않음(DEC-038 회귀)")
+              sys.exit(1)
+          if not re.search(r'"text":"일반텍스트","bold":false,"italic":false,"underline":false', text):
+              print("::error::HWP engine smoke failed: JsonToHwp가 서식 없는 run을 잘못된 서식으로 씀(DEC-038 회귀)")
+              sys.exit(1)
+          if not re.search(r'"text":"기울임텍스트","bold":false,"italic":true,"underline":false,"size":18(\.0)?,"color":"FF0000"', text):
+              print("::error::HWP engine smoke failed: JsonToHwp가 쓴 기울임·크기·색상 서식이 같은 run 안에서 왕복 후 재확인되지 않음(DEC-038 회귀)")
+              sys.exit(1)
+          PY
+
+          # DEC-039: PDF→HWP 페이지 구분(pageBreakBefore) — JsonToHwp가 이
+          # 표시가 있는 문단에만 "문단 앞에서 항상 쪽 나눔" ParaShape을
+          # 걸어야 한다. HwpToText/HwpToJson 둘 다 이 속성을 안 보므로
+          # PageBreakDebug(테스트 전용, 배포용 engine-build/hwp가 아닌
+          # debug-tools에 컴파일)로 직접 확인한다.
+          mkdir -p debug-tools
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/PageBreakDebug.java
+          python3 -c '
+          import json
+          blocks = {"blocks": [
+              {"type": "p", "text": "1페이지 문단"},
+              {"type": "p", "text": "2페이지 문단", "pageBreakBefore": True},
+          ]}
+          open("pagebreak-blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          '
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp pagebreak-blocks.json pagebreak.hwp
+          [ -f pagebreak.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 페이지 구분 있는 문서를 생성하지 못함(DEC-039)"; exit 1; }
+          engine-build/jre/bin/java -cp "debug-tools:engine-build/hwp" PageBreakDebug pagebreak.hwp pagebreak-out.txt
+          grep -qF "$(printf '0\tfalse\t1페이지 문단')" pagebreak-out.txt || { echo "::error::HWP engine smoke failed: 1페이지 문단에 쪽 나눔이 잘못 붙음(DEC-039 회귀)"; exit 1; }
+          grep -qF "$(printf '1\ttrue\t2페이지 문단')" pagebreak-out.txt || { echo "::error::HWP engine smoke failed: 2페이지 문단에 쪽 나눔이 반영되지 않음(DEC-039 회귀)"; exit 1; }
 
           # DEC-040: 문단 정렬(align) — "align"이 있는 블록은 JsonToHwp가
           # 실제 ParaShape 정렬로 반영하고, "align"이 없는 블록은 HWP 문서

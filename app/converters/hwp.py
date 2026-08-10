@@ -12,9 +12,12 @@ DEC-017 정정(DEC-028): "hwplib에는 표를 처음부터 새로 만드는 도�
 `src/test/sample/Inserting_Table.java`가 정확히 그 방법을 보여준다(이전
 조사에서 놓침). DOCX의 표는 이제 실제 HWP 표 컨트롤로 새로 생성된다
 (spike/hwplib/SpikeTable.java에서 왕복 검증 후 sidecar/hwp/JsonToHwp.java에
-일반화 — 셀 병합은 아직 미지원, 셀 텍스트는 평문 한 문단). 문단 텍스트
-서식(굵게 등)은 이미 Phase 3(DEC-027)에서 HWP→DOCX 읽기 방향에 반영됨 —
-DOCX→HWP 쓰기 방향의 문자 서식은 아직 범위 밖.
+일반화 — 셀 병합은 아직 미지원, 셀 텍스트는 평문 한 문단). 문단 문자
+서식(굵게/기울임/밑줄/크기/색상)은 Phase 3(DEC-027)에서 HWP→DOCX 읽기
+방향에 먼저 반영됐고, DEC-038부터 DOCX→HWP 쓰기 방향에도 반영된다 —
+docx_extract.py가 run별 서식을 추출해 JsonToHwp.java가 DocInfo에 CharShape을
+새로 만들거나 재사용해 ParaCharShape에 위치별로 연결한다(표 셀 안 서식은
+여전히 범위 밖).
 
 번호·불릿 목록(docx_extract.docx_to_blocks): DOCX의 자동 번호("1.")·불릿("•")은
 문단의 실제 텍스트가 아니라 numbering.xml 서식으로 뷰어가 화면에만 그리는
@@ -22,6 +25,14 @@ DOCX→HWP 쓰기 방향의 문자 서식은 아직 범위 밖.
 재현 확인 후 보완) — numbering.xml을 해석해 마커를 문단 앞에 텍스트로
 붙인다. 다단계 중첩 목록의 상위 레벨 변경 시 하위 레벨 재시작 등 OOXML
 번호 매기기 전체 규칙까지는 재현하지 않는 문서화된 단순화다.
+
+PDF→HWP 페이지 경계(DEC-039, 외부 QA 피드백): pdf.py의 `_extract_pdf_blocks_by_page`가
+extract_pages()로 페이지 단위로 직접 순회해 각 페이지 첫 문단에
+`pageBreakBefore`를 표시하고, `JsonToHwp.java`가 그 문단만 ParaShape을
+복제해 "문단 앞에서 항상 쪽 나눔"(ParaShapeProperty1 19bit) 속성을 켠다
+(spike/hwplib/SpikePageBreak.java에서 write+read 왕복으로 비트 보존을
+직접 확인). 이전엔 pdfminer의 extract_text()로 문서 전체를 한 문자열로
+뽑아 페이지 구분 자체가 사라졌었다.
 
 문단 정렬(DEC-040): DOCX→HWP는 python-docx의 paragraph.alignment(직접
 지정된 값만, 스타일 상속은 범위 밖)를, PDF→HWP는 pdfminer 줄 위치(bbox)
@@ -131,13 +142,14 @@ def docx_to_hwp(src: Path, tmpdir: Path) -> Path:
 
 def pdf_to_hwp(src: Path, tmpdir: Path) -> Path:
     """PDF → 텍스트 추출 → HWP (레이아웃 단순화 — PDF→DOCX의 DEC-010과 같은 원칙).
-    PDF는 표 구조 자체를 담고 있지 않으므로(추출 결과가 이미 평문) 문단
-    텍스트만 옮긴다. 정렬(DEC-040)은 문단 줄 위치(bbox)로 추정해 반영한다
-    (이전엔 pdfminer의 extract_text()로 문서 전체를 한 문자열로 뽑아 페이지·
-    줄 위치 정보 자체가 없었음)."""
+    텍스트만 옮긴다. 페이지 경계는 유지한다(DEC-039) — 페이지 단위로 직접
+    추출해 각 페이지 첫 문단에 pageBreakBefore를 표시, JsonToHwp가 실제
+    쪽 나눔으로 반영한다(이전엔 전체를 한 문자열로 뭉쳐 페이지 구분이
+    사라졌었음 — 외부 QA로 재현 확인). 정렬(DEC-040)도 문단 줄 위치(bbox)로
+    추정해 함께 반영한다."""
     from . import pdf as pdf_mod
 
-    blocks = pdf_mod._extract_pdf_paragraphs(src)
+    blocks = pdf_mod._extract_pdf_blocks_by_page(src)
     return _blocks_to_hwp(blocks, src, tmpdir)
 
 
