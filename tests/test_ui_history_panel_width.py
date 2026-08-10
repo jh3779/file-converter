@@ -10,6 +10,13 @@
 자동으로 감지해 창을 넓혀주지 않는다 — 기록 패널을 여는 시점에 지금
 목록에 있는 항목들의 실제 필요 폭을 직접 계산해 부족하면 창을 그만큼만
 넓히도록 수정했다.
+
+자동 리뷰(Codex)가 이어서 지적한 두 가지 갭도 재현·수정 후 회귀 테스트로
+고정: (1) 패널을 먼저 열어둔 채(그때는 목록이 비어 있어 보정이 아무
+일도 안 함) 파일을 나중에 추가하는 순서에서는 여전히 잘렸다 —
+add_files()에서도 패널이 열려 있으면 다시 확인하도록 보완. (2) 파일이
+많아 목록에 세로 스크롤바가 뜨면 뷰포트가 더 좁아지는데 필요 폭 계산에
+스크롤바 폭이 빠져 있었다 — 항상 포함하도록 보완.
 """
 import os
 import shutil
@@ -68,6 +75,53 @@ class TestHistoryPanelDoesNotClipFileRow(unittest.TestCase):
         win._toggle_history()
         _app.processEvents()
         self.assertEqual(win.size(), before)
+
+    def test_remove_button_stays_within_viewport_when_history_opened_before_files_added(self):
+        """자동 리뷰로 발견된 순서 문제: 기록 패널을 먼저 연 뒤(그때는
+        목록이 비어 있어 보정이 아무 일도 안 함) 파일을 나중에 추가하면
+        _toggle_history 쪽 보정만으로는 부족했다 — add_files에서도
+        패널이 열려 있으면 다시 확인해야 한다."""
+        win = MainWindow(tokens.LIGHT)
+        win.resize(640, 480)
+        win.show()
+        win._toggle_history()
+        _app.processEvents()
+        self.assertTrue(win.history_panel.isVisible())
+
+        src = self.tmp / "문서예시파일.docx"
+        src.write_text("dummy")
+        win.add_files([src])
+        _app.processEvents()
+
+        row = next(iter(win.rows.values()))
+        remove_right = row.remove_btn.mapTo(win.list.viewport(), row.remove_btn.rect().bottomRight()).x()
+        self.assertLessEqual(remove_right, win.list.viewport().width(),
+                              "패널을 먼저 연 뒤 추가한 파일의 제거 버튼이 뷰포트 밖으로 밀려남")
+
+    def test_remove_button_stays_within_viewport_with_vertical_scrollbar(self):
+        """자동 리뷰로 발견된 계산 누락: 파일이 많아 목록에 세로
+        스크롤바가 뜨면 뷰포트가 더 좁아지는데, 필요 폭 계산에 스크롤바
+        폭이 빠져 있었다."""
+        win = MainWindow(tokens.LIGHT)
+        win.resize(640, 480)
+        win.show()
+        files = []
+        for i in range(15):
+            f = self.tmp / f"문서예시파일_{i}.docx"
+            f.write_text("dummy")
+            files.append(f)
+        win.add_files(files)
+        _app.processEvents()
+        win._toggle_history()
+        _app.processEvents()
+
+        self.assertTrue(win.list.verticalScrollBar().isVisible(),
+                         "이 테스트가 검증하려는 세로 스크롤바 자체가 안 뜸 — 파일 개수 조정 필요")
+        worst = max(
+            row.remove_btn.mapTo(win.list.viewport(), row.remove_btn.rect().bottomRight()).x()
+            for row in win.rows.values())
+        self.assertLessEqual(worst, win.list.viewport().width(),
+                              "세로 스크롤바가 있을 때 제거 버튼이 뷰포트 밖으로 밀려남")
 
 
 if __name__ == "__main__":

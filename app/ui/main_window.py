@@ -536,6 +536,13 @@ class MainWindow(QMainWindow):
             self.list.addItem(lw_item)
             self.list.setItemWidget(lw_item, row)
         self._refresh_state()
+        # 기록 패널을 먼저 열어둔 채(목록이 비어 있을 때는 넓힐 필요가
+        # 없어 _toggle_history의 보정이 아무 일도 안 함) 파일을 나중에
+        # 추가하는 순서에서는 _toggle_history 쪽 보정만으로 부족하다
+        # (자동 리뷰로 발견, 재현 확인) — 파일이 추가될 때도 패널이 열려
+        # 있으면 다시 확인한다.
+        if self.history_panel.isVisible():
+            self._ensure_width_for_history_panel()
 
     def _remove_item(self, item_id: int):
         self.items = [it for it in self.items if it.id != item_id]
@@ -767,11 +774,15 @@ class MainWindow(QMainWindow):
         기본 동작) 레이아웃 시스템이 이 부족분을 자동으로 감지해 창을
         넓혀주지 않는다 — 패널을 여는 시점에 지금 목록에 있는 항목들의
         실제 필요 폭을 직접 계산해 부족하면 그만큼만 넓힌다(사용자가
-        이미 그보다 넓게 열어뒀으면 줄이지 않는다)."""
+        이미 그보다 넓게 열어뒀으면 줄이지 않는다). 파일이 많아 목록에
+        세로 스크롤바가 뜨면 그만큼 뷰포트가 더 좁아지는데(자동 리뷰로
+        발견, 파일 15개로 재현 확인), 항상 스크롤바 폭만큼 여유를 둬서
+        나중에 파일이 더 늘어나 스크롤바가 새로 나타나도 안전하다."""
         if not self.rows:
             return
         max_row_width = max(row.minimumSizeHint().width() for row in self.rows.values())
-        needed = self.history_panel.width() + max_row_width + 32
+        scrollbar_width = self.list.verticalScrollBar().sizeHint().width()
+        needed = self.history_panel.width() + max_row_width + scrollbar_width + 32
         if self.width() < needed:
             self.resize(needed, self.height())
 
