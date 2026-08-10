@@ -34,6 +34,15 @@ def _failed_item(item_id: int, name: str) -> FileItem:
     return it
 
 
+# 플랫폼마다 오프스크린 폰트 렌더링 폭이 달라(CI Linux vs 로컬 macOS) 실제
+# 줄바꿈 수·라벨 높이가 갈린다 — 로컬에서 재현된 문제가 CI(더 좁은 대체
+# 폰트)에서는 재현 안 될 수 있음을 실측 확인(처음 버전은 파일명이 짧아
+# CI에서만 스크롤이 안 필요해져 실패했음). 여러 줄로 감싸질 만큼 충분히
+# 길게 반복해 어떤 폰트 폭에서도 640×480보다 자연 높이가 커지도록 마진을
+# 크게 둔다.
+_VERY_LONG_NAME = "아주아주아주긴한글파일이름_보고서_최종_수정본_v3_검토완료_전자결재승인대기중_담당자확인요망" * 2
+
+
 class TestResultOverlayScroll(unittest.TestCase):
     def setUp(self):
         self._orig_lang_pref = i18n.saved_pref()
@@ -60,7 +69,7 @@ class TestResultOverlayScroll(unittest.TestCase):
         win.resize(640, 480)
         win.show()
         win.items = [
-            _failed_item(i, "아주아주아주긴한글파일이름_보고서_최종_수정본_v3_검토완료_" + str(i))
+            _failed_item(i, _VERY_LONG_NAME + str(i))
             for i in range(1, 6)
         ]
         win.rows = {}
@@ -87,11 +96,20 @@ class TestResultOverlayScroll(unittest.TestCase):
         win.resize(640, 480)
         win.show()
         win.items = [
-            _failed_item(i, "아주아주아주긴한글파일이름_보고서_최종_수정본_v3_검토완료_" + str(i))
+            _failed_item(i, _VERY_LONG_NAME + str(i))
             for i in range(1, 6)
         ]
         win.rows = {}
         win._show_result()
+        _app.processEvents()
+
+        # 스크롤 최대 높이를 아주 작게 강제한다 — 플랫폼마다 기본 폰트
+        # 렌더링 폭/높이가 달라(예: CI Linux 오프스크린 폰트가 로컬 macOS
+        # 폰트보다 좁음) "이 5개 항목이 640×480에서 자연스럽게 넘치는지"는
+        # 환경에 따라 달라질 수 있다(실제로 CI에서 이 값이 달라 스크롤이
+        # 전혀 필요 없어져 테스트가 실패한 것을 발견) — 스크롤이 필요한
+        # 상황 자체를 결정적으로 만들어 환경 의존성을 없앤다.
+        win.result_scroll.setMaximumHeight(50)
         _app.processEvents()
 
         scrollbar = win.result_scroll.verticalScrollBar()
