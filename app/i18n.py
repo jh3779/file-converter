@@ -123,6 +123,12 @@ _S = {
                          "Text is placed to match its original position — since each "
                          "line sits at a fixed spot, typing across lines may not flow "
                          "naturally, and images and table borders are not carried over"),
+    "note.hwpx_simplified": ("본문 문단·표 내용은 유지되지만, 머리말·꼬리말·글상자 "
+                             "안의 텍스트와 셀 병합·문단 정렬은 이번 버전에서 "
+                             "옮겨지지 않아요",
+                             "Body paragraph and table contents are kept, but text in "
+                             "headers, footers, and text boxes, plus cell merges and "
+                             "paragraph alignment, are not carried over in this version"),
     "err.notyet": ("이 변환은 다음 버전에서 지원될 예정입니다.",
                    "This conversion is coming in a future update."),
 }

@@ -113,9 +113,13 @@ class FileRow(QFrame):
         DOCX → HWP도 표는 실제 HWP 표로 만들어지지만(DEC-017 정정) 셀 병합·
         정밀한 레이아웃까지는 아니라 같은 고지를 쓴다. DEC-023: PDF → HWP도
         텍스트 기반이라 같은 고지(PDF 자체가 표 구조를 안 담고 있어 표 전용
-        문구는 아님). QA(h) Phase 1: HWPX → DOCX/PDF도 같은 고지(셀 병합·
-        머리말/꼬리말·문단 정렬이 아직 범위 밖 — spike/hwpxlib/RESULT.md).
-        XLSX → CSV 선택 시 시트가 여러 개면 고지(첫 시트만 변환 — 여러
+        문구는 아님). QA(h) Phase 1: HWPX → DOCX/PDF는 전용 고지
+        (note.hwpx_simplified)를 쓴다 — HwpxToJson.java가 본문 문단·표만
+        순회하고 머리말/꼬리말/글상자는 아예 안 훑어(Phase 1 범위 밖,
+        spike/hwpxlib/RESULT.md) 그 안 텍스트가 조용히 빠질 수 있는데,
+        일반 note.simplified 문구("텍스트·표 내용은 유지됩니다")는 이
+        손실을 감추므로 실제 범위를 명시하는 별도 문구가 필요했다(자동
+        리뷰로 발견). XLSX → CSV 선택 시 시트가 여러 개면 고지(첫 시트만 변환 — 여러
         파일로 나눠 출력하는 방안은 데이터 모델을 바꿔야 해서 별도 과제로
         보류). 애니메이션 이미지(GIF/WEBP) → 다른 이미지 포맷 선택 시 첫
         프레임만 남는다는 고지(항상 단일 프레임으로 단순화). DEC-026: PDF →
@@ -129,8 +133,13 @@ class FileRow(QFrame):
         elif self.item.target_fmt in ("docx", "pdf") and self.item.source_fmt == "hwpx":
             # QA(h) Phase 1: hwpx_to_pdf도 내부적으로 hwpx_to_docx를 거치므로
             # (hwp_to_pdf가 hwp_to_docx를 거치는 것과 같은 구조) 두 타겟 모두
-            # 같은 단순화 고지를 쓴다.
-            note_key = "note.simplified"
+            # 같은 고지를 쓴다. note.simplified가 아니라 전용 note.hwpx_simplified를
+            # 쓴다 — note.simplified는 "텍스트·표 내용은 유지됩니다"라고 약속하는데,
+            # HwpxToJson.java는 본문 문단·표만 훑고 머리말/꼬리말/글상자 텍스트는
+            # 아예 순회하지 않아(Phase 1 범위 밖) 실제로는 그 부분 텍스트가 조용히
+            # 빠질 수 있다 — 이 격차를 문구에 명시(자동 리뷰 지적, HwpxToJson.java의
+            # 순회 범위를 직접 읽어 확인 후 수정).
+            note_key = "note.hwpx_simplified"
         elif self.item.target_fmt == "hwp" and self.item.source_fmt in ("docx", "pdf"):
             note_key = "note.simplified"
         elif self.item.target_fmt in ("png", "jpg") and self.item.source_fmt == "pdf":
