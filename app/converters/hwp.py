@@ -33,6 +33,13 @@ extract_pages()로 페이지 단위로 직접 순회해 각 페이지 첫 문단
 (spike/hwplib/SpikePageBreak.java에서 write+read 왕복으로 비트 보존을
 직접 확인). 이전엔 pdfminer의 extract_text()로 문서 전체를 한 문자열로
 뽑아 페이지 구분 자체가 사라졌었다.
+
+문단 정렬(DEC-040): DOCX→HWP는 python-docx의 paragraph.alignment(직접
+지정된 값만, 스타일 상속은 범위 밖)를, PDF→HWP는 pdfminer 줄 위치(bbox)
+기반 휴리스틱을 각각 JsonToHwp.java에 "align" 필드로 넘긴다. HWP→DOCX는
+HwpToJson.java가 ParaShape의 정렬을 항상 읽어 docx_build.py가
+paragraph.alignment에 반영한다. HWP 문서 기본 정렬은 "양쪽 정렬"이라(hwplib
+실측 확인), align이 없으면 그 기본값을 그대로 따른다.
 """
 import json
 import os
@@ -135,11 +142,11 @@ def docx_to_hwp(src: Path, tmpdir: Path) -> Path:
 
 def pdf_to_hwp(src: Path, tmpdir: Path) -> Path:
     """PDF → 텍스트 추출 → HWP (레이아웃 단순화 — PDF→DOCX의 DEC-010과 같은 원칙).
-    PDF는 표 구조 자체를 담고 있지 않으므로(추출 결과가 이미 평문) 문단
     텍스트만 옮긴다. 페이지 경계는 유지한다(DEC-039) — 페이지 단위로 직접
     추출해 각 페이지 첫 문단에 pageBreakBefore를 표시, JsonToHwp가 실제
     쪽 나눔으로 반영한다(이전엔 전체를 한 문자열로 뭉쳐 페이지 구분이
-    사라졌었음 — 외부 QA로 재현 확인)."""
+    사라졌었음 — 외부 QA로 재현 확인). 정렬(DEC-040)도 문단 줄 위치(bbox)로
+    추정해 함께 반영한다."""
     from . import pdf as pdf_mod
 
     blocks = pdf_mod._extract_pdf_blocks_by_page(src)

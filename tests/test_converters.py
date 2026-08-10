@@ -11,6 +11,7 @@ from app.converters import pdf as pdf_mod
 from app.converters.base import ConversionError
 from app.converters.docx_build import EAST_ASIAN_FONT, blocks_to_docx
 from app.converters.docx_extract import docx_to_blocks
+from app.converters.pdf import _classify_alignment
 from app.output import unique_output_path
 
 
@@ -99,14 +100,22 @@ class TestPdfToHwpPageBreaks(Base):
         공백뿐"인 순서를 직접 통제한다."""
         from unittest.mock import patch
 
+        # str 서브클래스라 "page0"과의 동일성 비교(side_effect)는 그대로 되면서
+        # page.width(정렬 판정용, DEC-040)도 갖는 가짜 페이지 객체.
+        class _FakePage(str):
+            width = 612.0
+
+        page0, page1 = _FakePage("page0"), _FakePage("page1")
+
         # extract_pages는 _extract_pdf_blocks_by_page 안에서 지역 import되므로
         # pdf_mod 네임스페이스가 아니라 pdfminer.high_level 자체를 패치해야 한다.
-        with patch("pdfminer.high_level.extract_pages", return_value=["page0", "page1"]), \
+        with patch("pdfminer.high_level.extract_pages", return_value=[page0, page1]), \
              patch.object(pdf_mod, "_paragraph_candidates",
                            side_effect=lambda page: ["c1"] if page == "page0" else ["ws", "c2"]), \
              patch.object(pdf_mod, "_container_to_runs",
                            side_effect=lambda c: [{"text": {"c1": "First page", "ws": "   ",
-                                                             "c2": "Real second-page text"}[c]}]):
+                                                             "c2": "Real second-page text"}[c]}]), \
+             patch.object(pdf_mod, "_detect_alignment", return_value=None):
             blocks = pdf_mod._extract_pdf_blocks_by_page(Path("dummy.pdf"))
 
         texts = [b["text"] for b in blocks]
@@ -301,6 +310,106 @@ class TestDocxExtractNumbering(Base):
         self.assertTrue(texts[3].endswith("목록 3"))
 
 
+class TestDocxExtractAlignment(Base):
+    """DEC-040: 문단에 직접 지정된 정렬만 읽는다(스타일 상속은 범위 밖).
+    명시적으로 지정 안 된 문단은 Word가 실제로 렌더링하는 값(왼쪽)을
+    "left"로 명시한다 — 자동 리뷰로 발견된 회귀 수정: 예전엔 이 경우
+    "align" 필드 자체를 생략했는데, HWP 쪽(JsonToHwp)이 "정렬 미지정"을
+    문서 기본 ParaShape(양쪽 정렬)로 해석해 평범한 왼쪽 정렬 문단이 전부
+    양쪽 정렬로 바뀌는 문제가 있었다."""
+
+    def test_explicit_alignment_extracted(self):
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        src = self.tmp / "d.docx"
+        doc = Document()
+        doc.add_paragraph("기본")
+        p_center = doc.add_paragraph("가운데")
+        p_center.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_right = doc.add_paragraph("오른쪽")
+        p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        p_left = doc.add_paragraph("왼쪽 명시")
+        p_left.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        p_justify = doc.add_paragraph("양쪽")
+        p_justify.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        by_text = {b["runs"][0]["text"]: b.get("align") for b in blocks}
+        self.assertEqual(by_text["기본"], "left")
+        self.assertEqual(by_text["가운데"], "center")
+        self.assertEqual(by_text["오른쪽"], "right")
+        self.assertEqual(by_text["왼쪽 명시"], "left")
+        self.assertEqual(by_text["양쪽"], "justify")
+
+
+class TestPdfAlignmentClassification(unittest.TestCase):
+    """DEC-040: _classify_alignment는 pdfminer 객체 없이 줄별 bbox만으로
+    판정하는 순수 함수라 hand-crafted bbox로 직접 검증할 수 있다(실제
+    pdfminer 파싱을 거친 end-to-end 검증은 tests/test_format_fidelity.py에
+    별도로 있음)."""
+
+    PAGE_W = 612.0
+
+    def test_single_line_no_strong_signal_returns_none(self):
+        self.assertIsNone(_classify_alignment([(72, 700, 200, 712)], self.PAGE_W))
+
+    def test_single_line_centered(self):
+        self.assertEqual(_classify_alignment([(206, 700, 406, 712)], self.PAGE_W), "center")
+
+    def test_single_line_right_leaning_not_detected_as_left_either(self):
+        """한 줄만으로는 왼쪽인지 오른쪽인지 확정하지 않는다 — "오른쪽
+        여백이 작다"가 문서의 정상적인 여백인지 진짜 오른쪽 정렬인지 한
+        줄만 봐서는 구분할 근거가 없다(로컬 검증 중 발견해 범위를 좁힘).
+        한때 "오른쪽으로 확정 안 하니 왼쪽으로"로 구현했었는데, 그러면
+        오른쪽 정렬 날짜·서명 같은 정상 사례를 "left"로 잘못 확정하는
+        반대 방향의 오분류가 생겼다(자동 리뷰로 발견, 재현 확인 후 수정) —
+        왼쪽 여백 400·오른쪽 여백 72처럼 명백히 오른쪽에 가까운 줄도
+        None(판단 보류)을 돌려줘야 한다."""
+        self.assertIsNone(_classify_alignment([(400, 700, 540, 712)], self.PAGE_W))
+
+    def test_single_line_flush_with_left_edge_returns_none(self):
+        self.assertIsNone(_classify_alignment([(0, 700, 200, 712)], self.PAGE_W))
+
+    def test_multi_line_left_aligned_treated_as_left(self):
+        boxes = [(72, 700, 300, 712), (72, 680, 500, 692), (72, 660, 150, 672)]
+        self.assertEqual(_classify_alignment(boxes, self.PAGE_W), "left")
+
+    def test_two_line_left_aligned_not_misclassified_as_justify(self):
+        """자동 리뷰로 발견된 회귀: 마지막 줄을 뺀 "본문 줄"이 1개뿐인 2줄
+        문단은 그 한 줄의 오른쪽 끝을 자기 자신과 비교해 항상 "일치"로
+        판정돼, 평범한 2줄 왼쪽 정렬 문단이 양쪽 정렬로 잘못 분류됐다."""
+        boxes = [(72, 700, 300, 712), (72, 680, 500, 692)]
+        self.assertEqual(_classify_alignment(boxes, self.PAGE_W), "left")
+
+    def test_two_line_right_aligned_not_detected(self):
+        """본문 줄이 1개뿐이면 오른쪽·양쪽 정렬 판정 자체를 포기한다(위
+        회귀 수정의 트레이드오프) — 2줄 오른쪽 정렬은 이제 감지되지 않고
+        None(판단 근거 부족)을 돌려준다. 잘못된 확정보다 안전하다는 이
+        함수의 기본 원칙과 일치."""
+        boxes = [(300, 700, 540, 712), (100, 680, 540, 692)]
+        self.assertIsNone(_classify_alignment(boxes, self.PAGE_W))
+
+    def test_multi_line_right_aligned(self):
+        boxes = [(300, 700, 540, 712), (100, 680, 540, 692), (400, 660, 540, 672)]
+        self.assertEqual(_classify_alignment(boxes, self.PAGE_W), "right")
+
+    def test_multi_line_justified_last_line_short(self):
+        boxes = [(72, 700, 540, 712), (72, 680, 540, 692), (72, 660, 200, 672)]
+        self.assertEqual(_classify_alignment(boxes, self.PAGE_W), "justify")
+
+    def test_multi_line_centered(self):
+        boxes = [(200, 700, 412, 712), (150, 680, 462, 692), (250, 660, 362, 672)]
+        self.assertEqual(_classify_alignment(boxes, self.PAGE_W), "center")
+
+    def test_multi_line_ambiguous_returns_none(self):
+        boxes = [(50, 700, 200, 712), (300, 680, 500, 692), (80, 660, 550, 672)]
+        self.assertIsNone(_classify_alignment(boxes, self.PAGE_W))
+
+    def test_empty_boxes_returns_none(self):
+        self.assertIsNone(_classify_alignment([], self.PAGE_W))
+
+
 class TestDocxExtractCharFormatting(Base):
     """DEC-038: docx_extract.py가 run별 문자 서식(굵게/기울임/밑줄/크기/색상)을
     추출하는지 — JDK 없이 순수 파이썬 추출 로직만 검증(HWP 왕복까지 포함한
@@ -424,6 +533,30 @@ class TestDocxBuildFont(Base):
                     for p in cell.paragraphs:
                         for run in p.runs:
                             self.assertEqual(run.font.name, EAST_ASIAN_FONT)
+
+
+class TestDocxBuildAlignment(Base):
+    """DEC-040: "align"이 있는 블록만 명시적으로 정렬을 설정하고, 없으면
+    DOCX 기본 정렬(왼쪽, python-docx의 None)을 그대로 둔다."""
+
+    def test_align_field_sets_paragraph_alignment(self):
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        blocks = [
+            {"type": "p", "text": "기본"},
+            {"type": "p", "text": "가운데", "align": "center"},
+            {"type": "p", "text": "오른쪽", "align": "right"},
+            {"type": "p", "text": "왼쪽", "align": "left"},
+            {"type": "p", "text": "양쪽", "align": "justify"},
+        ]
+        out = blocks_to_docx(blocks, self.tmp / "out.docx")
+        doc = Document(out)
+        by_text = {p.text: p.alignment for p in doc.paragraphs}
+        self.assertIsNone(by_text["기본"])
+        self.assertEqual(by_text["가운데"], WD_ALIGN_PARAGRAPH.CENTER)
+        self.assertEqual(by_text["오른쪽"], WD_ALIGN_PARAGRAPH.RIGHT)
+        self.assertEqual(by_text["왼쪽"], WD_ALIGN_PARAGRAPH.LEFT)
+        self.assertEqual(by_text["양쪽"], WD_ALIGN_PARAGRAPH.JUSTIFY)
 
 
 class TestOutputNaming(Base):

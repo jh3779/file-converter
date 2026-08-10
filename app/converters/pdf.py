@@ -49,7 +49,7 @@ def pdf_to_docx(src: Path, tmpdir: Path) -> Path:
     from docx.enum.section import WD_SECTION
     from docx.shared import Emu, Pt
 
-    from .docx_build import _apply_run_style, _set_font
+    from .docx_build import _align_map, _apply_run_style, _set_font
 
     EMU_PER_PT = 12700
     layout = _extract_pdf_line_layout(src)
@@ -96,6 +96,9 @@ def pdf_to_docx(src: Path, tmpdir: Path) -> Path:
                 run = p.add_run(run_dict["text"])
                 _set_font(run)
                 _apply_run_style(run, run_dict)
+            align = _align_map().get(line.get("align"))
+            if align is not None:
+                p.alignment = align
             _set_frame_pr(p, x_pt=x0, y_pt=page_h - y1,
                           w_pt=max(x1 - x0, 1), h_pt=max(y1 - y0, 1))
 
@@ -245,6 +248,97 @@ def _extract_pdf_layout(src: Path, image_dir: Path) -> list[dict]:
     except (PSException, ValueError, OSError) as e:
         raise ConversionError("err.corrupted", str(e))
     return pages
+
+
+_ALIGN_TOL = 3.0  # pt — 글자 위치 반올림오차 허용치
+
+
+def _detect_alignment(container, page_width: float) -> str | None:
+    """문단(컨테이너) 안 줄들의 가로 위치(bbox)로 정렬을 추정한다(DEC-040) —
+    판정 로직 자체는 _classify_alignment(순수 함수, 단위 테스트 대상)에
+    있고, 여기서는 pdfminer 컨테이너에서 줄별 bbox만 뽑아 넘긴다."""
+    boxes = [line.bbox for line in _iter_lines(container)]
+    return _classify_alignment(boxes, page_width)
+
+
+def _classify_alignment(boxes: list[tuple[float, float, float, float]], page_width: float) -> str | None:
+    """줄별 bbox((x0,y0,x1,y1), ...) 목록으로 정렬을 추정하는 순수 판정
+    로직(DEC-040) — pdfminer 객체에 의존하지 않아 hand-crafted bbox로
+    직접 단위 테스트할 수 있다.
+
+    PDF는 정렬 자체를 담지 않는다 — 글자마다 절대 좌표만 있어, 렌더링된
+    좌표에서 역산하는 수밖에 없다. 판단 근거가 약하면(짧은 문단·애매한
+    여백) None을 돌려줘 "align" 필드 자체를 생략한다 — 잘못 추정해 원래
+    의도와 다른 정렬로 억지로 맞추는 것보다, 아무것도 안 하는(문서 기본
+    정렬 유지) 쪽이 안전하다는 원칙(DEC-027의 "서식 불명 시 안전한 기본값"과
+    같은 태도).
+
+    한 줄짜리 문단: 좌우 여백이 비슷하면 가운데(페이지 중심 기준이라 문서의
+    실제 여백 폭을 몰라도 판단 가능). **오른쪽 정렬도, 왼쪽 정렬도 한
+    줄만으로는 확정하지 않는다** — "오른쪽 여백이 작다"는 게 문서의 실제
+    오른쪽 여백이 원래 좁아서인지 정말 오른쪽 정렬이라서인지 한 줄만
+    봐서는 구분할 근거가 없다(페이지 가장자리에 딱 붙어야만 판단 가능한
+    값이 되어 버려 실사용 문서의 정상적인 여백을 가진 오른쪽 정렬을 대부분
+    놓친다 — 로컬 검증 중 발견해 범위를 좁힘). 처음엔 "오른쪽으로 확정 안
+    하니 왼쪽으로 명시하자"로 구현했었는데, 그러면 한 줄짜리 오른쪽 정렬
+    날짜·서명·짧은 제목 같은 실사용 문서의 정상 사례를 "left"로 확정해
+    버리는 다른 방향의 오분류가 생겼다(자동 리뷰로 발견,
+    `_classify_alignment([(400,700,540,712)], 612)`로 재현 확인 — 왼쪽
+    여백 400·오른쪽 여백 72로 명백히 오른쪽에 가까운데 "left"가 나왔음) —
+    "왼쪽인지 오른쪽인지 한 줄로는 모른다"가 정확한 상태이므로 None(판단
+    보류)이 맞다. 여러 줄 문단의 오른쪽 정렬은 아래처럼 다른 방식(줄마다
+    오른쪽 끝이 서로 일치하는지, 문서의 실제 여백 값과 무관)으로 판단해
+    이 문제가 없다.
+    여러 줄 문단: 마지막 줄을 뺀 "본문 줄"이 최소 2개 있어야 오른쪽·양쪽
+    정렬을 판단한다 — 본문 줄이 1개뿐이면(전체 2줄 문단) 그 한 줄의 오른쪽
+    끝과 "일치 비교"할 대상이 자기 자신뿐이라 항상 참이 되어, 평범한 2줄
+    왼쪽 정렬 문단이 양쪽 정렬로 잘못 분류되는 회귀가 있었다(자동 리뷰로
+    발견, `_classify_alignment([(72,700,300,712),(72,680,500,692)], 612)`로
+    재현 확인 — 2줄 왼쪽 정렬인데 "justify"가 나왔음). 본문 줄이 부족하면
+    오른쪽·양쪽 판정은 포기하고 왼쪽·가운데만 확인한다(부족한 근거로
+    확정하지 않는다는 이 함수의 기본 원칙과 일치). 왼쪽 끝만 일치하면
+    "left"를 명시적으로 돌려준다 — 왼쪽·오른쪽 끝이 둘 다 일치하면 양쪽,
+    오른쪽만 일치하면 오른쪽, 어느 쪽도 아니면 각 줄의 중심이 일치하는지로
+    가운데 정렬만 추가로 확인한다."""
+    if not boxes:
+        return None
+
+    if len(boxes) == 1:
+        x0, _, x1, _ = boxes[0]
+        left_margin = x0
+        right_margin = page_width - x1
+        if left_margin <= _ALIGN_TOL:
+            return None  # 왼쪽 여백이 거의 없음 — 판단 근거 부족
+        if abs(left_margin - right_margin) <= _ALIGN_TOL * 2:
+            return "center"
+        return None  # 왼쪽인지 오른쪽인지 한 줄만으로는 판단 안 함(위 설명)
+
+    lefts = [b[0] for b in boxes]
+    rights_body = [b[2] for b in boxes[:-1]]  # 마지막 줄은 양쪽 정렬이어도 보통 짧다
+    left_consistent = (max(lefts) - min(lefts)) <= _ALIGN_TOL
+    # 본문 줄이 최소 2개는 있어야 "일치"가 의미 있다 — 1개뿐이면 항상 자기
+    # 자신과 같아 무조건 참이 되므로(2줄 문단 오분류 버그, 위 설명) 오른쪽·
+    # 양쪽 판정 자체를 포기한다.
+    right_consistent = len(rights_body) >= 2 and (max(rights_body) - min(rights_body)) <= _ALIGN_TOL
+
+    if left_consistent and right_consistent:
+        # 알려진 한계(자동 리뷰 지적, 재현 확인·의도적으로 안 고침): 모든
+        # 줄의 폭이 우연히 똑같은 가운데 정렬 문단은 좌우 끝이 둘 다
+        # 일치해 버려 여기서 "justify"로 잘못 나올 수 있다. "좌우 여백이
+        # 페이지 중심 기준으로 대칭인지"를 추가 판별 신호로 써서 가운데로
+        # 우선시키는 방안도 검토했으나, 좌우 여백이 똑같은(예: 1인치 표준
+        # 여백) 페이지의 흔한 진짜 양쪽 정렬 문단까지 가운데로 오분류하는
+        # 더 나쁜 회귀가 생김을 재현으로 확인해 채택하지 않았다(희귀한
+        # 엣지 케이스 하나보다 흔한 케이스를 깨뜨리지 않는 쪽을 택함).
+        return "justify"
+    if left_consistent:
+        return "left"  # 왼쪽 정렬 — 명시적으로 반환(생략하면 HWP 기본값인 양쪽 정렬로 해석됨)
+    if right_consistent:
+        return "right"
+    centers = [(b[0] + b[2]) / 2 for b in boxes]
+    if max(centers) - min(centers) <= _ALIGN_TOL:
+        return "center"
+    return None
 
 
 def _iter_visuals(container):
@@ -398,6 +492,10 @@ def _extract_pdf_blocks(src: Path) -> list[dict]:
     PDF run은 항상 underline=False — HWP→DOCX만 밑줄을 지원, DEC-027).
     텍스트 보존은 서식 감지 실패와 무관하게 항상 보장한다(서식 불명 시
     bold=False/italic=False로 안전하게 처리).
+
+    정렬(DEC-040)은 문단 안 줄들의 가로 위치(bbox)를 페이지 폭과 비교하는
+    별도 휴리스틱(_detect_alignment)으로 추정한다 — 판단 근거가 약하면 "align"
+    필드 자체를 생략한다(문서 기본 정렬을 그대로 둠, 잘못된 추정보다 안전).
     """
     from pdfminer.high_level import extract_pages
     from pdfminer.pdfdocument import PDFPasswordIncorrect
@@ -409,7 +507,11 @@ def _extract_pdf_blocks(src: Path) -> list[dict]:
             for container in _paragraph_candidates(page):
                 runs = _container_to_runs(container)
                 if runs:
-                    blocks.append({"type": "p", "runs": runs})
+                    block = {"type": "p", "runs": runs}
+                    align = _detect_alignment(container, page.width)
+                    if align:
+                        block["align"] = align
+                    blocks.append(block)
     except PDFPasswordIncorrect:
         raise ConversionError("err.password")
     except (PSException, ValueError, OSError) as e:
@@ -427,7 +529,8 @@ def _extract_pdf_blocks_by_page(src: Path) -> list[dict]:
     피드백으로 재현 확인). extract_pages()로 페이지 단위로 직접 순회해 각
     페이지 첫 문단에 pageBreakBefore를 표시한다(JsonToHwp.java가 이를 실제
     쪽 나눔으로 반영). 서식(굵게 등)은 이 경로에서 필요 없어
-    _container_to_runs로 뽑은 run들의 텍스트만 이어붙인다.
+    _container_to_runs로 뽑은 run들의 텍스트만 이어붙인다. 정렬(DEC-040)은
+    _detect_alignment로 함께 추정해 JsonToHwp.java에 전달한다.
     """
     from pdfminer.high_level import extract_pages
     from pdfminer.pdfdocument import PDFPasswordIncorrect
@@ -451,6 +554,9 @@ def _extract_pdf_blocks_by_page(src: Path) -> list[dict]:
                 block = {"type": "p", "text": text}
                 if page_index > 0 and first_on_page:
                     block["pageBreakBefore"] = True
+                align = _detect_alignment(container, page.width)
+                if align:
+                    block["align"] = align
                 blocks.append(block)
                 first_on_page = False
     except PDFPasswordIncorrect:
@@ -461,11 +567,15 @@ def _extract_pdf_blocks_by_page(src: Path) -> list[dict]:
 
 
 def _extract_pdf_line_layout(src: Path) -> list[dict]:
-    """PDF → 페이지별 [{"width","height","lines":[{"bbox","runs"}]}] — pdf_to_docx
-    전용(DEC-037). pdf_to_pptx용 _extract_pdf_layout()과 달리 이미지·도형
-    (visuals)을 다루지 않아 ImageWriter 초기화·이미지 디코딩 비용이 없다
-    — DOCX 절대 위치 재구성은 텍스트 줄 위치만 필요하다(이미지·표 테두리는
-    DEC-037 범위 밖으로 정직하게 문서화됨)."""
+    """PDF → 페이지별 [{"width","height","lines":[{"bbox","runs","align"}]}] —
+    pdf_to_docx 전용(DEC-037). pdf_to_pptx용 _extract_pdf_layout()과 달리
+    이미지·도형(visuals)을 다루지 않아 ImageWriter 초기화·이미지 디코딩
+    비용이 없다 — DOCX 절대 위치 재구성은 텍스트 줄 위치만 필요하다
+    (이미지·표 테두리는 DEC-037 범위 밖으로 정직하게 문서화됨). 정렬
+    (DEC-040)은 컨테이너(원본 문단) 단위로 한 번만 판정해(_detect_alignment)
+    그 문단에 속한 모든 줄에 같은 값을 붙인다 — 줄마다 독립된 프레임으로
+    배치되지만(pdf_to_docx), 정렬 판정 자체는 여러 줄을 함께 봐야 하는
+    문단 단위 신호이기 때문이다."""
     from pdfminer.high_level import extract_pages
     from pdfminer.pdfdocument import PDFPasswordIncorrect
     from pdfminer.psparser import PSException
@@ -475,10 +585,14 @@ def _extract_pdf_line_layout(src: Path) -> list[dict]:
         for page in extract_pages(str(src)):
             lines = []
             for container in _paragraph_candidates(page):
+                align = _detect_alignment(container, page.width)
                 for line in _iter_lines(container):
                     runs = _container_to_runs(line)
                     if runs:
-                        lines.append({"bbox": line.bbox, "runs": runs})
+                        entry = {"bbox": line.bbox, "runs": runs}
+                        if align:
+                            entry["align"] = align
+                        lines.append(entry)
             pages.append({"width": page.width, "height": page.height, "lines": lines})
     except PDFPasswordIncorrect:
         raise ConversionError("err.password")

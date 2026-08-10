@@ -29,6 +29,7 @@ import kr.dogfoot.hwplib.object.docinfo.BorderFill;
 import kr.dogfoot.hwplib.object.docinfo.CharShape;
 import kr.dogfoot.hwplib.object.docinfo.ParaShape;
 import kr.dogfoot.hwplib.object.docinfo.charshape.UnderLineSort;
+import kr.dogfoot.hwplib.object.docinfo.parashape.Alignment;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.BackSlashDiagonalShape;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.BorderThickness;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.BorderType;
@@ -52,15 +53,18 @@ import java.util.Map;
  * 사용: java JsonToHwp <in.blocks.json> <out.hwp>
  * 입력: {"blocks":[
  *   {"type":"p","runs":[{"text":str,"bold":bool,"italic":bool,"underline":bool,
- *     "size":float,"color":"RRGGBB"}, ...],"pageBreakBefore":bool} |
- *   {"type":"p","text":str,"pageBreakBefore":bool}(구버전 호환, pdf_to_hwp가
- *     여전히 이 형태를 씀 — 서식 없는 단일 run으로 취급) |
- *   {"type":"table","rows":[["c1","c2"],...],"pageBreakBefore":bool}
+ *     "size":float,"color":"RRGGBB"}, ...],"pageBreakBefore":bool,
+ *     "align":"left"|"center"|"right"|"justify"} |
+ *   {"type":"p","text":str,"pageBreakBefore":bool,"align":str}(구버전 호환,
+ *     pdf_to_hwp가 여전히 이 형태를 씀 — 서식 없는 단일 run으로 취급) |
+ *   {"type":"table","rows":[["c1","c2"],...],"pageBreakBefore":bool,"align":str}
  * ]}
  * pageBreakBefore(DEC-039)는 이 블록 앞에서 항상 새 쪽에서 시작하라는
  * 표시다 — pdf_to_hwp가 PDF 페이지 경계를 유지하려고 쓴다(원래는 pdfminer의
  * extract_text()가 페이지 구분 없이 전체를 한 문자열로 뭉개, 여러 페이지의
- * 텍스트가 HWP 안에서 한 페이지처럼 이어 붙어 보이는 버그였다).
+ * 텍스트가 HWP 안에서 한 페이지처럼 이어 붙어 보이는 버그였다). align
+ * (DEC-040)이 없으면 문서 기본 정렬(양쪽 정렬, BlankFileMaker 기본
+ * ParaShape)을 그대로 쓴다 — 명시적으로 지정된 블록만 정렬을 덮어쓴다.
  *
  * DEC-017 정정(DEC-028): hwplib에는 표를 처음부터 만드는 도구가 "전혀 없다"고
  * 기록했던 게 이전 조사 누락이었음이 확인됨 — 공식 샘플
@@ -109,18 +113,19 @@ public class JsonToHwp {
         // 빈 블록(공백뿐인 문단, 빈 표)은 미리 걸러낸다 — 몇 번째가
         // "문서의 첫 블록"인지(=BlankFileMaker가 이미 만들어 둔 첫 문단을
         // 재사용해야 하는지)를 정확히 판단하기 위해서다.
-        List<Object[]> items = new ArrayList<>(); // {"p", runs, pageBreakBefore} or {"table", TableSpec, pageBreakBefore}
+        List<Object[]> items = new ArrayList<>(); // {"p", runs, pageBreakBefore, align} or {"table", TableSpec, pageBreakBefore, align}
         for (Object o : blocks) {
             Map<String, Object> block = (Map<String, Object>) o;
             String type = (String) block.get("type");
             boolean pageBreakBefore = Boolean.TRUE.equals(block.get("pageBreakBefore"));
+            String align = (String) block.get("align");
             if ("table".equals(type)) {
                 TableSpec spec = parseTableSpec(block);
-                if (spec != null) items.add(new Object[]{"table", spec, pageBreakBefore});
+                if (spec != null) items.add(new Object[]{"table", spec, pageBreakBefore, align});
             } else {
                 List<Object> rawRuns = (List<Object>) block.get("runs");
                 List<Map<String, Object>> runs = normalizeRuns(rawRuns, (String) block.get("text"));
-                if (!runs.isEmpty()) items.add(new Object[]{"p", runs, pageBreakBefore});
+                if (!runs.isEmpty()) items.add(new Object[]{"p", runs, pageBreakBefore, align});
             }
         }
 
@@ -137,11 +142,14 @@ public class JsonToHwp {
                 String kind = (String) items.get(i)[0];
                 // 첫 블록은 이 문서의 시작 자체가 이미 "새 쪽"이라
                 // pageBreakBefore를 적용할 대상(앞 문단)이 없다 — 무시.
+                // align은 첫 블록이라도 그대로 적용한다(제목이 첫 문단이면서
+                // 가운데 정렬인 경우 등).
                 boolean pageBreakBefore = !isFirst && (Boolean) items.get(i)[2];
+                String align = (String) items.get(i)[3];
                 if ("table".equals(kind)) {
                     TableSpec spec = (TableSpec) items.get(i)[1];
                     Paragraph host = isFirst ? section.getParagraph(0) : section.addNewParagraph();
-                    vpos = addTableBlock(section, host, spec, isFirst, isLast, vpos, pageBreakBefore);
+                    vpos = addTableBlock(section, host, spec, isFirst, isLast, vpos, pageBreakBefore, align);
                 } else {
                     List<Map<String, Object>> runs = (List<Map<String, Object>>) items.get(i)[1];
                     if (isFirst) {
@@ -150,9 +158,10 @@ public class JsonToHwp {
                         // +2: BlankFileMaker가 첫 문단에 이미 넣어 둔 섹션/컬럼정의 확장문자.
                         first.getHeader().setCharacterCount(fullText.length() + 1 + 2);
                         first.getHeader().setLastInList(isLast);
+                        if (align != null) first.getHeader().setParaShapeId(findOrCreateParaShape(false, align));
                         vpos = applyLineSeg(first, fullText, vpos);
                     } else {
-                        vpos = addTextParagraph(section, runs, isLast, vpos, pageBreakBefore);
+                        vpos = addTextParagraph(section, runs, isLast, vpos, pageBreakBefore, align);
                     }
                 }
             }
@@ -206,13 +215,13 @@ public class JsonToHwp {
     }
 
     private static int addTextParagraph(Section section, List<Map<String, Object>> runs, boolean last, int startVpos,
-                                         boolean pageBreakBefore) throws Exception {
+                                         boolean pageBreakBefore, String align) throws Exception {
         Paragraph paragraph = section.addNewParagraph();
 
         ParaHeader header = paragraph.getHeader();
         header.setLastInList(last);
         header.getControlMask().setValue(0);
-        header.setParaShapeId(findOrCreateParaShape(pageBreakBefore));
+        header.setParaShapeId(findOrCreateParaShape(pageBreakBefore, align));
         header.setStyleId((short) 0);
         header.getDivideSort().setValue((short) 0);
         header.setRangeTagCount(0);
@@ -372,7 +381,7 @@ public class JsonToHwp {
      */
     private static int addTableBlock(Section section, Paragraph host, TableSpec spec,
                                       boolean hostIsFirstParagraph, boolean last, int startVpos,
-                                      boolean pageBreakBefore) throws Exception {
+                                      boolean pageBreakBefore, String align) throws Exception {
         List<List<Map<String, Object>>> rows = spec.rows;
         int rowCount = rows.size();
         // colCount는 첫 행의 colSpan 합으로 구한다 — docx_extract.py가 만드는
@@ -388,10 +397,11 @@ public class JsonToHwp {
         if (hostIsFirstParagraph) {
             // +2: BlankFileMaker가 첫 문단에 이미 넣어 둔 섹션/컬럼정의 확장문자.
             header.setCharacterCount(1 + 8 + 2);
+            if (align != null) header.setParaShapeId(findOrCreateParaShape(false, align));
         } else {
             header.setCharacterCount(1 + 8);
             header.getControlMask().setValue(0);
-            header.setParaShapeId(findOrCreateParaShape(pageBreakBefore));
+            header.setParaShapeId(findOrCreateParaShape(pageBreakBefore, align));
             header.setStyleId((short) 0);
             header.getDivideSort().setValue((short) 0);
             header.setInstanceID(0);
@@ -542,24 +552,42 @@ public class JsonToHwp {
         return uniform;
     }
 
-    // pageBreakBefore=false → 기본 ParaShape(id=3, BlankFileMaker가 만든 본문
-    // 스타일) 그대로 재사용. true인 경우만 findOrCreateCharShape(DEC-038)과
-    // 같은 원칙으로 그 ParaShape을 복제해 "문단 앞에서 항상 쪽 나눔"
-    // (ParaShapeProperty1 19bit, spike/hwplib/SpikePageBreak.java에서 실제
-    // write+read 왕복으로 비트가 보존됨을 확인)만 켠 새 ParaShape을 한 번만
-    // 만들어 캐시한다(문서 안에 페이지 경계가 여러 개여도 같은 ParaShape을
-    // 공유).
-    private static Integer pageBreakParaShapeId = null;
+    // pageBreakBefore=false·align=null(둘 다 명시된 게 없음)이면 기본
+    // ParaShape(id=3, BlankFileMaker 기본값 — hwplib 실측 결과 "양쪽 정렬")
+    // 그대로 재사용. 둘 중 하나라도 명시돼 있으면 기본 ParaShape을 복제해
+    // 그 속성만 켠/설정한 새 ParaShape을 만들어(조합별 캐시) 건다 —
+    // findOrCreateCharShape(DEC-038이 문자 서식에 쓴 것)과 같은 원칙.
+    // 쪽 나눔(ParaShapeProperty1 19bit)은 spike/hwplib/SpikePageBreak.java,
+    // 정렬(Alignment)은 spike/hwplib/SpikeAlignment.java에서 각각 write+read
+    // 왕복 시 보존됨을 확인. 두 속성이 한 문단에 동시에 필요할 수 있어(예:
+    // 페이지 첫 문단이면서 가운데 정렬) 캐시 키에 둘 다 포함한다.
+    private static final Map<String, Integer> paraShapeCache = new java.util.HashMap<>();
 
-    private static int findOrCreateParaShape(boolean pageBreakBefore) {
-        if (!pageBreakBefore) return 3;
-        if (pageBreakParaShapeId != null) return pageBreakParaShapeId;
+    private static int findOrCreateParaShape(boolean pageBreakBefore, String align) {
+        Alignment alignment = mapAlignment(align);
+        if (!pageBreakBefore && alignment == null) return 3;
+        String key = pageBreakBefore + "|" + align;
+        Integer cached = paraShapeCache.get(key);
+        if (cached != null) return cached;
         ParaShape base = hwp.getDocInfo().getParaShapeList().get(3);
-        ParaShape withBreak = base.clone();
-        withBreak.getProperty1().setSplitPageBeforePara(true);
-        hwp.getDocInfo().getParaShapeList().add(withBreak);
-        pageBreakParaShapeId = hwp.getDocInfo().getParaShapeList().size() - 1;
-        return pageBreakParaShapeId;
+        ParaShape shape = base.clone();
+        if (pageBreakBefore) shape.getProperty1().setSplitPageBeforePara(true);
+        if (alignment != null) shape.getProperty1().setAlignment(alignment);
+        hwp.getDocInfo().getParaShapeList().add(shape);
+        int id = hwp.getDocInfo().getParaShapeList().size() - 1;
+        paraShapeCache.put(key, id);
+        return id;
+    }
+
+    private static Alignment mapAlignment(String align) {
+        if (align == null) return null;
+        switch (align) {
+            case "left": return Alignment.Left;
+            case "center": return Alignment.Center;
+            case "right": return Alignment.Right;
+            case "justify": return Alignment.Justify;
+            default: return null; // 알 수 없는 값 — 문서 기본 정렬 유지(텍스트 보존 우선)
+        }
     }
 
     private static long mmToHwp(double mm) {

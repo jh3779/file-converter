@@ -1,7 +1,7 @@
 """DOCX → 구조 블록 (python-docx). DOCX→HWP 파이프라인 1단계 (docx_build.blocks_to_docx의 역방향).
 
 블록 형식: {"type":"p","runs":[{"text":str,"bold":bool,"italic":bool,
-"underline":bool,"size":float,"color":"RRGGBB"}, ...]} |
+"underline":bool,"size":float,"color":"RRGGBB"}, ...],"align":"left"|"center"|"right"|"justify"(선택)} |
 {"type":"table","rows":[[{"text":str,"colSpan":int,"rowSpan":int},...],...],"colWidthsMm":[float,...]}
 문서 순서(본문에 등장하는 순서)대로 문단·표를 함께 추출한다 — python-docx는
 document.paragraphs/document.tables를 각각 따로 주기 때문에 body XML을 직접
@@ -13,6 +13,14 @@ document.paragraphs/document.tables를 각각 따로 주기 때문에 body XML�
 읽기 방향, DEC-027)와 대칭이지만 스타일 상속 체인 전체를 해석하지는
 않는다는 점은 같은 단순화 원칙(번호 매기기의 restart 규칙 미재현과 동일).
 표 셀 텍스트는 이번 범위 밖이라 문자 서식 없이 평문으로 남는다.
+
+문단 정렬(DEC-040): 문단에 직접 지정된 정렬(w:jc)만 읽는다(스타일 상속은
+범위 밖). 직접 지정이 없으면 Word가 실제로 렌더링하는 값인 "left"를
+명시한다 — 예전엔 이 경우 "align" 필드 자체를 생략했는데, HWP 쪽
+(JsonToHwp.java)이 "정렬 미지정"을 문서 기본 ParaShape(양쪽 정렬)로
+해석해 정렬을 전혀 지정하지 않은 평범한 DOCX 문단이 전부 양쪽 정렬로
+바뀌는 회귀가 있었다(자동 리뷰로 발견, 실제 hwplib DOCX→HWP→JSON
+왕복으로 재현 확인 후 수정).
 
 표 셀 병합·열 너비(DEC-035): python-docx의 `table.cell(r, c)`는 병합된
 영역의 모든 그리드 위치에서 **같은 `_tc`(내부 XML 요소) 객체**를 돌려준다
@@ -156,6 +164,47 @@ def _paragraph_numpr(paragraph):
     return num_id, ilvl
 
 
+_ALIGN_TO_STR = None  # 지연 초기화 — docx.enum.text 임포트 비용을 문서 안 열 때는 안 지불하도록
+
+
+def _align_to_str_map():
+    """WD_ALIGN_PARAGRAPH 상수 자체를 key로 쓴다 — 문자열 이름(`.name`)
+    비교 대신 enum 값 직접 비교라 python-docx의 내부 표현이 어떻게 바뀌든
+    안전하다(자동 리뷰 지적 반영, docx_build._align_map()의 역방향과
+    같은 지연 초기화 패턴)."""
+    global _ALIGN_TO_STR
+    if _ALIGN_TO_STR is None:
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        _ALIGN_TO_STR = {
+            WD_ALIGN_PARAGRAPH.LEFT: "left",
+            WD_ALIGN_PARAGRAPH.CENTER: "center",
+            WD_ALIGN_PARAGRAPH.RIGHT: "right",
+            WD_ALIGN_PARAGRAPH.JUSTIFY: "justify",
+            WD_ALIGN_PARAGRAPH.JUSTIFY_MED: "justify",
+            WD_ALIGN_PARAGRAPH.JUSTIFY_HI: "justify",
+            WD_ALIGN_PARAGRAPH.JUSTIFY_LOW: "justify",
+            WD_ALIGN_PARAGRAPH.DISTRIBUTE: "justify",
+            WD_ALIGN_PARAGRAPH.THAI_JUSTIFY: "justify",
+        }
+    return _ALIGN_TO_STR
+
+
+def _paragraph_align(paragraph) -> str | None:
+    """문단에 직접 지정된 정렬만 읽는다(스타일에서 물려받는 값은 안 봄 —
+    style.paragraph_format.alignment까지 걸어야 하는데, 이 프로젝트가
+    다루는 실사용 문서에서 정렬은 거의 항상 문단에 직접 지정돼 있어
+    범위 밖으로 둠, DEC-040). alignment가 None이면 Word가 실제로 렌더링하는
+    값(왼쪽)을 명시적으로 "left"로 돌려준다 — 예전엔 이 필드 자체를
+    생략했었는데, 그러면 HWP 쪽(JsonToHwp)이 "정렬 미지정"을 문서 기본
+    ParaShape(양쪽 정렬)로 해석해 평범한 왼쪽 정렬 문단이 전부 양쪽 정렬로
+    바뀌는 회귀가 있었다(자동 리뷰로 발견, 실제 hwplib DOCX→HWP→JSON
+    왕복으로 재현 확인 후 수정)."""
+    alignment = paragraph.alignment
+    if alignment is None:
+        return "left"
+    return _align_to_str_map().get(alignment)
+
+
 def _run_to_dict(run) -> dict | None:
     if not run.text:
         return None
@@ -295,5 +344,9 @@ def docx_to_blocks(src: Path) -> list[dict]:
                         runs.insert(0, {"text": f"{marker} ", "bold": False, "italic": False,
                                         "underline": False, "size": None, "color": None})
             if runs:
-                blocks.append({"type": "p", "runs": runs})
+                block = {"type": "p", "runs": runs}
+                align = _paragraph_align(item)
+                if align:
+                    block["align"] = align
+                blocks.append(block)
     return blocks

@@ -25,7 +25,9 @@ import kr.dogfoot.hwplib.object.bodytext.paragraph.text.HWPCharNormal;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.text.HWPCharType;
 import kr.dogfoot.hwplib.object.docinfo.CharShape;
 import kr.dogfoot.hwplib.object.docinfo.DocInfo;
+import kr.dogfoot.hwplib.object.docinfo.ParaShape;
 import kr.dogfoot.hwplib.object.docinfo.charshape.UnderLineSort;
+import kr.dogfoot.hwplib.object.docinfo.parashape.Alignment;
 import kr.dogfoot.hwplib.reader.HWPReader;
 
 import java.util.ArrayList;
@@ -37,7 +39,8 @@ import java.nio.file.Paths;
  * HWP → 구조 JSON 사이드카 (DEC-007: 구조 추출 → DOCX 생성 파이프라인의 1단계).
  * 사용: java HwpToJson <in.hwp> <out.json>
  * 출력: {"blocks":[
- *   {"type":"p","runs":[{"text":"...","bold":bool,"italic":bool,"underline":bool,"size":pt,"color":"RRGGBB"}]} |
+ *   {"type":"p","runs":[{"text":"...","bold":bool,"italic":bool,"underline":bool,"size":pt,"color":"RRGGBB"}],
+ *     "align":"left"|"center"|"right"|"justify"} |
  *   {"type":"table","rows":[["c1",{"text":"c2","colSpan":2,"rowSpan":1},...],...]}
  * ]}
  *
@@ -47,6 +50,12 @@ import java.nio.file.Paths;
  * 안 된 흔한 경우(colSpan=rowSpan=1) 평문 문자열로, 병합된 셀은
  * {"text":...,"colSpan":n,"rowSpan":m} 객체로 낸다(DEC-035) — 셀 문자
  * 서식(굵게 등)까지는 이번 phase 범위 밖.
+ *
+ * 문단 정렬(DEC-040)은 문자 서식과 달리 CharShape이 아니라 ParaShape(문단
+ * 단위 서식) 소관이라 항상 문단 전체에 하나만 있다 — ParaHeader의
+ * paraShapeId로 DocInfo의 ParaShape을 역참조해 읽는다. HWP의 Distribute·
+ * Divide(배분/나눔 정렬)는 DOCX에 대응 값이 없어 "justify"로 단순화한다
+ * (문서화된 단순화, DEC-017과 같은 원칙).
  */
 public class HwpToJson {
     // JSON 배열의 콤마 삽입 여부 — emitParagraph()가 표·머리말·글상자 등을 재귀로
@@ -86,7 +95,8 @@ public class HwpToJson {
         String runsJson = paragraphRunsJson(p, docInfo);
         if (runsJson != null) {
             if (!firstBlock) sb.append(',');
-            sb.append("{\"type\":\"p\",\"runs\":[").append(runsJson).append("]}");
+            sb.append("{\"type\":\"p\",\"runs\":[").append(runsJson)
+                    .append("],\"align\":\"").append(paragraphAlign(p, docInfo)).append("\"}");
             firstBlock = false;
         }
         if (p.getControlList() == null) return;
@@ -352,6 +362,26 @@ public class HwpToJson {
         if (gso instanceof ControlCurve) return ((ControlCurve) gso).getTextBox();
         if (gso instanceof ControlArc) return ((ControlArc) gso).getTextBox();
         return null;
+    }
+
+    /**
+     * 문단의 ParaShape에서 정렬을 읽어 DOCX 쪽 4값으로 단순화한다(DEC-040).
+     * shapeId가 범위를 벗어나거나 Alignment를 못 읽으면 HWP 문서의 실제
+     * 기본 정렬인 "justify"로 폴백한다 — "left"로 폴백하면 이 PR이 고치려던
+     * "HWP 기본은 양쪽 정렬인데 DOCX 기본은 왼쪽 정렬"이라는 비대칭 문제가
+     * 바로 이 방어 경로에서 재현된다(DEC-040 결정 로그 참고).
+     */
+    private static String paragraphAlign(Paragraph p, DocInfo docInfo) {
+        int shapeId = p.getHeader().getParaShapeId();
+        if (shapeId < 0 || shapeId >= docInfo.getParaShapeList().size()) return "justify";
+        Alignment a = docInfo.getParaShapeList().get(shapeId).getProperty1().getAlignment();
+        if (a == null) return "justify";
+        switch (a) {
+            case Left: return "left";
+            case Center: return "center";
+            case Right: return "right";
+            case Justify: default: return "justify"; // Distribute·Divide도 여기로(문서화된 단순화)
+        }
     }
 
     private static CharShape resolveCharShape(DocInfo docInfo, long shapeId) {
