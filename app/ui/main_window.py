@@ -755,6 +755,25 @@ class MainWindow(QMainWindow):
         self.history_panel.setVisible(vis)
         if vis:
             self._reload_history()
+            self._ensure_width_for_history_panel()
+
+    def _ensure_width_for_history_panel(self):
+        """기록 패널(고정폭 260px)을 열면 본문(파일 목록)에 남는 폭이
+        줄어든다 — 창이 이미 최소 크기 근처면 FileRow의 콤보박스·제거
+        버튼이 QListWidget 뷰포트 밖으로 밀려나 가로 스크롤 없이는 안
+        보이거나 안 눌릴 수 있다(QA(e), 실측 확인: 640px 창에서 제거
+        버튼이 뷰포트를 21px 넘어감). QListWidget은 아이템이 넘쳐도
+        자신의 minimumSizeHint를 늘리지 않아(스크롤로 대신 처리하는 Qt
+        기본 동작) 레이아웃 시스템이 이 부족분을 자동으로 감지해 창을
+        넓혀주지 않는다 — 패널을 여는 시점에 지금 목록에 있는 항목들의
+        실제 필요 폭을 직접 계산해 부족하면 그만큼만 넓힌다(사용자가
+        이미 그보다 넓게 열어뒀으면 줄이지 않는다)."""
+        if not self.rows:
+            return
+        max_row_width = max(row.minimumSizeHint().width() for row in self.rows.values())
+        needed = self.history_panel.width() + max_row_width + 32
+        if self.width() < needed:
+            self.resize(needed, self.height())
 
     def _reload_history(self):
         while self.hist_list.count():
