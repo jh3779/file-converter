@@ -282,10 +282,17 @@ def _classify_alignment(boxes: list[tuple[float, float, float, float]], page_wid
     중 발견해 범위를 좁힘). 여러 줄 문단의 오른쪽 정렬은 아래처럼 다른
     방식(줄마다 오른쪽 끝이 서로 일치하는지, 문서의 실제 여백 값과 무관)
     으로 판단해 이 문제가 없다.
-    여러 줄 문단: 모든 줄의 왼쪽·오른쪽 끝이 (마지막 줄 제외) 둘 다
-    일치하면 양쪽 정렬, 왼쪽만 일치하면 왼쪽(표시 생략), 오른쪽만 일치하면
-    오른쪽, 어느 쪽도 아니면 각 줄의 중심이 일치하는지로 가운데 정렬만
-    추가로 확인한다."""
+    여러 줄 문단: 마지막 줄을 뺀 "본문 줄"이 최소 2개 있어야 오른쪽·양쪽
+    정렬을 판단한다 — 본문 줄이 1개뿐이면(전체 2줄 문단) 그 한 줄의 오른쪽
+    끝과 "일치 비교"할 대상이 자기 자신뿐이라 항상 참이 되어, 평범한 2줄
+    왼쪽 정렬 문단이 양쪽 정렬로 잘못 분류되는 회귀가 있었다(자동 리뷰로
+    발견, `_classify_alignment([(72,700,300,712),(72,680,500,692)], 612)`로
+    재현 확인 — 2줄 왼쪽 정렬인데 "justify"가 나왔음). 본문 줄이 부족하면
+    오른쪽·양쪽 판정은 포기하고 왼쪽·가운데만 확인한다(부족한 근거로
+    확정하지 않는다는 이 함수의 기본 원칙과 일치). 왼쪽 끝만 일치하면
+    "left"를 명시적으로 돌려준다 — 왼쪽·오른쪽 끝이 둘 다 일치하면 양쪽,
+    오른쪽만 일치하면 오른쪽, 어느 쪽도 아니면 각 줄의 중심이 일치하는지로
+    가운데 정렬만 추가로 확인한다."""
     if not boxes:
         return None
 
@@ -297,17 +304,20 @@ def _classify_alignment(boxes: list[tuple[float, float, float, float]], page_wid
             return None  # 왼쪽 여백이 거의 없음 — 판단 근거 부족
         if abs(left_margin - right_margin) <= _ALIGN_TOL * 2:
             return "center"
-        return None  # 오른쪽 정렬은 한 줄만으로 판단 안 함(위 설명) — 왼쪽 정렬(기본값)로 취급
+        return "left"  # 오른쪽 정렬은 한 줄만으로 판단 안 함(위 설명) — 왼쪽으로 명시
 
     lefts = [b[0] for b in boxes]
     rights_body = [b[2] for b in boxes[:-1]]  # 마지막 줄은 양쪽 정렬이어도 보통 짧다
     left_consistent = (max(lefts) - min(lefts)) <= _ALIGN_TOL
-    right_consistent = (max(rights_body) - min(rights_body)) <= _ALIGN_TOL if rights_body else True
+    # 본문 줄이 최소 2개는 있어야 "일치"가 의미 있다 — 1개뿐이면 항상 자기
+    # 자신과 같아 무조건 참이 되므로(2줄 문단 오분류 버그, 위 설명) 오른쪽·
+    # 양쪽 판정 자체를 포기한다.
+    right_consistent = len(rights_body) >= 2 and (max(rights_body) - min(rights_body)) <= _ALIGN_TOL
 
     if left_consistent and right_consistent:
         return "justify"
     if left_consistent:
-        return None  # 왼쪽 정렬 — 표시 생략
+        return "left"  # 왼쪽 정렬 — 명시적으로 반환(생략하면 HWP 기본값인 양쪽 정렬로 해석됨)
     if right_consistent:
         return "right"
     centers = [(b[0] + b[2]) / 2 for b in boxes]

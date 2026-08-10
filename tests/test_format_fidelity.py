@@ -299,7 +299,7 @@ class TestPdfToDocxAlignment(Base):
         def find(snippet):
             return next(p for p in paragraphs if snippet in p.text)
 
-        self.assertIsNone(find("Left aligned line one").alignment)
+        self.assertEqual(find("Left aligned line one").alignment, WD_ALIGN_PARAGRAPH.LEFT)
         self.assertEqual(find("Right aligned short").alignment, WD_ALIGN_PARAGRAPH.RIGHT)
         self.assertEqual(find("Centered Title Text").alignment, WD_ALIGN_PARAGRAPH.CENTER)
         self.assertEqual(find("Justify line number one").alignment, WD_ALIGN_PARAGRAPH.JUSTIFY)

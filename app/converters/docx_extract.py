@@ -171,12 +171,15 @@ def _paragraph_align(paragraph) -> str | None:
     """문단에 직접 지정된 정렬만 읽는다(스타일에서 물려받는 값은 안 봄 —
     style.paragraph_format.alignment까지 걸어야 하는데, 이 프로젝트가
     다루는 실사용 문서에서 정렬은 거의 항상 문단에 직접 지정돼 있어
-    범위 밖으로 둠, DEC-040). None이면 이 필드 자체를 블록에 안 실어
-    HWP 쪽 문서 기본 정렬(양쪽 정렬)을 그대로 따르게 한다 — 명시적으로
-    지정된 경우만 덮어쓴다."""
+    범위 밖으로 둠, DEC-040). alignment가 None이면 Word가 실제로 렌더링하는
+    값(왼쪽)을 명시적으로 "left"로 돌려준다 — 예전엔 이 필드 자체를
+    생략했었는데, 그러면 HWP 쪽(JsonToHwp)이 "정렬 미지정"을 문서 기본
+    ParaShape(양쪽 정렬)로 해석해 평범한 왼쪽 정렬 문단이 전부 양쪽 정렬로
+    바뀌는 회귀가 있었다(자동 리뷰로 발견, 실제 hwplib DOCX→HWP→JSON
+    왕복으로 재현 확인 후 수정)."""
     alignment = paragraph.alignment
     if alignment is None:
-        return None
+        return "left"
     return _ALIGN_TO_STR.get(alignment.name)
 
 

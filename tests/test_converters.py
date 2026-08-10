@@ -312,8 +312,11 @@ class TestDocxExtractNumbering(Base):
 
 class TestDocxExtractAlignment(Base):
     """DEC-040: 문단에 직접 지정된 정렬만 읽는다(스타일 상속은 범위 밖).
-    명시적으로 지정 안 된 문단은 "align" 필드 자체를 안 실어 HWP 쪽 문서
-    기본 정렬(양쪽 정렬)을 그대로 따르게 한다."""
+    명시적으로 지정 안 된 문단은 Word가 실제로 렌더링하는 값(왼쪽)을
+    "left"로 명시한다 — 자동 리뷰로 발견된 회귀 수정: 예전엔 이 경우
+    "align" 필드 자체를 생략했는데, HWP 쪽(JsonToHwp)이 "정렬 미지정"을
+    문서 기본 ParaShape(양쪽 정렬)로 해석해 평범한 왼쪽 정렬 문단이 전부
+    양쪽 정렬로 바뀌는 문제가 있었다."""
 
     def test_explicit_alignment_extracted(self):
         from docx import Document
@@ -333,8 +336,7 @@ class TestDocxExtractAlignment(Base):
 
         blocks = docx_to_blocks(src)
         by_text = {b["runs"][0]["text"]: b.get("align") for b in blocks}
-        self.assertIsNone(by_text["기본"])
-        self.assertNotIn("align", next(b for b in blocks if b["runs"][0]["text"] == "기본"))
+        self.assertEqual(by_text["기본"], "left")
         self.assertEqual(by_text["가운데"], "center")
         self.assertEqual(by_text["오른쪽"], "right")
         self.assertEqual(by_text["왼쪽 명시"], "left")
@@ -349,23 +351,41 @@ class TestPdfAlignmentClassification(unittest.TestCase):
 
     PAGE_W = 612.0
 
-    def test_single_line_no_signal_returns_none(self):
-        self.assertIsNone(_classify_alignment([(72, 700, 200, 712)], self.PAGE_W))
+    def test_single_line_no_strong_signal_treated_as_left(self):
+        self.assertEqual(_classify_alignment([(72, 700, 200, 712)], self.PAGE_W), "left")
 
     def test_single_line_centered(self):
         self.assertEqual(_classify_alignment([(206, 700, 406, 712)], self.PAGE_W), "center")
 
-    def test_single_line_right_not_detected(self):
+    def test_single_line_right_not_detected_treated_as_left(self):
         """한 줄만으로는 오른쪽 정렬을 판단하지 않는다 — "오른쪽 여백이
         작다"가 문서의 정상적인 여백인지 진짜 오른쪽 정렬인지 한 줄만
-        봐서는 구분할 근거가 없다(로컬 검증 중 발견해 범위를 좁힘)."""
-        self.assertIsNone(_classify_alignment([(400, 700, 540, 712)], self.PAGE_W))
+        봐서는 구분할 근거가 없다(로컬 검증 중 발견해 범위를 좁힘). 오른쪽
+        정렬로 확정하지 않는 대신 "left"를 명시적으로 돌려준다 — None을
+        반환하면 HWP 쪽에서 문서 기본 정렬(양쪽 정렬)로 해석되는 회귀가
+        있었다(자동 리뷰로 발견)."""
+        self.assertEqual(_classify_alignment([(400, 700, 540, 712)], self.PAGE_W), "left")
 
     def test_single_line_flush_with_left_edge_returns_none(self):
         self.assertIsNone(_classify_alignment([(0, 700, 200, 712)], self.PAGE_W))
 
-    def test_multi_line_left_aligned_returns_none(self):
+    def test_multi_line_left_aligned_treated_as_left(self):
         boxes = [(72, 700, 300, 712), (72, 680, 500, 692), (72, 660, 150, 672)]
+        self.assertEqual(_classify_alignment(boxes, self.PAGE_W), "left")
+
+    def test_two_line_left_aligned_not_misclassified_as_justify(self):
+        """자동 리뷰로 발견된 회귀: 마지막 줄을 뺀 "본문 줄"이 1개뿐인 2줄
+        문단은 그 한 줄의 오른쪽 끝을 자기 자신과 비교해 항상 "일치"로
+        판정돼, 평범한 2줄 왼쪽 정렬 문단이 양쪽 정렬로 잘못 분류됐다."""
+        boxes = [(72, 700, 300, 712), (72, 680, 500, 692)]
+        self.assertEqual(_classify_alignment(boxes, self.PAGE_W), "left")
+
+    def test_two_line_right_aligned_not_detected(self):
+        """본문 줄이 1개뿐이면 오른쪽·양쪽 정렬 판정 자체를 포기한다(위
+        회귀 수정의 트레이드오프) — 2줄 오른쪽 정렬은 이제 감지되지 않고
+        None(판단 근거 부족)을 돌려준다. 잘못된 확정보다 안전하다는 이
+        함수의 기본 원칙과 일치."""
+        boxes = [(300, 700, 540, 712), (100, 680, 540, 692)]
         self.assertIsNone(_classify_alignment(boxes, self.PAGE_W))
 
     def test_multi_line_right_aligned(self):

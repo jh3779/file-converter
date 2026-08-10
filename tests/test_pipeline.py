@@ -335,10 +335,11 @@ class TestHwp(Base):
     def test_docx_to_hwp_alignment_roundtrip(self):
         """DEC-040: DOCX 문단에 직접 지정된 정렬(가운데/오른쪽/왼쪽/양쪽)이
         HWP의 실제 정렬 ParaShape으로 반영되고, 다시 DOCX로 왕복해도 그대로
-        남는지 확인한다. 명시적으로 정렬을 지정 안 한 문단은 HWP 문서 기본
-        정렬(양쪽 정렬, hwplib 실측 확인)로 나와야 한다 — DOCX에서는 다시
-        "정렬 안 지정"이 아니라 명시적 JUSTIFY로 나옴(HWP 쪽 기본값을 그대로
-        옮기는 것도 이 기능의 의도된 동작)."""
+        남는지 확인한다. 명시적으로 정렬을 지정 안 한 문단은 Word가 실제로
+        렌더링하는 값(왼쪽)이 그대로 유지돼야 한다 — 자동 리뷰로 발견된
+        회귀 수정: "정렬 미지정"을 HWP 쪽 기본 ParaShape(양쪽 정렬)로 옮기면
+        평범한 왼쪽 정렬 문단이 전부 양쪽 정렬로 바뀌어 버렸다(실제 hwplib
+        DOCX→HWP→JSON 왕복으로 재현 확인 후 수정)."""
         from docx import Document
         from docx.enum.text import WD_ALIGN_PARAGRAPH
         src = self.tmp / "정렬.docx"
@@ -358,7 +359,7 @@ class TestHwp(Base):
         back = converters.convert(out, "docx", back_dir)
         by_text = {p.text: p.alignment for p in Document(back).paragraphs}
 
-        self.assertEqual(by_text["기본 정렬"], WD_ALIGN_PARAGRAPH.JUSTIFY)
+        self.assertEqual(by_text["기본 정렬"], WD_ALIGN_PARAGRAPH.LEFT)
         self.assertEqual(by_text["가운데 정렬"], WD_ALIGN_PARAGRAPH.CENTER)
         self.assertEqual(by_text["오른쪽 정렬"], WD_ALIGN_PARAGRAPH.RIGHT)
         self.assertEqual(by_text["왼쪽 정렬 명시"], WD_ALIGN_PARAGRAPH.LEFT)
