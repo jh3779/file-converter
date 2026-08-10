@@ -575,7 +575,7 @@ class MainWindow(QMainWindow):
         it.output = Path(output)
         it.renamed = renamed
         self.rows[item_id].refresh()
-        self.history.add(it.name, it.target_fmt, output, True)
+        self._record_history(it.name, it.target_fmt, output, True)
         self._bump()
 
     def _on_failed(self, item_id: int, key: str):
@@ -583,8 +583,16 @@ class MainWindow(QMainWindow):
         it.state = ItemState.FAILED
         it.error_key = key
         self.rows[item_id].refresh()
-        self.history.add(it.name, it.target_fmt or "", "", False)
+        self._record_history(it.name, it.target_fmt or "", "", False)
         self._bump()
+
+    def _record_history(self, name: str, target_fmt: str, output_path: str, success: bool):
+        """기록을 저장하고, 기록 패널이 이미 열려 있으면 그 자리에서 바로
+        새로고침한다 — 이전엔 패널을 껐다 켜야만(_toggle_history) 새 항목이
+        보였다(외부 QA 피드백)."""
+        self.history.add(name, target_fmt, output_path, success)
+        if self.history_panel.isVisible():
+            self._reload_history()
 
     def _on_skipped(self, item_id: int):
         it = self._find(item_id)
