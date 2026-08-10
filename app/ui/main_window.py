@@ -106,19 +106,25 @@ class FileRow(QFrame):
 
     def _update_note(self):
         """레이아웃/구조 단순화 고지 (muted, 오류 아님).
-        DEC-010: PDF/HWP → DOCX 선택 시. DEC-028부터 DOCX → HWP도 표는 실제
-        HWP 표로 만들어지지만(DEC-017 정정) 셀 병합·정밀한 레이아웃까지는
-        아니라 같은 고지를 쓴다. DEC-023: PDF → HWP도 텍스트 기반이라 같은
-        고지(PDF 자체가 표 구조를 안 담고 있어 표 전용 문구는 아님). QA(h)
-        Phase 1: HWPX → DOCX/PDF도 같은 고지(셀 병합·머리말/꼬리말·문단
-        정렬이 아직 범위 밖 — spike/hwpxlib/RESULT.md). XLSX →
-        CSV 선택 시 시트가 여러 개면 고지(첫 시트만 변환 — 여러 파일로 나눠
-        출력하는 방안은 데이터 모델을 바꿔야 해서 별도 과제로 보류). 애니메이션
-        이미지(GIF/WEBP) → 다른 이미지 포맷 선택 시 첫 프레임만 남는다는
-        고지(항상 단일 프레임으로 단순화). DEC-025: PDF → 이미지 선택 시
-        결과가 폴더로 저장된다는 고지. DEC-030: PDF → PPTX 선택 시 표
-        테두리·이미지는 옮겨지지 않는다는 고지(텍스트는 위치까지 재구성됨)."""
-        if self.item.target_fmt == "docx" and self.item.source_fmt in ("pdf", "hwp"):
+        DEC-037부터 PDF → DOCX는 줄 단위 절대 위치로 재구성돼(DEC-010의
+        "흐르는 문서로 단순화"에서 전환) 전용 고지(note.pdf_to_docx, 편집
+        시 줄이 자연스럽게 안 이어질 수 있다는 트레이드오프 안내)를 쓴다.
+        HWP → DOCX는 아직 이 전환 전이라 기존 단순화 고지 그대로. DEC-028부터
+        DOCX → HWP도 표는 실제 HWP 표로 만들어지지만(DEC-017 정정) 셀 병합·
+        정밀한 레이아웃까지는 아니라 같은 고지를 쓴다. DEC-023: PDF → HWP도
+        텍스트 기반이라 같은 고지(PDF 자체가 표 구조를 안 담고 있어 표 전용
+        문구는 아님). QA(h) Phase 1: HWPX → DOCX/PDF도 같은 고지(셀 병합·
+        머리말/꼬리말·문단 정렬이 아직 범위 밖 — spike/hwpxlib/RESULT.md).
+        XLSX → CSV 선택 시 시트가 여러 개면 고지(첫 시트만 변환 — 여러
+        파일로 나눠 출력하는 방안은 데이터 모델을 바꿔야 해서 별도 과제로
+        보류). 애니메이션 이미지(GIF/WEBP) → 다른 이미지 포맷 선택 시 첫
+        프레임만 남는다는 고지(항상 단일 프레임으로 단순화). DEC-026: PDF →
+        이미지(PNG/JPG, DEC-043) 선택 시 결과가 폴더로 저장된다는 고지.
+        DEC-030: PDF → PPTX 선택 시 표 테두리·이미지는 옮겨지지 않는다는
+        고지(텍스트는 위치까지 재구성됨)."""
+        if self.item.target_fmt == "docx" and self.item.source_fmt == "pdf":
+            note_key = "note.pdf_to_docx"
+        elif self.item.target_fmt == "docx" and self.item.source_fmt == "hwp":
             note_key = "note.simplified"
         elif self.item.target_fmt in ("docx", "pdf") and self.item.source_fmt == "hwpx":
             # QA(h) Phase 1: hwpx_to_pdf도 내부적으로 hwpx_to_docx를 거치므로
@@ -127,7 +133,7 @@ class FileRow(QFrame):
             note_key = "note.simplified"
         elif self.item.target_fmt == "hwp" and self.item.source_fmt in ("docx", "pdf"):
             note_key = "note.simplified"
-        elif self.item.target_fmt == "images" and self.item.source_fmt == "pdf":
+        elif self.item.target_fmt in ("png", "jpg") and self.item.source_fmt == "pdf":
             note_key = "note.pdf_to_images"
         elif self.item.target_fmt == "pptx" and self.item.source_fmt == "pdf":
             note_key = "note.pdf_to_pptx"
@@ -375,10 +381,13 @@ class MainWindow(QMainWindow):
         self.result_note = QLabel()
         self.result_note.setObjectName("muted")
         self.result_note.setWordWrap(True)
+        self.result_locations = QVBoxLayout()  # 저장 위치 안내(외부 QA 피드백)
+        self.result_locations.setSpacing(2)
         rc.addWidget(self.result_title)
         rc.addWidget(self.result_counts)
         rc.addLayout(self.result_fails)
         rc.addWidget(self.result_note)
+        rc.addLayout(self.result_locations)
         btns = QHBoxLayout()
         btns.addStretch(1)
         self.open_folder_btn = QPushButton()
@@ -573,7 +582,7 @@ class MainWindow(QMainWindow):
         it.output = Path(output)
         it.renamed = renamed
         self.rows[item_id].refresh()
-        self.history.add(it.name, it.target_fmt, output, True)
+        self._record_history(it.name, it.target_fmt, output, True)
         self._bump()
 
     def _on_failed(self, item_id: int, key: str):
@@ -581,8 +590,16 @@ class MainWindow(QMainWindow):
         it.state = ItemState.FAILED
         it.error_key = key
         self.rows[item_id].refresh()
-        self.history.add(it.name, it.target_fmt or "", "", False)
+        self._record_history(it.name, it.target_fmt or "", "", False)
         self._bump()
+
+    def _record_history(self, name: str, target_fmt: str, output_path: str, success: bool):
+        """기록을 저장하고, 기록 패널이 이미 열려 있으면 그 자리에서 바로
+        새로고침한다 — 이전엔 패널을 껐다 켜야만(_toggle_history) 새 항목이
+        보였다(외부 QA 피드백)."""
+        self.history.add(name, target_fmt, output_path, success)
+        if self.history_panel.isVisible():
+            self._reload_history()
 
     def _on_skipped(self, item_id: int):
         it = self._find(item_id)
@@ -636,6 +653,38 @@ class MainWindow(QMainWindow):
         self.result_note.setText("\n".join(notes))
         self.result_note.setVisible(bool(notes))
         self.open_folder_btn.setVisible(bool(done))
+
+        # 저장 위치 안내(외부 QA 피드백) — 최근 기록 창을 따로 열어야만
+        # 저장 경로를 알 수 있던 문제. 결과가 폴더 자체(PDF→이미지, DEC-025)면
+        # 그 폴더를, 파일이면 부모 폴더를 "위치"로 본다(open_folder_btn과
+        # 같은 원칙) — 중복 없이 등장 순서대로, 너무 길어지지 않게 최대
+        # 3곳까지만 보여주고 나머지는 개수로 요약한다.
+        while self.result_locations.count():
+            w = self.result_locations.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        # 대소문자만 다른 경로는 같은 폴더로 본다 — Windows(NTFS)·macOS
+        # 기본(APFS)은 대소문자를 구분하지 않는 파일시스템이라, 단순 문자열
+        # 비교로 중복을 제거하면 같은 폴더가 서로 다른 항목으로 두 번 표시될
+        # 수 있다(외부 QA 피드백 리뷰로 발견).
+        locations = []
+        seen_lower = set()
+        for it in done:
+            loc = str(it.output if it.output.is_dir() else it.output.parent)
+            key = loc.casefold()
+            if key not in seen_lower:
+                seen_lower.add(key)
+                locations.append(loc)
+        for loc in locations[:3]:
+            lbl = QLabel(f"📂 {loc}")
+            lbl.setWordWrap(True)
+            lbl.setStyleSheet(
+                f'font-family:"Menlo","Consolas",monospace;font-size:10px;color:{t["onSurfaceVariant"]};')
+            self.result_locations.addWidget(lbl)
+        if len(locations) > 3:
+            more = QLabel(tr("result.location_more", n=len(locations) - 3))
+            more.setObjectName("muted")
+            self.result_locations.addWidget(more)
         self.overlay.setGeometry(self.centralWidget().rect())
         self.overlay.show()
         self.overlay.raise_()

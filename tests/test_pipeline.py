@@ -36,6 +36,111 @@ def _run_linesegdebug(hwp_path: Path):
     return rows
 
 
+def _mini_pdf_centered(path: Path):
+    """가운데 정렬된 한 줄짜리 최소 PDF(DEC-040) — 페이지 폭 612pt 기준
+    좌우 여백이 정확히 같도록 Helvetica 18pt 폭(pdfminer 내장 AFM 테이블,
+    tests/test_format_fidelity.py의 _helvetica_width와 같은 원리)을 직접
+    계산해 배치한다. 단일 줄 정렬 감지 중 유일하게 신뢰도 높은 경우가
+    가운데 정렬이라(페이지 중심 기준이라 문서의 실제 여백 폭을 몰라도
+    판단 가능 — pdf.py._classify_alignment 참고) 이걸로 검증한다."""
+    from pdfminer.pdffont import FONT_METRICS
+    _, metrics = FONT_METRICS["Helvetica"]
+    text = "Centered Line"
+    size = 18
+    width = sum(metrics.get(ch, metrics.get(" ", 500)) for ch in text) / 1000.0 * size
+    x = (612 - width) / 2
+    content = f"BT /F1 {size} Tf 1 0 0 1 {x:.2f} 700 Tm ({text}) Tj ET".encode()
+    stream = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R"
+        b" /Resources << /Font << /F1 5 0 R >> >> >>",
+        stream,
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    buf = b"%PDF-1.4\n"
+    offsets = []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(buf))
+        buf += f"{i} 0 obj\n".encode() + o + b"\nendobj\n"
+    xref = len(buf)
+    buf += b"xref\n0 " + str(len(objs) + 1).encode() + b"\n0000000000 65535 f \n"
+    for off in offsets:
+        buf += f"{off:010d} 00000 n \n".encode()
+    buf += (b"trailer\n<< /Size " + str(len(objs) + 1).encode() +
+            b" /Root 1 0 R >>\nstartxref\n" + str(xref).encode() + b"\n%%EOF")
+    path.write_bytes(buf)
+
+
+def _run_pagebreakdebug(hwp_path: Path):
+    """PageBreakDebug(테스트 전용 디버그 도구, sidecar/hwp/PageBreakDebug.java)를
+    직접 실행해 문단별 (pageBreakBefore, 텍스트)를 돌려준다 — DEC-039.
+    HwpToText/HwpToJson 둘 다 ParaShape의 이 속성을 안 보므로 hwplib로
+    직접 열어 확인해야 한다.
+
+    결과를 stdout이 아니라 UTF-8 파일로 받는다 — PowerShell이 외부 프로세스
+    stdout을 콘솔 코드페이지로 디코딩해 한글이 깨지는 문제가 있어(DEC-039
+    후속 수정), PageBreakDebug의 출력 방식이 파일 쓰기로 바뀌었다."""
+    import tempfile
+
+    from app.converters import hwp as hwp_mod
+    java = hwp_mod._java()
+    cp = hwp_mod._classpath()
+    with tempfile.TemporaryDirectory() as tmp:
+        out_path = Path(tmp) / "pagebreak-debug.txt"
+        proc = subprocess.run([java, "-cp", cp, "PageBreakDebug", str(hwp_path), str(out_path)],
+                               capture_output=True, text=True, timeout=30)
+        assert proc.returncode == 0, proc.stderr
+        content = out_path.read_text(encoding="utf-8")
+    rows = []
+    for line in content.strip().splitlines():
+        idx, page_break_before, text = line.split("\t", 2)
+        rows.append((int(idx), page_break_before == "true", text))
+    return rows
+
+
+def _mini_pdf_pages(path: Path, texts: list[str]):
+    """_mini_pdf와 같은 원리의 최소 PDF를 페이지마다 다른 텍스트로 생성
+    (tests/test_pdf_images.py의 _mini_pdf_pages와 같은 원리, 페이지별
+    텍스트를 직접 지정할 수 있게 확장 — DEC-039 페이지 구분 테스트용)."""
+    n = len(texts)
+    page_obj_start = 3
+    font_obj_num = page_obj_start + 2 * n
+    kids, page_bodies, content_bodies = [], [], []
+    for i, text in enumerate(texts):
+        page_idx = page_obj_start + 2 * i
+        content_idx = page_idx + 1
+        kids.append(f"{page_idx} 0 R")
+        content = f"BT /F1 18 Tf 40 700 Td ({text}) Tj ET".encode()
+        stream = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
+        page_bodies.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_idx} 0 R"
+            f" /Resources << /Font << /F1 {font_obj_num} 0 R >> >> >>".encode())
+        content_bodies.append(stream)
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        ("<< /Type /Pages /Kids [" + " ".join(kids) + f"] /Count {n} >>").encode(),
+    ]
+    for pb, cb in zip(page_bodies, content_bodies):
+        objs.append(pb)
+        objs.append(cb)
+    objs.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    buf = b"%PDF-1.4\n"
+    offsets = []
+    for i, o in enumerate(objs, 1):
+        offsets.append(len(buf))
+        buf += f"{i} 0 obj\n".encode() + o + b"\nendobj\n"
+    xref = len(buf)
+    buf += b"xref\n0 " + str(len(objs) + 1).encode() + b"\n0000000000 65535 f \n"
+    for off in offsets:
+        buf += f"{off:010d} 00000 n \n".encode()
+    buf += (b"trailer\n<< /Size " + str(len(objs) + 1).encode() +
+            b" /Root 1 0 R >>\nstartxref\n" + str(xref).encode() + b"\n%%EOF")
+    path.write_bytes(buf)
+
+
 def _mini_pdf(path: Path):
     content = b"BT /F1 18 Tf 40 700 Td (Hello Converter) Tj ET"
     stream = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
@@ -145,6 +250,47 @@ class TestHwp(Base):
         back = converters.convert(out, "txt", back_dir)
         self.assertIn("Hello Converter", back.read_text(encoding="utf-8"))
 
+    def test_pdf_to_hwp_alignment_roundtrip(self):
+        """DEC-040: PDF의 가운데 정렬 문단이 bbox 휴리스틱으로 감지돼 HWP
+        ParaShape에 실제로 반영되는지 — HWP→DOCX로 다시 왕복해 확인한다."""
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        src = self.tmp / "centered.pdf"
+        _mini_pdf_centered(src)
+        out = converters.convert(src, "hwp", self.tmp)
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        centered = next(p for p in Document(back).paragraphs if "Centered Line" in p.text)
+        self.assertEqual(centered.alignment, WD_ALIGN_PARAGRAPH.CENTER)
+
+    def test_pdf_to_hwp_preserves_page_breaks(self):
+        """DEC-039(외부 QA 피드백): PDF 여러 페이지가 HWP 안에서 페이지 구분
+        없이 하나로 이어 붙던 버그 — extract_text()가 페이지 경계를 버리는
+        게 원인이었다. 이제 페이지 단위로 직접 추출해 각 페이지 첫 문단에
+        pageBreakBefore를 표시하고, JsonToHwp가 그 문단에만 "문단 앞에서
+        항상 쪽 나눔" ParaShape을 건다 — PageBreakDebug로 문단별 실제
+        ParaShape 속성을 확인(HwpToText/HwpToJson은 이 속성을 안 봄)."""
+        src = self.tmp / "pages.pdf"
+        _mini_pdf_pages(src, ["Page One Text", "Page Two Text", "Page Three Text"])
+        out = converters.convert(src, "hwp", self.tmp)
+
+        rows = _run_pagebreakdebug(out)
+        by_text = {text: page_break_before for _, page_break_before, text in rows}
+        self.assertEqual(by_text.get("Page One Text"), False)
+        self.assertEqual(by_text.get("Page Two Text"), True)
+        self.assertEqual(by_text.get("Page Three Text"), True)
+
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "txt", back_dir)
+        back_text = back.read_text(encoding="utf-8")
+        self.assertIn("Page One Text", back_text)
+        self.assertIn("Page Two Text", back_text)
+        self.assertIn("Page Three Text", back_text)
+        self.assertLess(back_text.index("Page One Text"), back_text.index("Page Two Text"))
+        self.assertLess(back_text.index("Page Two Text"), back_text.index("Page Three Text"))
+
     @unittest.skipUnless(HWP_DISTRIBUTION.exists(), "distribution.hwp 샘플 없음")
     def test_distribution_protected_hwp_still_readable(self):
         """OQ-006: '배포용(복사방지)' 문서는 편집·인쇄 제한이지 텍스트 암호화가
@@ -185,6 +331,76 @@ class TestHwp(Base):
         self.assertIn("이름", text)
         self.assertIn("김철수", text)
         self.assertIn("영업1팀", text)
+
+    def test_docx_to_hwp_alignment_roundtrip(self):
+        """DEC-040: DOCX 문단에 직접 지정된 정렬(가운데/오른쪽/왼쪽/양쪽)이
+        HWP의 실제 정렬 ParaShape으로 반영되고, 다시 DOCX로 왕복해도 그대로
+        남는지 확인한다. 명시적으로 정렬을 지정 안 한 문단은 Word가 실제로
+        렌더링하는 값(왼쪽)이 그대로 유지돼야 한다 — 자동 리뷰로 발견된
+        회귀 수정: "정렬 미지정"을 HWP 쪽 기본 ParaShape(양쪽 정렬)로 옮기면
+        평범한 왼쪽 정렬 문단이 전부 양쪽 정렬로 바뀌어 버렸다(실제 hwplib
+        DOCX→HWP→JSON 왕복으로 재현 확인 후 수정)."""
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        src = self.tmp / "정렬.docx"
+        doc = Document()
+        doc.add_paragraph("기본 정렬")
+        p_center = doc.add_paragraph("가운데 정렬")
+        p_center.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_right = doc.add_paragraph("오른쪽 정렬")
+        p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        p_left = doc.add_paragraph("왼쪽 정렬 명시")
+        p_left.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        doc.save(src)
+
+        out = converters.convert(src, "hwp", self.tmp)
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        by_text = {p.text: p.alignment for p in Document(back).paragraphs}
+
+        self.assertEqual(by_text["기본 정렬"], WD_ALIGN_PARAGRAPH.LEFT)
+        self.assertEqual(by_text["가운데 정렬"], WD_ALIGN_PARAGRAPH.CENTER)
+        self.assertEqual(by_text["오른쪽 정렬"], WD_ALIGN_PARAGRAPH.RIGHT)
+        self.assertEqual(by_text["왼쪽 정렬 명시"], WD_ALIGN_PARAGRAPH.LEFT)
+
+    def test_docx_to_hwp_char_formatting_roundtrip(self):
+        """DEC-038: DOCX→HWP 쓰기 방향에도 문단 문자 서식(굵게/기울임/밑줄/
+        크기/색상)이 반영되는지 — 실제 hwplib로 DOCX→HWP→DOCX 왕복(HWP→DOCX
+        읽기 방향은 이미 DEC-027부터 반영돼 있었음)까지 확인한다."""
+        from docx import Document
+        from docx.shared import Pt, RGBColor
+
+        src = self.tmp / "formatted.docx"
+        doc = Document()
+        p = doc.add_paragraph()
+        p.add_run("일반 ")
+        bold_run = p.add_run("굵게")
+        bold_run.bold = True
+        styled_run = p.add_run("기울임+18pt+빨강")
+        styled_run.italic = True
+        styled_run.font.size = Pt(18)
+        styled_run.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+
+        p2 = doc.add_paragraph()
+        p2.add_run("둘째 문단 ")
+        underline_run = p2.add_run("밑줄")
+        underline_run.underline = True
+        doc.save(src)
+
+        out = converters.convert(src, "hwp", self.tmp)
+        back_dir = self.tmp / "back_fmt"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        doc2 = Document(back)
+
+        by_text = {run.text: run for p in doc2.paragraphs for run in p.runs}
+        self.assertFalse(bool(by_text["일반 "].font.bold))
+        self.assertTrue(by_text["굵게"].font.bold)
+        self.assertTrue(by_text["기울임+18pt+빨강"].font.italic)
+        self.assertEqual(by_text["기울임+18pt+빨강"].font.size, Pt(18))
+        self.assertEqual(by_text["기울임+18pt+빨강"].font.color.rgb, RGBColor(0xFF, 0x00, 0x00))
+        self.assertTrue(by_text["밑줄"].font.underline)
 
     def test_docx_to_hwp_preserves_long_wrapped_paragraph(self):
         """긴 문단(여러 줄로 감싸질 정도)이 HWP 레이아웃 캐시(LineSeg) 계산

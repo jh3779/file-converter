@@ -14,7 +14,7 @@ HWPLIB=../../spike/hwplib/libs/hwplib-main
 HWPXLIB=../../spike/hwpxlib/libs/hwpxlib-main
 [ -d "$HWPLIB" ] || { echo "hwplib 빌드가 없습니다: $HWPLIB (spike/hwplib/RESULT.md 참고)"; exit 1; }
 mkdir -p out
-SOURCES="HwpToText.java HwpToJson.java JsonToHwp.java LineSegDebug.java MakeFormattedHwp.java"
+SOURCES="HwpToText.java HwpToJson.java JsonToHwp.java LineSegDebug.java MakeFormattedHwp.java PageBreakDebug.java"
 CP="$HWPLIB"
 if [ -d "$HWPXLIB" ]; then
     SOURCES="$SOURCES HwpxToText.java HwpxToJson.java MakeTabHwpx.java"
