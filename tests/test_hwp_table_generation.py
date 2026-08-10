@@ -114,6 +114,68 @@ class TestDocxToHwpTableGeneration(unittest.TestCase):
         self.assertTrue(doc2.tables)
         self.assertEqual([c.text for c in doc2.tables[0].rows[0].cells], ["이름", "부서"])
 
+    def test_merged_cells_survive_docx_to_hwp_to_docx_round_trip(self):
+        """DEC-035: DOCX의 병합된 셀(가로+세로)이 HWP를 거쳐 다시 DOCX로
+        와도 실제 병합(gridSpan/vMerge)으로 남아있어야 한다 — 이전에는
+        병합이 풀려 평문 그리드로만 나왔다(DEC-028 "알려진 한계")."""
+        src = self.tmp / "merged.docx"
+        doc = Document()
+        table = doc.add_table(rows=3, cols=3)
+        for r in range(3):
+            for c in range(3):
+                table.cell(r, c).text = f"{r}{c}"
+        table.cell(0, 0).merge(table.cell(0, 1))
+        table.cell(0, 0).text = "H-merged"
+        table.cell(1, 2).merge(table.cell(2, 2))
+        table.cell(1, 2).text = "V-merged"
+        doc.save(src)
+
+        out = converters.convert(src, "hwp", self.tmp)
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        doc2 = Document(back)
+
+        table2 = doc2.tables[0]
+        self.assertEqual(len(table2.rows), 3)
+        self.assertEqual(len(table2.columns), 3)
+        self.assertEqual(table2.cell(0, 0).text, "H-merged")
+        self.assertEqual(table2.cell(0, 0)._tc, table2.cell(0, 1)._tc,
+                          "가로 병합이 풀려서 돌아옴")
+        self.assertEqual(table2.cell(1, 2).text, "V-merged")
+        self.assertEqual(table2.cell(1, 2)._tc, table2.cell(2, 2)._tc,
+                          "세로 병합이 풀려서 돌아옴")
+
+    def test_vertical_merge_spanning_entire_row_preserves_row_count(self):
+        """세로 병합이 어떤 행 전체를 덮으면(예: 1열 표에서 위 셀이 아래
+        행까지 병합) docx_extract.py는 그 행을 빈 배열([])로 낸다 — 이
+        빈 행을 JsonToHwp.parseTableSpec이 버리면 rowCount가 원본보다
+        줄어 뒤 행들의 병합·좌표가 전부 어긋난다(자동 PR 리뷰로 발견해
+        수정). 3행×1열, 위 두 행이 하나로 병합, 마지막 행은 별개인 표로
+        재현한다."""
+        src = self.tmp / "full_row_merge.docx"
+        doc = Document()
+        table = doc.add_table(rows=3, cols=1)
+        table.cell(0, 0).text = "머리글"
+        table.cell(1, 0).text = ""
+        table.cell(2, 0).text = "마지막행"
+        table.cell(0, 0).merge(table.cell(1, 0))
+        table.cell(0, 0).text = "머리글"
+        doc.save(src)
+
+        out = converters.convert(src, "hwp", self.tmp)
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        doc2 = Document(back)
+
+        table2 = doc2.tables[0]
+        self.assertEqual(len(table2.rows), 3, "행 전체를 덮는 세로 병합 때문에 행 수가 줄어듦(회귀)")
+        self.assertEqual(table2.cell(0, 0).text, "머리글")
+        self.assertEqual(table2.cell(0, 0)._tc, table2.cell(1, 0)._tc,
+                          "세로 병합이 풀려서 돌아옴")
+        self.assertEqual(table2.cell(2, 0).text, "마지막행")
+
     def test_hwp_to_json_structure_matches_source_dimensions(self):
         """HwpToJson으로 재읽었을 때도 실제 표 블록(행렬 수 일치)으로
         나오는지 — Python DOCX 재변환 경로를 거치지 않는 더 직접적인 확인."""

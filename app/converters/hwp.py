@@ -25,6 +25,14 @@ docx_extract.py가 run별 서식을 추출해 JsonToHwp.java가 DocInfo에 CharS
 재현 확인 후 보완) — numbering.xml을 해석해 마커를 문단 앞에 텍스트로
 붙인다. 다단계 중첩 목록의 상위 레벨 변경 시 하위 레벨 재시작 등 OOXML
 번호 매기기 전체 규칙까지는 재현하지 않는 문서화된 단순화다.
+
+PDF→HWP 페이지 경계(DEC-039, 외부 QA 피드백): pdf.py의 `_extract_pdf_blocks_by_page`가
+extract_pages()로 페이지 단위로 직접 순회해 각 페이지 첫 문단에
+`pageBreakBefore`를 표시하고, `JsonToHwp.java`가 그 문단만 ParaShape을
+복제해 "문단 앞에서 항상 쪽 나눔"(ParaShapeProperty1 19bit) 속성을 켠다
+(spike/hwplib/SpikePageBreak.java에서 write+read 왕복으로 비트 보존을
+직접 확인). 이전엔 pdfminer의 extract_text()로 문서 전체를 한 문자열로
+뽑아 페이지 구분 자체가 사라졌었다.
 """
 import json
 import os
@@ -128,12 +136,13 @@ def docx_to_hwp(src: Path, tmpdir: Path) -> Path:
 def pdf_to_hwp(src: Path, tmpdir: Path) -> Path:
     """PDF → 텍스트 추출 → HWP (레이아웃 단순화 — PDF→DOCX의 DEC-010과 같은 원칙).
     PDF는 표 구조 자체를 담고 있지 않으므로(추출 결과가 이미 평문) 문단
-    텍스트만 옮긴다."""
+    텍스트만 옮긴다. 페이지 경계는 유지한다(DEC-039) — 페이지 단위로 직접
+    추출해 각 페이지 첫 문단에 pageBreakBefore를 표시, JsonToHwp가 실제
+    쪽 나눔으로 반영한다(이전엔 전체를 한 문자열로 뭉쳐 페이지 구분이
+    사라졌었음 — 외부 QA로 재현 확인)."""
     from . import pdf as pdf_mod
-    from .docx_build import text_to_blocks
 
-    txt = pdf_mod.pdf_to_txt(src, tmpdir)
-    blocks = text_to_blocks(txt.read_text(encoding="utf-8"))
+    blocks = pdf_mod._extract_pdf_blocks_by_page(src)
     return _blocks_to_hwp(blocks, src, tmpdir)
 
 
