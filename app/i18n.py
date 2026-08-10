@@ -43,6 +43,7 @@ _S = {
     "result.renamed": ("이름이 겹쳐 {name}(으)로 저장했습니다",
                        "Saved as {name} to avoid a name clash"),
     "result.openfolder": ("결과 폴더 열기", "Open folder"),
+    "result.location_more": ("외 {n}곳 더", "and {n} more location(s)"),
 
     "history.title": ("최근 기록", "Recent history"),
     "history.local": ("기록은 이 컴퓨터에만 저장됩니다", "History is stored only on this computer"),
@@ -111,10 +112,17 @@ _S = {
                                "This is an animated image — only the first frame will be converted"),
     "note.pdf_to_images": ("원본 파일명으로 폴더를 만들어 페이지별 이미지로 저장해요",
                            "A folder named after the file will hold one image per page"),
-    "note.pdf_to_pptx": ("텍스트는 원래 위치에 맞춰 슬라이드로 재구성돼요 — "
-                         "표 테두리·이미지 등은 옮겨지지 않아요",
-                         "Text is rebuilt into slides at its original position — "
-                         "table borders and images are not carried over"),
+    "note.pdf_to_pptx": ("텍스트·이미지·표 테두리는 원래 위치에 맞춰 슬라이드로 "
+                         "재구성돼요 — 복잡한 곡선 도형은 다각형으로 근사될 수 있어요",
+                         "Text, images, and table borders are rebuilt into slides at "
+                         "their original position — complex curved shapes may be "
+                         "approximated as polygons"),
+    "note.pdf_to_docx": ("텍스트는 원래 위치에 맞춰 배치돼요 — 줄마다 고정된 위치라 "
+                         "이어서 입력하면 다음 줄과 자연스럽게 안 이어질 수 있고, "
+                         "이미지·표 테두리 등은 옮겨지지 않아요",
+                         "Text is placed to match its original position — since each "
+                         "line sits at a fixed spot, typing across lines may not flow "
+                         "naturally, and images and table borders are not carried over"),
     "err.notyet": ("이 변환은 다음 버전에서 지원될 예정입니다.",
                    "This conversion is coming in a future update."),
 }
