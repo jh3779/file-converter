@@ -164,11 +164,29 @@ def _paragraph_numpr(paragraph):
     return num_id, ilvl
 
 
-_ALIGN_TO_STR = {
-    "LEFT": "left", "CENTER": "center", "RIGHT": "right",
-    "JUSTIFY": "justify", "JUSTIFY_MED": "justify", "JUSTIFY_HI": "justify",
-    "JUSTIFY_LOW": "justify", "DISTRIBUTE": "justify", "THAI_JUSTIFY": "justify",
-}
+_ALIGN_TO_STR = None  # 지연 초기화 — docx.enum.text 임포트 비용을 문서 안 열 때는 안 지불하도록
+
+
+def _align_to_str_map():
+    """WD_ALIGN_PARAGRAPH 상수 자체를 key로 쓴다 — 문자열 이름(`.name`)
+    비교 대신 enum 값 직접 비교라 python-docx의 내부 표현이 어떻게 바뀌든
+    안전하다(자동 리뷰 지적 반영, docx_build._align_map()의 역방향과
+    같은 지연 초기화 패턴)."""
+    global _ALIGN_TO_STR
+    if _ALIGN_TO_STR is None:
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        _ALIGN_TO_STR = {
+            WD_ALIGN_PARAGRAPH.LEFT: "left",
+            WD_ALIGN_PARAGRAPH.CENTER: "center",
+            WD_ALIGN_PARAGRAPH.RIGHT: "right",
+            WD_ALIGN_PARAGRAPH.JUSTIFY: "justify",
+            WD_ALIGN_PARAGRAPH.JUSTIFY_MED: "justify",
+            WD_ALIGN_PARAGRAPH.JUSTIFY_HI: "justify",
+            WD_ALIGN_PARAGRAPH.JUSTIFY_LOW: "justify",
+            WD_ALIGN_PARAGRAPH.DISTRIBUTE: "justify",
+            WD_ALIGN_PARAGRAPH.THAI_JUSTIFY: "justify",
+        }
+    return _ALIGN_TO_STR
 
 
 def _paragraph_align(paragraph) -> str | None:
@@ -184,7 +202,7 @@ def _paragraph_align(paragraph) -> str | None:
     alignment = paragraph.alignment
     if alignment is None:
         return "left"
-    return _ALIGN_TO_STR.get(alignment.name)
+    return _align_to_str_map().get(alignment)
 
 
 def _run_to_dict(run) -> dict | None:
