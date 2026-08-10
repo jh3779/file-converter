@@ -34,6 +34,9 @@ jobs:
       # 스파이크로 검증된 hwplib 리비전 (spike/hwplib/RESULT.md · DEC-007).
       # 갱신은 별도 PR에서 스파이크/스모크 결과와 함께 진행할 것.
       HWPLIB_REV: d9e073d6899d947f8f583492e00a5e1062381d7e
+      # 스파이크로 검증된 hwpxlib 리비전(spike/hwpxlib/RESULT.md, QA(h)
+      # Phase 1) — hwplib과 별개 라이브러리(HWPX 지원). 패치 불요.
+      HWPXLIB_REV: 473d9d6aa82d8896f4f464b52d801e5691dc7cf3
       # 공식 배포 서버에서 curl로 직접 확인한 SHA256 (DEC-012). 버전 갱신 시
       # download.documentfoundation.org의 <파일명>.sha256을 다시 확인해 갱신할 것.
       LO_VERSION: "26.2.5"
@@ -60,7 +63,7 @@ jobs:
       - run: pip install -r requirements.txt pyinstaller
         # python-pptx는 이제 requirements.txt의 실제 런타임 의존성이다
         # (PDF→PPTX, DEC-030) — 별도로 다시 설치할 필요 없음.
-      - name: Build HWP engine (hwplib + sidecar + jlink JRE)
+      - name: Build HWP engine (hwplib + hwpxlib + sidecar + jlink JRE)
         shell: pwsh
         run: |
           git clone https://github.com/neolord0/hwplib.git hwplib-src
@@ -69,8 +72,17 @@ jobs:
           Get-ChildItem -Recurse hwplib-src/src/main/java -Filter *.java |
             ForEach-Object { $_.FullName } | Set-Content -Encoding utf8 sources.txt
           javac -encoding UTF-8 -nowarn "@sources.txt" -d engine-build/hwp
+          # hwpxlib(QA(h) Phase 1, HWPX 읽기) — hwplib과 패키지명이 겹치지
+          # 않아(kr.dogfoot.hwplib vs kr.dogfoot.hwpxlib) 같은 engine-build/hwp에
+          # 같이 넣는다. 순수 JDK 소스라 hwplib과 달리 패치 불요(spike/hwpxlib/RESULT.md).
+          git clone https://github.com/neolord0/hwpxlib.git hwpxlib-src
+          git -C hwpxlib-src checkout $env:HWPXLIB_REV
+          Get-ChildItem -Recurse hwpxlib-src/src/main/java -Filter *.java |
+            ForEach-Object { $_.FullName } | Set-Content -Encoding utf8 sources-hwpx.txt
+          javac -encoding UTF-8 -nowarn "@sources-hwpx.txt" -d engine-build/hwp
           javac -encoding UTF-8 -cp engine-build/hwp -d engine-build/hwp `
-            sidecar/hwp/HwpToText.java sidecar/hwp/HwpToJson.java sidecar/hwp/JsonToHwp.java
+            sidecar/hwp/HwpToText.java sidecar/hwp/HwpToJson.java sidecar/hwp/JsonToHwp.java `
+            sidecar/hwp/HwpxToText.java sidecar/hwp/HwpxToJson.java
           jlink --add-modules java.base,java.desktop,java.xml,java.logging `
             --strip-debug --no-header-files --no-man-pages --output engine-build/jre
       - name: HWP engine smoke (bundled JRE + 한글 텍스트 샘플)
@@ -258,6 +270,26 @@ jobs:
               Write-Error "HWP engine smoke failed: 표가 아닌 컨트롤(머리말·글상자) 텍스트 유실(#43 회귀) — $expected 없음"; exit 1
             }
           }
+      - name: HWPX engine smoke (QA(h) Phase 1 — hwpxlib 실제 샘플)
+        shell: pwsh
+        run: |
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpxToText `
+            hwpxlib-src/testFile/tool/textextractor/multipara.hwpx hwpx_out.txt
+          if (-not (Get-Content hwpx_out.txt -Encoding utf8 | Select-String -Pattern "김하성" -Quiet)) {
+            Write-Error "HWPX engine smoke failed: 한글 텍스트 추출 불일치"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpxToJson `
+            hwpxlib-src/testFile/tool/textextractor/multipara.hwpx hwpx_out.json
+          $hwpxJson = Get-Content hwpx_out.json -Encoding utf8 -Raw
+          if (-not ($hwpxJson | Select-String -Pattern '"bold":false' -Quiet)) {
+            Write-Error "HWPX engine smoke failed: HwpxToJson 문단 서식 필드 누락"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpxToJson `
+            hwpxlib-src/testFile/tool/textextractor/Table.hwpx hwpx_table.json
+          $hwpxTableJson = Get-Content hwpx_table.json -Encoding utf8 -Raw
+          if (-not ($hwpxTableJson | Select-String -Pattern '"type":"table","rows":\[\["이름","국어","영어","수학"\]' -Quiet)) {
+            Write-Error "HWPX engine smoke failed: 표 구조 불일치"; exit 1
+          }
       - name: Cache LibreOffice installer
         uses: actions/cache@v4
         with:
@@ -401,6 +433,7 @@ jobs:
           Copy-Item -Recurse engine-build dist/FileConverter/engine
           New-Item -ItemType Directory -Force dist/FileConverter/engine/licenses | Out-Null
           Copy-Item hwplib-src/license.txt dist/FileConverter/engine/licenses/hwplib-LICENSE.txt
+          Copy-Item hwpxlib-src/license.txt dist/FileConverter/engine/licenses/hwpxlib-LICENSE.txt
           Copy-Item packaging/THIRD_PARTY_NOTICES.txt dist/FileConverter/THIRD_PARTY_NOTICES.txt
           # app/version.py가 배포판(frozen)에서 exe 옆의 이 파일로 현재 버전을
           # 읽는다(OQ-002 업데이트 확인 기능 — DEC-022). packaging/VERSION이
@@ -416,6 +449,9 @@ jobs:
           }
           if (-not (Test-Path dist/FileConverter/THIRD_PARTY_NOTICES.txt)) {
             Write-Error "THIRD_PARTY_NOTICES.txt 누락"; exit 1
+          }
+          if (-not (Test-Path dist/FileConverter/engine/licenses/hwpxlib-LICENSE.txt)) {
+            Write-Error "hwpxlib 라이선스 파일이 아티팩트에 없습니다 (QA(h) Phase 1)"; exit 1
           }
           if (-not (Get-ChildItem dist/FileConverter/engine/licenses/libreoffice -Filter "LICENSE*" -ErrorAction SilentlyContinue)) {
             Write-Error "LibreOffice 라이선스 파일이 아티팩트에 없습니다"; exit 1
@@ -558,6 +594,7 @@ jobs:
     runs-on: macos-latest
     env:
       HWPLIB_REV: d9e073d6899d947f8f583492e00a5e1062381d7e
+      HWPXLIB_REV: 473d9d6aa82d8896f4f464b52d801e5691dc7cf3
       LO_VERSION: "26.2.5"
       # 공식 배포 서버에서 curl로 직접 확인한 SHA256 (mac/aarch64).
       LO_MAC_SHA256: c99fb4fe574437fc4cb820a4ca15271bca325920861f7139858b36d7f9df78ad
@@ -573,15 +610,22 @@ jobs:
           distribution: temurin
           java-version: "21"
       - run: pip install -r requirements.txt pyinstaller
-      - name: Build HWP engine (hwplib + sidecar + jlink JRE)
+      - name: Build HWP engine (hwplib + hwpxlib + sidecar + jlink JRE)
         run: |
           git clone https://github.com/neolord0/hwplib.git hwplib-src
           git -C hwplib-src checkout "$HWPLIB_REV"
           python3 scripts/patch_hwplib.py hwplib-src
           find hwplib-src/src/main/java -name '*.java' > sources.txt
           javac -encoding UTF-8 -nowarn @sources.txt -d engine-build/hwp
+          # hwpxlib(QA(h) Phase 1) — 패키지명이 겹치지 않아 같은 engine-build/hwp에
+          # 같이 넣는다. 순수 JDK 소스라 패치 불요(spike/hwpxlib/RESULT.md).
+          git clone https://github.com/neolord0/hwpxlib.git hwpxlib-src
+          git -C hwpxlib-src checkout "$HWPXLIB_REV"
+          find hwpxlib-src/src/main/java -name '*.java' > sources-hwpx.txt
+          javac -encoding UTF-8 -nowarn @sources-hwpx.txt -d engine-build/hwp
           javac -encoding UTF-8 -cp engine-build/hwp -d engine-build/hwp \
-            sidecar/hwp/HwpToText.java sidecar/hwp/HwpToJson.java sidecar/hwp/JsonToHwp.java
+            sidecar/hwp/HwpToText.java sidecar/hwp/HwpToJson.java sidecar/hwp/JsonToHwp.java \
+            sidecar/hwp/HwpxToText.java sidecar/hwp/HwpxToJson.java
           jlink --add-modules java.base,java.desktop,java.xml,java.logging \
             --strip-debug --no-header-files --no-man-pages --output engine-build/jre
       - name: HWP engine smoke (bundled JRE + 한글 텍스트 샘플)
@@ -814,6 +858,25 @@ jobs:
                   print(f"::error::HWP engine smoke failed: 표가 아닌 컨트롤(머리말·글상자) 텍스트 유실(#43 회귀) — {expected} 없음")
                   sys.exit(1)
           PY
+      - name: HWPX engine smoke (QA(h) Phase 1 — hwpxlib 실제 샘플)
+        run: |
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToText \
+            hwpxlib-src/testFile/tool/textextractor/multipara.hwpx hwpx_out.txt
+          grep -qF "김하성" hwpx_out.txt || { echo "::error::HWPX engine smoke failed: 한글 텍스트 추출 불일치"; exit 1; }
+
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson \
+            hwpxlib-src/testFile/tool/textextractor/multipara.hwpx hwpx_out.json
+          grep -qF '"bold":false' hwpx_out.json || { echo "::error::HWPX engine smoke failed: HwpxToJson 문단 서식 필드 누락"; exit 1; }
+
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson \
+            hwpxlib-src/testFile/tool/textextractor/Table.hwpx hwpx_table.json
+          python3 <<'PY'
+          import re, sys
+          text = open("hwpx_table.json", encoding="utf-8").read()
+          if not re.search(r'"type":"table","rows":\[\["이름","국어","영어","수학"\]', text):
+              print("::error::HWPX engine smoke failed: 표 구조 불일치")
+              sys.exit(1)
+          PY
       - name: Restore LibreOffice installer cache
         id: lo-cache
         uses: actions/cache/restore@v4
@@ -926,6 +989,7 @@ jobs:
           cp -R engine-build "$target/engine"
           mkdir -p "$target/engine/licenses"
           cp hwplib-src/license.txt "$target/engine/licenses/hwplib-LICENSE.txt"
+          cp hwpxlib-src/license.txt "$target/engine/licenses/hwpxlib-LICENSE.txt"
           cp packaging/THIRD_PARTY_NOTICES.txt "$target/THIRD_PARTY_NOTICES.txt"
           # app/version.py가 배포판(frozen)에서 실행 파일 옆의 이 파일로 현재
           # 버전을 읽는다(OQ-002 업데이트 확인 기능 — DEC-022).
@@ -935,6 +999,9 @@ jobs:
           target="dist/FileConverter.app/Contents/MacOS"
           if [ ! -d "$target/engine/licenses/libreoffice" ]; then
             echo "::error::LibreOffice 라이선스 파일이 아티팩트에 없습니다"; exit 1
+          fi
+          if [ ! -f "$target/engine/licenses/hwpxlib-LICENSE.txt" ]; then
+            echo "::error::hwpxlib 라이선스 파일이 아티팩트에 없습니다 (QA(h) Phase 1)"; exit 1
           fi
           if [ ! -f "$target/engine/libreoffice/LibreOffice.app/Contents/Resources/fonts/truetype/NotoSansKR-Regular.otf" ]; then
             echo "::error::Noto Sans KR 글꼴이 아티팩트에 없습니다 (DEC-015)"; exit 1

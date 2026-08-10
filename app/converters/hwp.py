@@ -69,13 +69,21 @@ def _classpath() -> str | None:
     env = os.environ.get("FILECONV_HWP_CLASSPATH")
     if env:
         return env
-    bundled = engine_dir() / "hwp"          # 배포판: hwplib+사이드카 클래스 단일 폴더
+    bundled = engine_dir() / "hwp"          # 배포판: hwplib+hwpxlib+사이드카 클래스 단일 폴더
     if bundled.exists():
         return str(bundled)
     hwplib = _REPO / "spike" / "hwplib" / "libs" / "hwplib-main"
     sidecar = _REPO / "sidecar" / "hwp" / "out"
     if hwplib.exists() and sidecar.exists():
-        return f"{sidecar}{os.pathsep}{hwplib}"
+        parts = [str(sidecar), str(hwplib)]
+        # hwpxlib(QA(h) Phase 1, HWPX 읽기)은 hwplib과 패키지명이 겹치지
+        # 않아 같은 사이드카·엔진 번들에 얹었다 — 로컬 개발 빌드가 아직
+        # 없으면(HWPX 스파이크를 안 해본 환경) 조용히 빠지고 HWP 경로만
+        # 정상 동작한다(HWPX 변환 시도할 때만 err.hwp_missing으로 실패).
+        hwpxlib = _REPO / "spike" / "hwpxlib" / "libs" / "hwpxlib-main"
+        if hwpxlib.exists():
+            parts.append(str(hwpxlib))
+        return os.pathsep.join(parts)
     return None
 
 
