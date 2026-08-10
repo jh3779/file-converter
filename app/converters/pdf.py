@@ -702,17 +702,25 @@ def _container_to_runs(container) -> list[dict]:
     return runs
 
 
-def pdf_to_images(src: Path, tmpdir: Path) -> Path:
-    """PDF → 페이지별 PNG, 원본 파일명 폴더 안에 저장 (DEC-025).
+_PDF_IMAGE_PILLOW_FORMAT = {"png": "PNG", "jpg": "JPEG"}
+
+
+def pdf_to_images(src: Path, tmpdir: Path, ext: str = "png") -> Path:
+    """PDF → 페이지별 이미지(PNG 또는 JPG), 원본 파일명 폴더 안에 저장
+    (DEC-026, JPG 옵션은 DEC-043 — 외부 QA 피드백: PNG만 지원하던 것을 확장).
 
     pypdfium2(Apache-2.0/BSD-3-Clause, permissive) 사용 — LibreOffice의
     `--convert-to png`는 다중 페이지 PDF에서 첫 페이지 1장만 내보내는 것을
-    직접 확인해 채택하지 않았다(엔진 조사 기록: DEC-025).
+    직접 확인해 채택하지 않았다(엔진 조사 기록: DEC-026). PDF 페이지 렌더링
+    결과(`bitmap.to_pil()`)는 항상 알파 채널 없는 RGB라 JPEG 저장 시 다른
+    이미지 변환(image.py)처럼 투명 배경을 흰색으로 합성하는 처리가 필요
+    없음을 로컬에서 직접 확인했다.
 
     반환값이 폴더 경로라는 점에서 다른 컨버터와 다르다 — output.py의
     finalize()가 결과가 폴더인지 파일인지 자동으로 판단해 처리한다.
     """
     import pypdfium2 as pdfium
+    fmt = _PDF_IMAGE_PILLOW_FORMAT[ext]
     try:
         doc = pdfium.PdfDocument(src)
     except pdfium.PdfiumError as e:
@@ -728,7 +736,7 @@ def pdf_to_images(src: Path, tmpdir: Path) -> Path:
         for i, page in enumerate(doc, start=1):
             bitmap = page.render(scale=2.0)
             try:
-                bitmap.to_pil().save(out_dir / f"page_{i:0{width}d}.png")
+                bitmap.to_pil().save(out_dir / f"page_{i:0{width}d}.{ext}", format=fmt)
             finally:
                 bitmap.close()
                 page.close()

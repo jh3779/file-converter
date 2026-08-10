@@ -114,7 +114,13 @@ class TestFormatNote(unittest.TestCase):
         self.assertFalse(visible)
 
     def test_pdf_to_images_shows_folder_note(self):
-        visible, text = self._note_for("pdf", "images")
+        """DEC-026 — PNG. DEC-043으로 JPG도 같은 고지를 받아야 한다."""
+        visible, text = self._note_for("pdf", "png")
+        self.assertTrue(visible)
+        self.assertIn("폴더", text)
+
+    def test_pdf_to_jpg_shows_folder_note(self):
+        visible, text = self._note_for("pdf", "jpg")
         self.assertTrue(visible)
         self.assertIn("폴더", text)
 

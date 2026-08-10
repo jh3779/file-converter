@@ -313,17 +313,31 @@ def main():
         except Exception as e:
             check("이미지 PNG→JPG 변환 완료", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
-        # 8) PDF -> 이미지(페이지별 폴더, DEC-025). pypdfium2도 Pillow와 마찬가지로
-        #    새 네이티브 의존성이라 패키징 경로 검증이 필요함. 자체 생성 DOCX를
-        #    PDF로 변환해(위 1번과 같은 방식) 실제 파이프라인으로 검증한다.
+        # 8) PDF -> 이미지(페이지별 폴더, PNG/JPG, DEC-026·DEC-043). pypdfium2도
+        #    Pillow와 마찬가지로 새 네이티브 의존성이라 패키징 경로 검증이
+        #    필요함. 자체 생성 DOCX를 PDF로 변환해(위 1번과 같은 방식) 실제
+        #    파이프라인으로 검증한다.
         try:
             out = converters.convert(src_docx, "pdf", tmp)
-            img_dir = converters.convert(out, "images", tmp)
-            check("PDF→이미지: 폴더 결과물 생성", img_dir.is_dir(), str(img_dir))
-            check("PDF→이미지: 폴더명이 원본 파일명과 일치", img_dir.name == out.stem,
+            img_dir = converters.convert(out, "png", tmp)
+            check("PDF→PNG: 폴더 결과물 생성", img_dir.is_dir(), str(img_dir))
+            check("PDF→PNG: 폴더명이 원본 파일명과 일치", img_dir.name == out.stem,
                   f"{img_dir.name} != {out.stem}")
             pages = list(img_dir.iterdir())
-            check("PDF→이미지: 페이지 이미지 1개 이상 생성", len(pages) >= 1, str(len(pages)))
+            check("PDF→PNG: 페이지 이미지 1개 이상 생성", len(pages) >= 1, str(len(pages)))
+            check("PDF→PNG: 확장자가 .png", all(p.suffix == ".png" for p in pages), str(pages))
+
+            # 실제 앱은 변환마다 항상 새 tmpdir을 쓴다(app/workers.py의
+            # make_tmpdir()) — 같은 tmp를 재사용하면 두 번째 호출이 첫 번째
+            # 결과 폴더(원본 파일명과 같은 이름)에 파일을 더해 넣는다(로컬
+            # 재현 확인). 여기서도 같은 원칙으로 새 임시 폴더를 쓴다.
+            jpg_dir = converters.convert(out, "jpg", Path(tempfile.mkdtemp()))
+            jpg_pages = list(jpg_dir.iterdir())
+            check("PDF→JPG: 페이지 이미지 1개 이상 생성", len(jpg_pages) >= 1, str(len(jpg_pages)))
+            check("PDF→JPG: 확장자가 .jpg", all(p.suffix == ".jpg" for p in jpg_pages), str(jpg_pages))
+            from PIL import Image
+            with Image.open(jpg_pages[0]) as jpg_result:
+                check("PDF→JPG: 결과 포맷이 JPEG", jpg_result.format == "JPEG", jpg_result.format)
         except ConversionError as e:
             check("PDF→이미지 변환 완료", False, f"{e.key}: {e.detail}")
         except Exception as e:
