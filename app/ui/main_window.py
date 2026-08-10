@@ -382,6 +382,21 @@ class MainWindow(QMainWindow):
         rc = QVBoxLayout(self.result_card)
         rc.setContentsMargins(18, 16, 18, 14)
         rc.setSpacing(8)
+
+        # 내용(제목~저장 위치)만 스크롤 가능하게 감싸고 버튼 행은 스크롤 밖에
+        # 고정한다 — 실패 목록·저장 위치가 늘어나 카드 전체 높이가 저해상도
+        # 창보다 커지면, 스크롤 없이는 "확인"/"폴더 열기" 버튼까지 화면 밖으로
+        # 밀려나 결과 창을 닫을 방법이 없어지는 문제가 있었다(QA(e), 재현
+        # 확인 후 수정).
+        self.result_scroll = QScrollArea()
+        self.result_scroll.setWidgetResizable(True)
+        self.result_scroll.setFrameShape(QFrame.NoFrame)
+        self.result_scroll.setStyleSheet("background:transparent;")
+        result_content = QWidget()
+        result_content.setStyleSheet("background:transparent;")
+        rcc = QVBoxLayout(result_content)
+        rcc.setContentsMargins(0, 0, 0, 0)
+        rcc.setSpacing(8)
         self.result_title = QLabel()
         self.result_title.setStyleSheet("font-weight:700;font-size:14px;")
         self.result_counts = QLabel()
@@ -392,11 +407,14 @@ class MainWindow(QMainWindow):
         self.result_note.setWordWrap(True)
         self.result_locations = QVBoxLayout()  # 저장 위치 안내(외부 QA 피드백)
         self.result_locations.setSpacing(2)
-        rc.addWidget(self.result_title)
-        rc.addWidget(self.result_counts)
-        rc.addLayout(self.result_fails)
-        rc.addWidget(self.result_note)
-        rc.addLayout(self.result_locations)
+        rcc.addWidget(self.result_title)
+        rcc.addWidget(self.result_counts)
+        rcc.addLayout(self.result_fails)
+        rcc.addWidget(self.result_note)
+        rcc.addLayout(self.result_locations)
+        self.result_scroll.setWidget(result_content)
+        rc.addWidget(self.result_scroll)
+
         btns = QHBoxLayout()
         btns.addStretch(1)
         self.open_folder_btn = QPushButton()
@@ -414,6 +432,15 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self.overlay.setGeometry(self.centralWidget().rect())
+        # 결과 카드 안 스크롤 영역의 최대 높이를 창 크기에 맞춰 다시 계산한다
+        # — 카드 자체는 고정 높이가 아니라 내용에 맞춰 커지므로, 이 상한이
+        # 없으면 저해상도 창에서 카드가 창보다 커져 버튼이 잘릴 수 있다.
+        # 160은 카드 여백(rc 상하 margin 30)·제목·개수 라벨·버튼 행 높이를
+        # 실측으로 감안한 여유값 — 정확한 각 위젯 높이를 매번 합산하는
+        # 대신 저해상도(1280x720급)에서도 버튼이 항상 보이는지 실제로
+        # 확인한 값을 씀.
+        reserve = 160
+        self.result_scroll.setMaximumHeight(max(120, self.centralWidget().height() - reserve))
 
     # ---------- i18n (DEC-009) ----------
     def retranslate(self):
