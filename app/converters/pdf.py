@@ -322,6 +322,14 @@ def _classify_alignment(boxes: list[tuple[float, float, float, float]], page_wid
     right_consistent = len(rights_body) >= 2 and (max(rights_body) - min(rights_body)) <= _ALIGN_TOL
 
     if left_consistent and right_consistent:
+        # 알려진 한계(자동 리뷰 지적, 재현 확인·의도적으로 안 고침): 모든
+        # 줄의 폭이 우연히 똑같은 가운데 정렬 문단은 좌우 끝이 둘 다
+        # 일치해 버려 여기서 "justify"로 잘못 나올 수 있다. "좌우 여백이
+        # 페이지 중심 기준으로 대칭인지"를 추가 판별 신호로 써서 가운데로
+        # 우선시키는 방안도 검토했으나, 좌우 여백이 똑같은(예: 1인치 표준
+        # 여백) 페이지의 흔한 진짜 양쪽 정렬 문단까지 가운데로 오분류하는
+        # 더 나쁜 회귀가 생김을 재현으로 확인해 채택하지 않았다(희귀한
+        # 엣지 케이스 하나보다 흔한 케이스를 깨뜨리지 않는 쪽을 택함).
         return "justify"
     if left_consistent:
         return "left"  # 왼쪽 정렬 — 명시적으로 반환(생략하면 HWP 기본값인 양쪽 정렬로 해석됨)
