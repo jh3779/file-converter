@@ -98,6 +98,34 @@ class TestModel3DConversion(unittest.TestCase):
         self.assertNotIn("obj", converters.targets_for("obj"))
         self.assertIn("stl", converters.targets_for("obj"))
 
+    def test_gltf_output_survives_finalize_and_tmpdir_deletion(self):
+        """자동 PR 리뷰 지적(재현 확인 후 수정): .gltf(텍스트 JSON) 내보내기는
+        기본값으로 정점/인덱스 버퍼를 별도 .bin 파일로 만든다 — 이 앱의
+        실제 파이프라인(app/output.py의 finalize()가 convert()가 돌려준
+        파일 하나만 옮기고, app/workers.py가 남은 임시 폴더를 통째로 지움,
+        REQ-F-008/app/output.py)을 그대로 흉내내면(단일 파일만 다른 폴더로
+        옮기고 원래 tmpdir을 삭제) .bin이 사라져 깨진 파일이 됐었다.
+        embed_buffers=True로 고쳐 단일 파일이 되는지 확인한다."""
+        for src_ext in ("obj", "stl", "ply", "glb"):
+            with self.subTest(src=src_ext):
+                convert_tmp = Path(tempfile.mkdtemp())
+                src = convert_tmp / f"box.{src_ext}"
+                original = self._make_box(src)
+                out = converters.convert(src, "gltf", convert_tmp)
+
+                # finalize()처럼 결과 파일 "하나만" 별도 위치로 옮긴다.
+                final_dir = Path(tempfile.mkdtemp())
+                final_path = final_dir / out.name
+                out.rename(final_path)
+                # workers.py처럼 원래 임시 폴더를 통째로 지운다(.bin이
+                # 남아있었다면 여기서 함께 사라짐).
+                shutil.rmtree(convert_tmp, ignore_errors=True)
+
+                result = trimesh.load(final_path, force="mesh")
+                self.assertEqual(len(result.faces), len(original.faces))
+                self.assertAlmostEqual(result.volume, original.volume, places=1)
+                shutil.rmtree(final_dir, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main()
