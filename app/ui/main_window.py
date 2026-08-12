@@ -24,7 +24,8 @@ _ICONS = {"docx": "📄", "pdf": "📄", "hwp": "📄", "hwpx": "📄", "txt": "
           "avi": "🎬", "mov": "🎬", "mkv": "🎬", "wmv": "🎬", "flv": "🎬",
           "webm": "🎬", "m4v": "🎬",
           "jpg": "🖼", "jpeg": "🖼", "png": "🖼", "bmp": "🖼", "gif": "🖼",
-          "webp": "🖼", "tiff": "🖼"}
+          "webp": "🖼", "tiff": "🖼",
+          "obj": "🧊", "stl": "🧊", "ply": "🧊", "glb": "🧊", "gltf": "🧊"}
 
 _BADGE = {  # state → (bg 토큰, fg 토큰, i18n 키)
     ItemState.QUEUED: ("stQueuedBg", "stQueuedFg", "st.queued"),
