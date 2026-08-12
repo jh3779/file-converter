@@ -1,6 +1,8 @@
 import kr.dogfoot.hwpxlib.object.HWPXFile;
+import kr.dogfoot.hwpxlib.object.content.header_xml.enumtype.HorizontalAlign2;
 import kr.dogfoot.hwpxlib.object.content.header_xml.enumtype.UnderlineType;
 import kr.dogfoot.hwpxlib.object.content.header_xml.references.CharPr;
+import kr.dogfoot.hwpxlib.object.content.header_xml.references.ParaPr;
 import kr.dogfoot.hwpxlib.object.content.section_xml.ParaListCore;
 import kr.dogfoot.hwpxlib.object.content.section_xml.SectionXMLFile;
 import kr.dogfoot.hwpxlib.object.content.section_xml.SubList;
@@ -25,13 +27,15 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 
 /**
- * HWPX → 구조 JSON 사이드카(QA(h) Phase 1 — 읽기, 외부 QA 요청). 사용:
+ * HWPX → 구조 JSON 사이드카(Phase 1: QA(h) 외부 요청, Phase 2: DEC-049
+ * HWPX 쓰기 착수에 맞춰 표 병합·정렬 읽기 확장). 사용:
  * java HwpxToJson <in.hwpx> <out.json>
  * 출력 스키마는 HwpToJson.java(HWP용)와 동일 — DOCX 쪽(docx_build.py)이
  * 포맷 구분 없이 그대로 재사용할 수 있게 맞췄다:
  * {"blocks":[
- *   {"type":"p","runs":[{"text":"...","bold":bool,"italic":bool,"underline":bool,"size":pt,"color":"RRGGBB"}]} |
- *   {"type":"table","rows":[["c1","c2"],...]}
+ *   {"type":"p","runs":[{"text":"...","bold":bool,"italic":bool,"underline":bool,"size":pt,"color":"RRGGBB"}],
+ *     "align":"left"|"center"|"right"|"justify"} |
+ *   {"type":"table","rows":[["c1",{"text":"c2","colSpan":2,"rowSpan":1},...],...]}
  * ]}
  *
  * hwpxlib(Apache-2.0, neolord0)의 객체 모델은 hwplib보다 문자 서식 추출이
@@ -44,10 +48,21 @@ import java.util.ArrayList;
  * Table을 만나면 그때까지 모은 텍스트 run들을 먼저 문단 블록으로 내보내고
  * 표 블록을 낸 뒤 계속한다.
  *
- * 표 셀 병합(colSpan/rowSpan)은 hwplib 쪽 표와 마찬가지로 이번 phase
- * 범위 밖(문서화된 단순화, DEC-028과 같은 원칙) — 셀 텍스트만 평문으로
- * 옮긴다. 문단 정렬·쪽 나눔 등 문단 단위 서식도 이번 phase 범위 밖(hwplib
- * 쪽에서도 DEC-040 이전엔 마찬가지였음).
+ * 표 셀 병합 정보(colSpan/rowSpan, DEC-049)를 함께 낸다 — 병합 없는(1×1)
+ * 흔한 경우는 기존과 똑같이 평문 문자열로, 실제 병합된 셀만 객체로 낸다
+ * (HwpToJson.java의 DEC-035와 동일한 원칙). 병합된 셀이 덮는 자리는
+ * hwpxlib 자체가 애초에 `Tc`를 만들지 않는 sparse 표현이라(스파이크로
+ * 확인, spike/hwpxlib/RESULT.md "Phase 2(쓰기)" 참고) 별도 재구성 로직
+ * 없이 `Tr.getTc()`를 그대로 순회하면 된다.
+ *
+ * 문단 정렬(align, DEC-049)도 함께 낸다 — HwpToJson.java의 DEC-040과
+ * 동일한 원칙(HWP의 Distribute·Divide처럼 hwpxlib의 DISTRIBUTE·
+ * DISTRIBUTE_SPACE도 DOCX에 대응 값이 없어 "justify"로 단순화).
+ *
+ * **쪽 나눔(pageBreakBefore)은 의도적으로 이 정식 스키마에 넣지 않는다** —
+ * HwpToJson.java도 이 값을 안 보고(HWP는 PageBreakDebug.java라는 별도
+ * 디버그 전용 도구로만 확인, DEC-039), HWPX 쪽 회귀 검증은 이와 대칭인
+ * PageBreakDebugHwpx.java를 쓴다.
  */
 public class HwpxToJson {
     private boolean firstBlock = true;
@@ -86,7 +101,7 @@ public class HwpxToJson {
                         shapes.add(charPr);
                         runText = new StringBuilder();
                     }
-                    emitParagraphBlock(texts, shapes, sb);
+                    emitParagraphBlock(texts, shapes, p, hwpx, sb);
                     texts = new ArrayList<>();
                     shapes = new ArrayList<>();
                     emitTable(hwpx, (Table) item, sb);
@@ -99,10 +114,11 @@ public class HwpxToJson {
                 shapes.add(charPr);
             }
         }
-        emitParagraphBlock(texts, shapes, sb);
+        emitParagraphBlock(texts, shapes, p, hwpx, sb);
     }
 
-    private void emitParagraphBlock(ArrayList<String> texts, ArrayList<CharPr> shapes, StringBuilder sb) {
+    private void emitParagraphBlock(ArrayList<String> texts, ArrayList<CharPr> shapes, Para p,
+                                     HWPXFile hwpx, StringBuilder sb) {
         trimEdges(texts);
         StringBuilder runsJson = new StringBuilder();
         boolean firstRun = true;
@@ -114,7 +130,8 @@ public class HwpxToJson {
         }
         if (firstRun) return; // 빈 문단 — 블록 자체를 건너뜀(기존 HwpToJson.java와 동일한 원칙)
         if (!firstBlock) sb.append(',');
-        sb.append("{\"type\":\"p\",\"runs\":[").append(runsJson).append("]}");
+        sb.append("{\"type\":\"p\",\"runs\":[").append(runsJson)
+                .append("],\"align\":\"").append(paragraphAlign(hwpx, p)).append("\"}");
         firstBlock = false;
     }
 
@@ -130,7 +147,18 @@ public class HwpxToJson {
             for (int ci = 0; ci < tr.countOfTc(); ci++) {
                 Tc tc = tr.getTc(ci);
                 if (!firstCell) sb.append(',');
-                sb.append('"').append(esc(extractPlainText(tc.subList()))).append('"');
+                String cellText = extractPlainText(tc.subList());
+                int colSpan = (tc.cellSpan() != null && tc.cellSpan().colSpan() != null)
+                        ? tc.cellSpan().colSpan() : 1;
+                int rowSpan = (tc.cellSpan() != null && tc.cellSpan().rowSpan() != null)
+                        ? tc.cellSpan().rowSpan() : 1;
+                if (colSpan <= 1 && rowSpan <= 1) {
+                    sb.append('"').append(esc(cellText)).append('"');
+                } else {
+                    sb.append("{\"text\":\"").append(esc(cellText)).append('"')
+                            .append(",\"colSpan\":").append(colSpan)
+                            .append(",\"rowSpan\":").append(rowSpan).append('}');
+                }
                 firstCell = false;
             }
             sb.append(']');
@@ -190,6 +218,32 @@ public class HwpxToJson {
         if (charPrIDRef == null) return null;
         for (CharPr cp : hwpx.headerXMLFile().refList().charProperties().items()) {
             if (charPrIDRef.equals(cp.id())) return cp;
+        }
+        return null;
+    }
+
+    /** HwpToJson.java의 paragraphAlign()과 동일한 원칙(DEC-040 대칭,
+     * DEC-049) — 정보 없음/알 수 없는 값은 hwpxlib 기본 ParaPr(id=3,
+     * BlankFileMaker가 만드는 양쪽 정렬)과 같은 "justify"로 폴백해,
+     * HWP 쪽에서 이미 겪은 "DOCX 기본은 왼쪽인데 왼쪽으로 잘못 폴백하면
+     * 어긋난다"는 문제를 똑같이 피한다. */
+    private static String paragraphAlign(HWPXFile hwpx, Para p) {
+        ParaPr pr = resolveParaPr(hwpx, p.paraPrIDRef());
+        if (pr == null || pr.align() == null || pr.align().horizontal() == null) return "justify";
+        HorizontalAlign2 a = pr.align().horizontal();
+        switch (a) {
+            case LEFT: return "left";
+            case CENTER: return "center";
+            case RIGHT: return "right";
+            case JUSTIFY:
+            default: return "justify"; // DISTRIBUTE·DISTRIBUTE_SPACE도 여기로(문서화된 단순화)
+        }
+    }
+
+    private static ParaPr resolveParaPr(HWPXFile hwpx, String paraPrIDRef) {
+        if (paraPrIDRef == null) return null;
+        for (ParaPr pr : hwpx.headerXMLFile().refList().paraProperties().items()) {
+            if (paraPrIDRef.equals(pr.id())) return pr;
         }
         return null;
     }
