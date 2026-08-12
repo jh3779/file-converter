@@ -151,6 +151,17 @@ class TestFormatNote(unittest.TestCase):
         self.assertIn("표 테두리", text)
         self.assertIn("근사", text)
 
+    def test_obj_to_stl_shows_no_color_note(self):
+        """STL 포맷 자체가 색상/재질을 못 담아 다른 3D 포맷 → STL 변환에서만 뜬다."""
+        visible, text = self._note_for("obj", "stl")
+        self.assertTrue(visible)
+        self.assertIn("색상", text)
+
+    def test_obj_to_glb_shows_no_note(self):
+        """STL이 아닌 3D 포맷 간 변환은 색상·재질이 보존되므로 고지 없음."""
+        visible, text = self._note_for("obj", "glb")
+        self.assertFalse(visible)
+
 
 if __name__ == "__main__":
     unittest.main()
