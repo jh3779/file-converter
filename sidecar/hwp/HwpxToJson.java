@@ -5,12 +5,20 @@ import kr.dogfoot.hwpxlib.object.content.header_xml.references.CharPr;
 import kr.dogfoot.hwpxlib.object.content.header_xml.references.ParaPr;
 import kr.dogfoot.hwpxlib.object.content.section_xml.SectionXMLFile;
 import kr.dogfoot.hwpxlib.object.content.section_xml.SubList;
+import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.Ctrl;
+import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.CtrlItem;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.Para;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.Run;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.RunItem;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.T;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.TItem;
+import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.ctrl.inner.FootNoteEndNoteCore;
+import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.ctrl.inner.HeaderFooterCore;
+import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.object.Container;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.object.Table;
+import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.object.drawingobject.DrawingObject;
+import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.object.drawingobject.DrawText;
+import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.object.shapecomponent.ShapeComponent;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.object.table.Tc;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.object.table.Tr;
 import kr.dogfoot.hwpxlib.object.content.section_xml.paragraph.t.FWSpace;
@@ -57,6 +65,17 @@ import java.util.ArrayList;
  * spike/hwpxlib/RESULT.md "Phase 2(쓰기)" 참고) 별도 재구성 로직 없이
  * `Tr.getTc()`를 그대로 순회하면 된다.
  *
+ * 머리말/꼬리말/각주/미주(Ctrl로 감싸인 HeaderFooterCore/
+ * FootNoteEndNoteCore)와 글상자(도형 RunItem 중 DrawText를 갖는
+ * DrawingObject, 묶음 도형 Container는 재귀로 펼침)도 안의 문단을
+ * 재귀로 훑어 본문과 같은 문단 블록으로 낸다(DEC-052) — hwplib 쪽
+ * HwpToJson.java가 Control/ControlHeader/ControlFooter·GsoControl/
+ * ControlContainer 재귀로 이미 하고 있는 것(DEC-032)과 대칭이다. 이
+ * 전까지는 Table을 만났을 때만 그때까지 모은 텍스트를 flush했는데,
+ * 그 지점이 아닌 도형·Ctrl 경계에서는 flush 없이 계속 이어붙여 서로
+ * 다른 도형의 텍스트가 한 문단으로 잘못 이어지는 부수 문제도 함께
+ * 고쳤다(같은 flush 지점을 Table/Ctrl/ShapeComponent 셋으로 일반화).
+ *
  * 문단 정렬(align, DEC-049)도 함께 낸다 — HwpToJson.java의 DEC-040과
  * 동일한 원칙(HWP의 Distribute·Divide처럼 hwpxlib의 DISTRIBUTE·
  * DISTRIBUTE_SPACE도 DOCX에 대응 값이 없어 "justify"로 단순화). **표 셀
@@ -84,8 +103,11 @@ public class HwpxToJson {
         Files.write(Paths.get(args[1]), sb.toString().getBytes(StandardCharsets.UTF_8));
     }
 
-    /** 문단 하나를 훑으며 run(텍스트+서식)을 모으고, 표를 만나면 그 시점까지
-     * 모은 run을 문단 블록으로 먼저 내보낸 뒤 표 블록을 낸다. */
+    /** 문단 하나를 훑으며 run(텍스트+서식)을 모으고, 표·머리말/꼬리말/
+     * 각주/미주·글상자를 만나면 그 시점까지 모은 run을 문단 블록으로 먼저
+     * 내보낸 뒤 재귀로 처리한다(표 셀 안 서식 보존 개선에 이어, 머리말/
+     * 꼬리말/글상자 텍스트 유실 해소 — hwplib 쪽 emitParagraph/emitGso가
+     * 외부 QA 이슈 #43로 이미 겪은 것과 같은 종류의 문제, DEC-032와 대칭). */
     private void emitParagraph(HWPXFile hwpx, Para p, StringBuilder sb) throws Exception {
         ArrayList<String> texts = new ArrayList<>();
         ArrayList<CharPr> shapes = new ArrayList<>();
@@ -98,19 +120,33 @@ public class HwpxToJson {
                 RunItem item = run.getRunItem(ii);
                 if (item instanceof T) {
                     runText.append(extractTextFrom((T) item));
-                } else if (item instanceof Table) {
-                    if (runText.length() > 0) {
-                        texts.add(runText.toString());
-                        shapes.add(charPr);
-                        runText = new StringBuilder();
-                    }
-                    emitParagraphBlock(texts, shapes, p, hwpx, sb);
-                    texts = new ArrayList<>();
-                    shapes = new ArrayList<>();
-                    emitTable(hwpx, (Table) item, sb);
+                    continue;
                 }
-                // 그 외 RunItem(도형·수식·필드 등)은 이번 phase 범위 밖 —
-                // 텍스트 보존은 항상 우선이므로 건너뛰고 계속 진행한다.
+                // Table/Ctrl(머리말·꼬리말·각주·미주)/도형은 재귀 처리 전에
+                // 그때까지 모은 텍스트 run을 먼저 문단 블록으로 내보낸다
+                // (표를 만나면 flush하던 기존 동작을 셋 다로 일반화).
+                if (!(item instanceof Table || item instanceof Ctrl || item instanceof ShapeComponent)) {
+                    // 그 외 RunItem(수식·필드 등)은 이번 phase 범위 밖 —
+                    // 텍스트 보존은 항상 우선이므로 건너뛰고 계속 진행한다.
+                    continue;
+                }
+                if (runText.length() > 0) {
+                    texts.add(runText.toString());
+                    shapes.add(charPr);
+                    runText = new StringBuilder();
+                }
+                emitParagraphBlock(texts, shapes, p, hwpx, sb);
+                texts = new ArrayList<>();
+                shapes = new ArrayList<>();
+                if (item instanceof Table) {
+                    emitTable(hwpx, (Table) item, sb);
+                } else if (item instanceof Ctrl) {
+                    for (CtrlItem ci : ((Ctrl) item).ctrlItems()) {
+                        emitCtrlItem(hwpx, ci, sb);
+                    }
+                } else {
+                    emitShape(hwpx, (ShapeComponent) item, sb);
+                }
             }
             if (runText.length() > 0) {
                 texts.add(runText.toString());
@@ -118,6 +154,44 @@ public class HwpxToJson {
             }
         }
         emitParagraphBlock(texts, shapes, p, hwpx, sb);
+    }
+
+    /** Ctrl 안의 개별 항목(북마크·필드 등 다수) 중 머리말/꼬리말/각주/미주만
+     * 문단 리스트를 갖는다 — 그 외는 이번 phase 범위 밖(hwplib 쪽
+     * extractNestedParagraphList와 같은 원칙). */
+    private void emitCtrlItem(HWPXFile hwpx, CtrlItem ci, StringBuilder sb) throws Exception {
+        SubList subList = null;
+        if (ci instanceof HeaderFooterCore) {
+            subList = ((HeaderFooterCore<?>) ci).subList();
+        } else if (ci instanceof FootNoteEndNoteCore) {
+            subList = ((FootNoteEndNoteCore<?>) ci).subList();
+        }
+        if (subList == null) return;
+        for (Para np : subList.paras()) {
+            emitParagraph(hwpx, np, sb);
+        }
+    }
+
+    /** 도형(Shape) 컨트롤의 텍스트를 재귀로 내보낸다. 묶음 개체(Container —
+     * 여러 도형을 그룹으로 묶은 것, hwplib의 ControlContainer에 대응)는
+     * 자기 자신은 텍스트가 없고 차일드만 갖는데, 그 차일드가 또 다른
+     * 묶음일 수도 있다(중첩 그룹, hwplib 쪽에서 외부 QA 이슈 #43 재조사로
+     * 발견된 실제 문서 패턴과 같은 구조). Rectangle/Ellipse/Polygon/Curve/
+     * Arc 등(DrawingObject 하위)만 글상자(drawText)를 가질 수 있고,
+     * Picture/OLE/Video 등은 텍스트 자체가 없어 자연히 아무 것도 안 낸다. */
+    private void emitShape(HWPXFile hwpx, ShapeComponent shape, StringBuilder sb) throws Exception {
+        if (shape instanceof Container) {
+            for (ShapeComponent child : ((Container) shape).children()) {
+                emitShape(hwpx, child, sb);
+            }
+            return;
+        }
+        if (!(shape instanceof DrawingObject)) return;
+        DrawText drawText = ((DrawingObject<?>) shape).drawText();
+        if (drawText == null || drawText.subList() == null) return;
+        for (Para np : drawText.subList().paras()) {
+            emitParagraph(hwpx, np, sb);
+        }
     }
 
     private void emitParagraphBlock(ArrayList<String> texts, ArrayList<CharPr> shapes, Para p,

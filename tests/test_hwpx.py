@@ -18,6 +18,8 @@ from app import converters
 REPO = Path(__file__).resolve().parents[1]
 HWPX_SAMPLE = REPO / "spike" / "hwpxlib" / "repo" / "testFile" / "tool" / "textextractor" / "multipara.hwpx"
 HWPX_TABLE_SAMPLE = REPO / "spike" / "hwpxlib" / "repo" / "testFile" / "tool" / "textextractor" / "Table.hwpx"
+HWPX_HEADER_FOOTER_SAMPLE = REPO / "spike" / "hwpxlib" / "repo" / "testFile" / "reader_writer" / "HeaderFooter.hwpx"
+HWPX_NESTED_SHAPE_SAMPLE = REPO / "spike" / "hwpxlib" / "repo" / "testFile" / "tool" / "textextractor" / "RectInRect.hwpx"
 
 
 def _find_soffice():
@@ -80,6 +82,31 @@ class TestHwpx(Base):
         by_text = {r.text.strip(): r for r in runs}
         self.assertIn("날짜", by_text)
         self.assertTrue(by_text["날짜"].font.italic)
+
+    def test_hwpx_to_docx_preserves_header_footer_text(self):
+        """HWPX Phase 1(DEC-044)·Phase 2(DEC-049)가 반복적으로 "범위 밖"으로
+        문서화해온 한계 — 머리말/꼬리말이 Ctrl RunItem으로 감싸여 있어
+        기존 emitParagraph가 아예 순회하지 않고 조용히 건너뛰었다(HwpToJson.java
+        쪽이 외부 QA #43로 이미 겪은 것과 같은 종류의 문제, DEC-032). 재귀
+        처리 추가 확인용 — HeaderFooter.hwpx는 본문이 없고 머리말/꼬리말
+        텍스트만 있는 픽스처라, 수정 전에는 결과 DOCX 문단이 전부 비어
+        있었다(직접 재현 확인)."""
+        from docx import Document
+        out = converters.convert(HWPX_HEADER_FOOTER_SAMPLE, "docx", self.tmp)
+        texts = [p.text for p in Document(out).paragraphs if p.text.strip()]
+        self.assertIn("머리말 테스트", texts)
+        self.assertIn("꼬리말", texts)
+
+    def test_hwpx_to_docx_preserves_nested_shape_text(self):
+        """글상자(도형) 안, 그리고 도형을 묶은 그룹(Container) 안의 텍스트도
+        재귀로 뽑아내는지 — RectInRect.hwpx는 사각형 안에 사각형이 중첩된
+        픽스처라, 수정 전에는 결과 DOCX 문단이 전부 비어 있었다(직접 재현
+        확인, hwplib 쪽 ControlContainer 중첩 그룹 처리와 대칭)."""
+        from docx import Document
+        out = converters.convert(HWPX_NESTED_SHAPE_SAMPLE, "docx", self.tmp)
+        texts = [p.text for p in Document(out).paragraphs if p.text.strip()]
+        self.assertTrue(texts, "글상자 안 텍스트가 하나도 안 나옴(회귀)")
+        self.assertTrue(any("사각형" in t for t in texts))
 
     def test_hwpx_tab_normalized_to_space_not_dropped(self):
         """HwpxToJson(HWPX→DOCX/PDF 경로, HWPX→TXT는 hwpxlib 자체
