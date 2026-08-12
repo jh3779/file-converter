@@ -92,3 +92,73 @@ javac -encoding UTF-8 -nowarn -d libs/hwpxlib-main @repo/sources.txt
 javac -encoding UTF-8 -cp libs/hwpxlib-main -d out Spike.java
 java -cp "out:libs/hwpxlib-main" Spike repo/testFile/tool/textextractor/multipara.hwpx
 ```
+
+---
+
+# Phase 2(쓰기) — DOCX/PDF → HWPX
+
+> 2026-08-11 · 사용자와 합의한 HWPX 쓰기 방향 착수 전 스파이크 · 환경:
+> macOS(Apple Silicon), OpenJDK 26, hwpxlib main 브랜치 소스 빌드(Phase 1과
+> 동일 `libs/hwpxlib-main`)
+
+## 결론: **통과** — 3가지 API 불확실성 전부 write→read 왕복으로 확정, 본
+기능(`JsonToHwpx.java`) 착수 가능
+
+## 검증 항목별 결과
+
+### 1. 쪽 나눔 필드: `ParaPr.breakSetting().pageBreakBefore()` vs `Para.pageBreak()`
+두 필드 모두 **독립적으로 정확히 왕복**됨을 직접 확인 — 한 문서 안에 각각만
+켠 문단을 따로 만들어 재읽기했더니 서로 침범 없이 정확히 분리 보존됨:
+```
+para 1 (A만 켬): breakSetting.pageBreakBefore=true  para.pageBreak=false
+para 2 (B만 켬): breakSetting.pageBreakBefore=false para.pageBreak=true
+```
+**채택: `ParaPr.breakSetting().pageBreakBefore()`(후보 A)**. 근거: 클래스
+필드 주석이 "문단 앞에서 항상 쪽 나눔 여부"로, DEC-039에서 hwplib
+`ParaShapeProperty1.setSplitPageBeforePara()`("문단 앞에서 항상 쪽 나눔")와
+문구가 정확히 일치한다 — HWP 쪽에서 이미 검증된 의미론과 대칭. `Para
+.pageBreak()`는 필드 주석이 "쪽 나눔 여부"로만 돼 있어 의미가 더 모호함
+(문단 자체가 쪽 경계에 걸쳐 있다는 표시일 가능성 등). hwpxlib API/실사용
+문서만으로는 실제 한글 뷰어가 어느 필드를 렌더링에 반영하는지까지는 확증
+불가 — 잔여 리스크로 아래에 문서화.
+
+### 2. sparse 병합 표 왕복
+2행×2열 표에서 `(0,0)`을 `rowSpan=2`로 세로 병합(`(1,0)`은 실제 셀,
+`(0,1)`은 covered라 tc 자체를 안 만듦, `(1,1)`만 존재)해서 쓴 뒤 재읽기한
+결과, 쓴 그대로 정확히 복원됨:
+```
+tr 0: tc count=2 → (0,0) span(1,2) / (1,0) span(1,1)
+tr 1: tc count=1 → (1,1) span(1,1)   (← (0,1)은 애초에 tc가 없음)
+```
+`SimpleTable.hwpx`(실제 hwpxlib 테스트 픽스처)를 직접 unzip해 확인했던
+sparse 표현과 정확히 같은 구조 — `parseTableSpec`의 `reservedUntilRow` 로직을
+그대로 이식해 쓰면 된다는 계획을 확정.
+
+### 3. 정렬 왕복 + `linesegarray` 생략 안전성
+`ParaPr.align().horizontal(CENTER)`로 쓴 문단이 재읽기 시 정확히
+`align=CENTER`로 복원됨. 이번 스파이크의 모든 신규 문단(A/B/C/D 문단 4개 +
+표 안 셀 문단 3개, 총 7개)이 `createLineSegArray()`를 한 번도 호출하지
+않았는데도 `HWPXReader`가 크래시·경고 없이 전부 정상 파싱·텍스트 추출
+성공 — `MakeTabHwpx.java`가 보여준 낙관적 패턴이 표·서식이 섞인 문서
+전체에서도 그대로 유지됨을 재확인.
+
+## 잔여 리스크 (정직하게 문서화)
+- **뷰어 렌더링 확증 불가**: 위 3가지는 전부 hwpxlib 자신의 write→read
+  왕복 검증이다. 실제 한글/한워드가 `ParaPr.breakSetting().pageBreakBefore()`
+  ·`ParaPr.align()`·sparse 병합 표를 화면에 어떻게 그리는지는 이 macOS
+  개발 환경에 뷰어가 없어 확인 불가 — DEC-018/039와 동일한 근본적 제약.
+  Windows 실사용자 테스트로 이월, 문서(README/DEC)에 한계로 명시할 것.
+- `linesegarray` 생략의 안전성은 hwpxlib 자체 판정(교환 포맷 관례상
+  낙관적) 이상은 이번 스파이크로도 못 얻음 — 뷰어 확증과 같은 제약.
+
+## 산출물
+- `SpikeWrite.java` — 쪽 나눔 2후보·정렬·sparse 병합 표 write→read 검증
+- `output/spike_write.hwpx` — 검증에 사용한 실제 산출물(한컴오피스/
+  한컴독스에서 육안 확인 권장)
+
+## 실행 방법
+```bash
+cd spike/hwpxlib
+javac -encoding UTF-8 -cp libs/hwpxlib-main -d out SpikeWrite.java
+java -cp "out:libs/hwpxlib-main" SpikeWrite output/spike_write.hwpx
+```

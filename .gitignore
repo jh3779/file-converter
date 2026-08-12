@@ -19,6 +19,7 @@ spike/hwplib/repo/
 # 저자(neolord0)의 별도 라이브러리(HWPX는 HWP 바이너리와 다른 스펙).
 spike/hwpxlib/out/
 spike/hwpxlib/libs/
+spike/hwpxlib/output/
 spike/hwpxlib/sources.txt
 
 # External clone — hwpxlib upstream (재현: git clone https://github.com/neolord0/hwpxlib)
