@@ -73,8 +73,10 @@ import java.util.Map;
  * 것이다(스파이크: spike/hwplib/SpikeTable.java에서 왕복 검증 완료).
  * 문단 문자 서식(굵게/기울임/밑줄/크기/색상)은 DEC-038부터 반영된다(문단의
  * ParaCharShape에 run별로 DocInfo의 CharShape을 새로 만들거나 재사용해
- * 연결 — HwpToJson.java의 읽기 로직과 대칭). **표 셀 병합·셀 안 서식은
- * 여전히 이번 범위 밖** — 셀 텍스트는 평문 한 문단.
+ * 연결 — HwpToJson.java의 읽기 로직과 대칭). 표 셀 병합은 DEC-035부터,
+ * 표 셀 안 문자 서식은 DEC-051부터 반영된다 — 셀도 문단과 완전히 같은
+ * `addRunsToParagraph`를 재사용해 이제 정식 스키마에서 `{"runs":[...],
+ * "colSpan":n,"rowSpan":m}` 객체다(이전엔 병합 없는 셀만 평문 문자열).
  * **실제 한글/한워드 뷰어에서의 최종 렌더링은 hwplib 자체 왕복 검증으로는
  * 확인할 수 없다**(DEC-018과 동일한 근본적 제약, Mac 개발 환경에는 뷰어가
  * 없음) — Windows 실사용자 테스트 필요.
@@ -191,10 +193,17 @@ public class JsonToHwp {
             List<Object> rawRow = (List<Object>) rowObj;
             List<Map<String, Object>> row = new ArrayList<>();
             for (Object cellObj : rawRow) {
-                Map<String, Object> cell = (Map<String, Object>) cellObj;
-                String text = String.valueOf(cell.get("text")).replace('\n', ' ');
+                // 병합 없는 셀은 HwpToJson.java(+ 공유 스키마의 HwpxToJson.java)가
+                // 평문 문자열로 낼 수 있다(하위 호환) — 그 출력을 그대로 다시
+                // 이 사이드카에 먹일 수 있어야 실제 왕복 도구로 쓸 수 있다
+                // (DEC-049에서 HWPX 쪽에 이미 적용한 것과 같은 보완).
+                Map<String, Object> cell = (cellObj instanceof Map)
+                        ? (Map<String, Object>) cellObj
+                        : java.util.Collections.singletonMap("text", cellObj);
+                List<Object> rawRuns = (List<Object>) cell.get("runs");
+                List<Map<String, Object>> runs = normalizeRuns(rawRuns, (String) cell.get("text"));
                 Map<String, Object> normalized = new java.util.LinkedHashMap<>();
-                normalized.put("text", text);
+                normalized.put("runs", runs);
                 normalized.put("colSpan", cell.get("colSpan"));
                 normalized.put("rowSpan", cell.get("rowSpan"));
                 row.add(normalized);
@@ -471,11 +480,12 @@ public class JsonToHwp {
         for (int r = 0; r < rowCount; r++) tableRecord.getCellCountOfRowList().add(colCount);
 
         // 1단계: 병합 없는 균일한 rowCount×colCount 그리드를 통째로 만든다.
-        // 각 그리드 칸의 텍스트는 grid[r][c]에 미리 채워 둔다 — 병합 마스터
-        // 칸(각 병합 영역의 왼쪽 위)만 실제 텍스트를 받고, 나머지(오른쪽·
-        // 아래로 병합에 덮이는 칸)는 빈 문자열로 채운 뒤 2단계에서 제거된다.
-        String[][] grid = new String[rowCount][colCount];
-        for (String[] r : grid) Arrays.fill(r, "");
+        // 각 그리드 칸의 run 목록은 grid[r][c]에 미리 채워 둔다 — 병합 마스터
+        // 칸(각 병합 영역의 왼쪽 위)만 실제 run을 받고, 나머지(오른쪽·
+        // 아래로 병합에 덮이는 칸)는 빈 목록으로 채운 뒤 2단계에서 제거된다.
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>>[][] grid = new List[rowCount][colCount];
+        for (List<Map<String, Object>>[] r : grid) Arrays.fill(r, java.util.Collections.emptyList());
         // merges: {row, col, rowSpan, colSpan} — TableCellMerger.mergeCell 인자 순서 그대로.
         List<int[]> merges = new ArrayList<>();
         // 세로 병합이 위에서 내려와 점유한 칸을 추적 — reservedUntilRow[c]는
@@ -494,7 +504,7 @@ public class JsonToHwp {
                 Map<String, Object> cellSpec = rowCells.get(cellIdx++);
                 int colSpan = spanInt(cellSpec, "colSpan");
                 int rowSpan = spanInt(cellSpec, "rowSpan");
-                grid[r][col] = (String) cellSpec.get("text");
+                grid[r][col] = (List<Map<String, Object>>) cellSpec.get("runs");
                 if (colSpan > 1 || rowSpan > 1) {
                     merges.add(new int[]{r, col, rowSpan, colSpan});
                 }
@@ -651,28 +661,26 @@ public class JsonToHwp {
         lh.setFieldName("");
     }
 
-    private static void setParagraphForCell(Cell cell, String text) throws Exception {
+    /** 셀 안 문자 서식(굵게/기울임/밑줄/크기/색상, 표 셀 안 서식 보존
+     * 개선)을 반영한다 — addRunsToParagraph(최상위 문단이 쓰는 것과 같은
+     * 함수)를 그대로 재사용해 run별 CharShape을 건다. */
+    private static void setParagraphForCell(Cell cell, List<Map<String, Object>> runs) throws Exception {
         Paragraph p = cell.getParagraphList().addNewParagraph();
         ParaHeader ph = p.getHeader();
         ph.setLastInList(true);
-        ph.setCharacterCount(text.length() + 1);
         ph.setParaShapeId(1);
         ph.setStyleId((short) 1);
         ph.getDivideSort().setDivideSection(false);
         ph.getDivideSort().setDivideMultiColumn(false);
         ph.getDivideSort().setDividePage(false);
         ph.getDivideSort().setDivideColumn(false);
-        ph.setCharShapeCount(1);
         ph.setRangeTagCount(0);
         ph.setLineAlignCount(1);
         ph.setInstanceID(0);
         ph.setIsMergedByTrack(0);
 
-        p.createText();
-        p.getText().addString(text);
-
-        p.createCharShape();
-        p.getCharShape().addParaCharShape(0, 1);
+        String fullText = addRunsToParagraph(p, runs != null ? runs : java.util.Collections.emptyList());
+        ph.setCharacterCount(fullText.length() + 1);
 
         p.createLineSeg();
         LineSegItem lsi = p.getLineSeg().addNewLineSegItem();

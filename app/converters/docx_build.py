@@ -2,18 +2,19 @@
 
 "size":float,"color":"RRGGBB"}, ...],"align":"left"|"center"|"right"|"justify"(선택)} |
 {"type":"p","text":str}(구버전 호환, 서식 없는 단일 run으로 취급) |
-{"type":"table","rows":[[cell,...],...]} — cell은 평문 문자열
-(병합 없음) 또는 {"text":str,"colSpan":int,"rowSpan":int}(병합 셀, HwpToJson.java
-DEC-035 출력)이며, 한 행에는 그 행에서 "처음 등장하는" 셀만 담긴다(세로 병합이
-위에서 내려와 차지한 칸은 생략) — JsonToHwp.java·docx_extract.py와 같은 표현.
-레이아웃(정확한 위치·다단·이미지 등)은 여전히 단순화된다 — 기대치 고지는
-OQ-003/DEC-010 문안으로 UI에서 안내. 문자 서식(굵게/기울임/밑줄/크기/색상)은
-DEC-027부터 HWP→DOCX·PDF→DOCX 양쪽에서 반영된다. 문단 정렬(DEC-040)은 "align"이
-있을 때만 명시적으로 설정하고, 없으면 DOCX 기본 정렬(왼쪽)을 그대로 둔다. 표
-셀 내용은 여전히 서식 없는 평문이다(표 자체가 이미 텍스트만 옮기는 게 원칙 — DEC-010).
-셀 병합은 DEC-035부터 python-docx의 cell.merge()로 재현한다(열 너비까지는 이
-방향에서 아직 전달되지 않음 — HwpToJson.java가 colWidthsMm을 내지 않음, 표
-전체 폭은 python-docx/Word 기본 렌더링에 맡긴다).
+{"type":"table","rows":[[cell,...],...]} — cell은 {"runs":[...],"colSpan":int,
+"rowSpan":int}(DEC-051, 문단 블록과 같은 runs 표현으로 셀 안 문자 서식까지
+반영) 또는 구버전 호환 형태(평문 문자열, {"text":str,"colSpan":int,"rowSpan":
+int} — HwpToJson.java DEC-035 시절 출력)이며, 한 행에는 그 행에서 "처음
+등장하는" 셀만 담긴다(세로 병합이 위에서 내려와 차지한 칸은 생략) —
+JsonToHwp.java·docx_extract.py와 같은 표현. 레이아웃(정확한 위치·다단·이미지
+등)은 여전히 단순화된다 — 기대치 고지는 OQ-003/DEC-010 문안으로 UI에서 안내.
+문단 문자 서식(굵게/기울임/밑줄/크기/색상)은 DEC-027부터, 표 셀 안 문자
+서식은 DEC-051부터 반영된다. 문단 정렬(DEC-040)은 "align"이 있을 때만
+명시적으로 설정하고, 없으면 DOCX 기본 정렬(왼쪽)을 그대로 둔다. 셀 병합은
+DEC-035부터 python-docx의 cell.merge()로 재현한다(열 너비까지는 이 방향에서
+아직 전달되지 않음 — HwpToJson.java가 colWidthsMm을 내지 않음, 표 전체
+폭은 python-docx/Word 기본 렌더링에 맡긴다).
 
 한글 글꼴을 모든 run에 명시적으로 지정한다(DEC-015) — python-docx 기본
 스타일(Calibri)은 한글 글리프가 없고, 지정을 생략하면 뷰어·OS별로 대체
@@ -96,25 +97,34 @@ def _runs_for(block: dict) -> list[dict]:
     return [{"text": text}] if text else []
 
 
+def _cell_runs(cell) -> list[dict]:
+    """셀 하나에서 run 목록을 얻는다(DEC-051) — 신버전({"runs":[...]})과
+    구버전(평문 문자열, {"text":str}) 모두 지원. 문단 블록의 _runs_for()와
+    같은 원칙."""
+    if isinstance(cell, str):
+        return [{"text": cell}] if cell else []
+    runs = cell.get("runs")
+    if runs is not None:
+        return runs
+    text = cell.get("text")
+    return [{"text": text}] if text else []
+
+
 def _place_cells_with_spans(rows: list) -> tuple[list[dict], int, int]:
     """행마다 "그 행에서 처음 등장하는 셀"만 담긴 rows(HwpToJson.java와 같은
-    표현, 평문 문자열·병합 객체 혼재 가능)를 받아 각 셀의 그리드 좌표를
-    복원한다. reservedUntilRow로 세로 병합이 점유 중인 칸을 건너뛰는 알고리즘은
-    JsonToHwp.java의 addTableBlock과 동일하다(HTML 표의 rowspan 렌더링과 같은
-    원리) — 두 방향(쓰기/읽기)이 같은 표현을 쓰므로 재구성 로직도 같아야 한다."""
+    표현, 평문 문자열·구버전 병합 객체·신버전 runs 객체 혼재 가능)를 받아
+    각 셀의 그리드 좌표를 복원한다. reservedUntilRow로 세로 병합이 점유 중인
+    칸을 건너뛰는 알고리즘은 JsonToHwp.java의 addTableBlock과 동일하다(HTML
+    표의 rowspan 렌더링과 같은 원리) — 두 방향(쓰기/읽기)이 같은 표현을
+    쓰므로 재구성 로직도 같아야 한다."""
     n_rows = len(rows)
     norm_rows = []
     for row in rows:
         norm_row = []
         for cell in row:
-            if isinstance(cell, str):
-                norm_row.append({"text": cell, "colSpan": 1, "rowSpan": 1})
-            else:
-                norm_row.append({
-                    "text": cell.get("text") or "",
-                    "colSpan": cell.get("colSpan") or 1,
-                    "rowSpan": cell.get("rowSpan") or 1,
-                })
+            col_span = (cell.get("colSpan") or 1) if isinstance(cell, dict) else 1
+            row_span = (cell.get("rowSpan") or 1) if isinstance(cell, dict) else 1
+            norm_row.append({"runs": _cell_runs(cell), "colSpan": col_span, "rowSpan": row_span})
         norm_rows.append(norm_row)
 
     n_cols = sum(c["colSpan"] for c in norm_rows[0]) if norm_rows and norm_rows[0] else 0
@@ -132,7 +142,7 @@ def _place_cells_with_spans(rows: list) -> tuple[list[dict], int, int]:
             cell_idx += 1
             col_span = cell["colSpan"]
             row_span = cell["rowSpan"]
-            placed.append({"text": cell["text"], "row": r, "col": col, "colSpan": col_span, "rowSpan": row_span})
+            placed.append({"runs": cell["runs"], "row": r, "col": col, "colSpan": col_span, "rowSpan": row_span})
             if row_span > 1:
                 for cc in range(col, min(col + col_span, n_cols)):
                     reserved_until_row[cc] = r + row_span - 1
@@ -162,10 +172,18 @@ def blocks_to_docx(blocks: list[dict], out_path: Path) -> Path:
                         item["col"] + item["colSpan"] - 1,
                     )
                     cell = cell.merge(other)
-                cell.text = item["text"]
-                for paragraph in cell.paragraphs:
-                    for run in paragraph.runs:
-                        _set_font(run)
+                # cell.text = "..."(구버전) 대신 문단 블록과 같은 run 단위로
+                # 직접 붙인다(DEC-051, 셀 안 문자 서식 보존). p.add_run(text)는
+                # 임베드된 "\n"을 자동으로 <w:br/>로 바꿔주므로(python-docx
+                # 자체 동작, 직접 확인) 여러 문단을 이어붙인 셀도 그대로 동작.
+                p = cell.paragraphs[0]
+                for run_dict in item["runs"]:
+                    text = run_dict.get("text")
+                    if not text:
+                        continue
+                    run = p.add_run(text)
+                    _set_font(run)
+                    _apply_run_style(run, run_dict)
         else:
             runs = [r for r in _runs_for(block) if r.get("text")]
             # 문단 전체가 공백뿐이면(실제 내용 없음) 문단 자체를 건너뛴다(기존 동작 유지).

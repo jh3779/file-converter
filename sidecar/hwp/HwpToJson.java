@@ -41,15 +41,16 @@ import java.nio.file.Paths;
  * 출력: {"blocks":[
  *   {"type":"p","runs":[{"text":"...","bold":bool,"italic":bool,"underline":bool,"size":pt,"color":"RRGGBB"}],
  *     "align":"left"|"center"|"right"|"justify"} |
- *   {"type":"table","rows":[["c1",{"text":"c2","colSpan":2,"rowSpan":1},...],...]}
+ *   {"type":"table","rows":[[{"runs":[...],"colSpan":n,"rowSpan":m},...],...]}
  * ]}
  *
  * 문단의 서식(굵게/기울임/밑줄/크기/색상)은 ParaCharShape(문단 안에서 글자
  * 모양이 바뀌는 위치·글자모양ID 쌍의 목록)을 글자모양ID → DocInfo의
- * CharShape 레코드로 역참조해 얻는다(DEC-025 계열, Phase 3). 표 셀은 병합
- * 안 된 흔한 경우(colSpan=rowSpan=1) 평문 문자열로, 병합된 셀은
- * {"text":...,"colSpan":n,"rowSpan":m} 객체로 낸다(DEC-035) — 셀 문자
- * 서식(굵게 등)까지는 이번 phase 범위 밖.
+ * CharShape 레코드로 역참조해 얻는다(DEC-025 계열, Phase 3). 표 셀도
+ * DEC-035(병합, colSpan/rowSpan)에 이어 DEC-051부터 문단 블록과 같은
+ * "runs" 표현으로 셀 안 문자 서식까지 낸다 — 이전엔 병합 없는 셀만 평문
+ * 문자열로 냈지만, 이제 모든 셀이 항상 runs 객체다(docx_build.py도 함께
+ * 갱신, 구버전 문자열/구버전 {"text":...} 셀도 하위 호환으로 계속 읽음).
  *
  * 문단 정렬(DEC-040)은 문자 서식과 달리 CharShape이 아니라 ParaShape(문단
  * 단위 서식) 소관이라 항상 문단 전체에 하나만 있다 — ParaHeader의
@@ -102,7 +103,7 @@ public class HwpToJson {
         if (p.getControlList() == null) return;
         for (Control c : p.getControlList()) {
             if (c.getType() == ControlType.Table) {
-                emitTable((ControlTable) c, sb);
+                emitTable((ControlTable) c, docInfo, sb);
             } else if (c instanceof GsoControl) {
                 emitGso((GsoControl) c, docInfo, sb);
             } else {
@@ -137,14 +138,16 @@ public class HwpToJson {
     }
 
     /**
-     * 셀 병합 정보(colSpan/rowSpan, DEC-035)를 함께 낸다 — 병합 없는(1×1)
-     * 흔한 경우는 기존과 똑같이 평문 문자열로("c1") 내보내 하위 호환을
-     * 유지하고, 실제 병합된 셀만 객체({"text":...,"colSpan":n,"rowSpan":m})로
-     * 낸다. 왕복 검증(JsonToHwp가 만든 병합 표를 다시 이 도구로 읽어
-     * colSpan/rowSpan이 그대로 나오는지)과, 실사용 HWP 문서를 HWP→DOCX로
-     * 옮길 때도 병합 정보가 보존되도록 하기 위함(docx_build.py가 소비).
+     * 셀 병합 정보(colSpan/rowSpan, DEC-035)와 셀 안 문자 서식(굵게/기울임/
+     * 밑줄/크기/색상, 표 셀 안 서식 보존 개선)을 함께 낸다. 문단 블록과
+     * 같은 "runs" 표현을 그대로 재사용한다(paragraphRunsJson) — 이전엔
+     * 병합 없는 셀만 평문 문자열로 내보내는 하위 호환 분기가 있었지만,
+     * 이제 모든 셀이 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체이므로
+     * 그 분기 자체가 필요 없어졌다(docx_build.py의 소비 쪽도 함께 갱신).
+     * 셀 안에 문단이 여러 개면(흔치 않지만 가능) 개행 하나를 서식 없는
+     * run으로 끼워 넣어 기존 "\n으로 이어붙이던" 동작과 같은 결과를 낸다.
      */
-    private void emitTable(ControlTable table, StringBuilder sb) {
+    private void emitTable(ControlTable table, DocInfo docInfo, StringBuilder sb) {
         if (!firstBlock) sb.append(',');
         sb.append("{\"type\":\"table\",\"rows\":[");
         boolean firstRow = true;
@@ -154,20 +157,7 @@ public class HwpToJson {
             boolean firstCell = true;
             for (Cell cell : row.getCellList()) {
                 if (!firstCell) sb.append(',');
-                StringBuilder cellText = new StringBuilder();
-                for (Paragraph cp : cell.getParagraphList()) {
-                    if (cellText.length() > 0) cellText.append('\n');
-                    cellText.append(safeText(cp));
-                }
-                int colSpan = cell.getListHeader().getColSpan();
-                int rowSpan = cell.getListHeader().getRowSpan();
-                if (colSpan <= 1 && rowSpan <= 1) {
-                    sb.append('"').append(esc(cellText.toString())).append('"');
-                } else {
-                    sb.append("{\"text\":\"").append(esc(cellText.toString())).append('"')
-                            .append(",\"colSpan\":").append(colSpan)
-                            .append(",\"rowSpan\":").append(rowSpan).append('}');
-                }
+                sb.append(cellJson(cell, docInfo));
                 firstCell = false;
             }
             sb.append(']');
@@ -175,6 +165,23 @@ public class HwpToJson {
         }
         sb.append("]}");
         firstBlock = false;
+    }
+
+    private String cellJson(Cell cell, DocInfo docInfo) {
+        StringBuilder runsJson = new StringBuilder();
+        boolean first = true;
+        for (Paragraph cp : cell.getParagraphList()) {
+            String rj = paragraphRunsJson(cp, docInfo);
+            if (rj == null || rj.isEmpty()) continue;
+            if (!first) {
+                runsJson.append(',').append(runJson("\n", null)).append(',');
+            }
+            runsJson.append(rj);
+            first = false;
+        }
+        int colSpan = cell.getListHeader().getColSpan();
+        int rowSpan = cell.getListHeader().getRowSpan();
+        return "{\"runs\":[" + runsJson + "],\"colSpan\":" + colSpan + ",\"rowSpan\":" + rowSpan + "}";
     }
 
     /**
