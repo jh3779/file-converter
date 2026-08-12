@@ -254,6 +254,31 @@ class TestHwpxWrite(Base):
         self.assertEqual(by_text["가운데 정렬"], WD_ALIGN_PARAGRAPH.CENTER)
         self.assertEqual(by_text["오른쪽 정렬"], WD_ALIGN_PARAGRAPH.RIGHT)
 
+    def test_json_to_hwpx_accepts_plain_string_table_cells(self):
+        """DEC-049 머지 전 자동 리뷰 지적(재현 확인 후 수정): JsonToHwpx의
+        parseTableSpec()이 셀을 항상 Map으로 캐스팅해, HwpxToJson이 병합
+        없는(1×1) 셀을 평문 문자열로 내보내는 것(하위 호환 원칙, DEC-035와
+        동일)과 왕복이 안 됐다(ClassCastException) — 실제 앱 파이프라인은
+        docx_extract.py/pdf.py가 항상 객체 셀만 내므로 이 경로를 타지
+        않지만, HwpxToJson 출력을 그대로 다시 JsonToHwpx에 먹이는 왕복
+        도구로서는 깨져 있었다. 문자열 셀도 {text, colSpan:1, rowSpan:1}로
+        정규화하도록 수정 확인."""
+        import json
+        from app.converters.hwp import _run_sidecar
+
+        blocks_json = self.tmp / "string-cells.blocks.json"
+        blocks_json.write_text(
+            json.dumps({"blocks": [{"type": "table", "rows": [["a", "b"], ["c", "d"]]}]}),
+            encoding="utf-8")
+        out = self.tmp / "string-cells.hwpx"
+        _run_sidecar("JsonToHwpx", blocks_json, out)
+        self.assertTrue(out.exists())
+
+        reread_json = self.tmp / "string-cells-reread.json"
+        _run_sidecar("HwpxToJson", out, reread_json)
+        rows = json.loads(reread_json.read_text(encoding="utf-8"))["blocks"][0]["rows"]
+        self.assertEqual(rows, [["a", "b"], ["c", "d"]])
+
     def test_pdf_to_hwpx_preserves_page_breaks(self):
         """DEC-049(DEC-039 대칭): PDF 여러 페이지가 HWPX 안에서도 페이지
         구분 없이 하나로 이어 붙지 않아야 한다 — 각 페이지 첫 문단에

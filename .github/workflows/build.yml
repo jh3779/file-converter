@@ -306,6 +306,20 @@ jobs:
           if (-not ($hwpxMergedJson | Select-String -Pattern '"type":"table","rows":\[\[\{"text":"병합","colSpan":2,"rowSpan":1\}\],\["10","11"\]\]' -Quiet)) {
             Write-Error "HWPX write engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-049 회귀)"; exit 1
           }
+          # DEC-049 머지 전 자동 리뷰 지적(재현 확인 후 수정): parseTableSpec이
+          # 셀을 항상 Map으로 캐스팅해, HwpxToJson이 병합 없는 셀을 평문
+          # 문자열로 내보내는 것(하위 호환, DEC-035와 동일 원칙)과 왕복이
+          # 안 됐다(ClassCastException) — 문자열 셀도 받아들이는지 확인.
+          Set-Content -Encoding utf8 hwpx-string-cell-blocks.json '{"blocks":[{"type":"table","rows":[["a","b"],["c","d"]]}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwpx hwpx-string-cell-blocks.json hwpx-string-cell.hwpx
+          if (-not (Test-Path hwpx-string-cell.hwpx)) {
+            Write-Error "HWPX write engine smoke failed: JsonToHwpx가 평문 문자열 셀 표를 생성하지 못함(DEC-049 회귀)"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpxToJson hwpx-string-cell.hwpx hwpx-string-cell.json
+          $hwpxStringCellJson = Get-Content hwpx-string-cell.json -Encoding utf8 -Raw
+          if (-not ($hwpxStringCellJson | Select-String -Pattern '"type":"table","rows":\[\["a","b"\],\["c","d"\]\]' -Quiet)) {
+            Write-Error "HWPX write engine smoke failed: 평문 문자열 셀 표가 왕복 후 유지되지 않음(DEC-049 회귀)"; exit 1
+          }
           # DEC-049(DEC-038 대칭): 문자 서식(굵게/기울임/크기/색상).
           Set-Content -Encoding utf8 hwpx-formatted-blocks.json '{"blocks":[{"type":"p","runs":[{"text":"굵은텍스트","bold":true},{"text":"일반텍스트"},{"text":"기울임텍스트","italic":true,"size":18,"color":"FF0000"}]}]}'
           & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwpx hwpx-formatted-blocks.json hwpx-formatted.hwpx
@@ -959,6 +973,23 @@ jobs:
           text = open("hwpx-merged.json", encoding="utf-8").read()
           if not re.search(r'"type":"table","rows":\[\[\{"text":"병합","colSpan":2,"rowSpan":1\}\],\["10","11"\]\]', text):
               print("::error::HWPX write engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-049 회귀)")
+              sys.exit(1)
+          PY
+          # DEC-049 머지 전 자동 리뷰 지적(재현 확인 후 수정): parseTableSpec이
+          # 셀을 항상 Map으로 캐스팅해, HwpxToJson이 병합 없는 셀을 평문
+          # 문자열로 내보내는 것(하위 호환, DEC-035와 동일 원칙)과 왕복이
+          # 안 됐다(ClassCastException) — 문자열 셀도 받아들이는지 확인.
+          cat > hwpx-string-cell-blocks.json <<'JSON'
+          {"blocks":[{"type":"table","rows":[["a","b"],["c","d"]]}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwpx hwpx-string-cell-blocks.json hwpx-string-cell.hwpx
+          [ -f hwpx-string-cell.hwpx ] || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 평문 문자열 셀 표를 생성하지 못함(DEC-049 회귀)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson hwpx-string-cell.hwpx hwpx-string-cell.json
+          python3 <<'PY'
+          import re, sys
+          text = open("hwpx-string-cell.json", encoding="utf-8").read()
+          if not re.search(r'"type":"table","rows":\[\["a","b"\],\["c","d"\]\]', text):
+              print("::error::HWPX write engine smoke failed: 평문 문자열 셀 표가 왕복 후 유지되지 않음(DEC-049 회귀)")
               sys.exit(1)
           PY
           # DEC-049(DEC-038 대칭): 문자 서식(굵게/기울임/크기/색상).

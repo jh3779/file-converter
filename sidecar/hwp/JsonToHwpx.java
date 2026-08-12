@@ -155,7 +155,13 @@ public class JsonToHwpx {
             List<Object> rawRow = (List<Object>) rowObj;
             List<Map<String, Object>> row = new ArrayList<>();
             for (Object cellObj : rawRow) {
-                Map<String, Object> cell = (Map<String, Object>) cellObj;
+                // 병합 없는 셀은 HwpxToJson.java(+ 공유 스키마의 HwpToJson.java)가
+                // 평문 문자열로 낸다(하위 호환) — 그 출력을 그대로 다시 이
+                // 사이드카에 먹일 수 있어야 실제 왕복 도구로 쓸 수 있다(자동
+                // 리뷰 지적, 직접 재현해 ClassCastException 확인 후 수정).
+                Map<String, Object> cell = (cellObj instanceof Map)
+                        ? (Map<String, Object>) cellObj
+                        : java.util.Collections.singletonMap("text", cellObj);
                 String text = String.valueOf(cell.get("text")).replace('\n', ' ');
                 Map<String, Object> normalized = new java.util.LinkedHashMap<>();
                 normalized.put("text", text);
