@@ -82,7 +82,7 @@ jobs:
           javac -encoding UTF-8 -nowarn "@sources-hwpx.txt" -d engine-build/hwp
           javac -encoding UTF-8 -cp engine-build/hwp -d engine-build/hwp `
             sidecar/hwp/HwpToText.java sidecar/hwp/HwpToJson.java sidecar/hwp/JsonToHwp.java `
-            sidecar/hwp/HwpxToText.java sidecar/hwp/HwpxToJson.java
+            sidecar/hwp/HwpxToText.java sidecar/hwp/HwpxToJson.java sidecar/hwp/JsonToHwpx.java
           jlink --add-modules java.base,java.desktop,java.xml,java.logging `
             --strip-debug --no-header-files --no-man-pages --output engine-build/jre
       - name: HWP engine smoke (bundled JRE + 한글 텍스트 샘플)
@@ -289,6 +289,72 @@ jobs:
           $hwpxTableJson = Get-Content hwpx_table.json -Encoding utf8 -Raw
           if (-not ($hwpxTableJson | Select-String -Pattern '"type":"table","rows":\[\["이름","국어","영어","수학"\]' -Quiet)) {
             Write-Error "HWPX engine smoke failed: 표 구조 불일치"; exit 1
+          }
+      - name: HWPX write engine smoke (DOCX/PDF→HWPX 쓰기 — DEC-049)
+        shell: pwsh
+        run: |
+          # DEC-049(DEC-035 대칭): 셀 병합(colSpan/rowSpan) — JsonToHwpx가
+          # sparse 표현으로 곧바로 병합된 Tc를 쓰고(TableCellMerger 같은
+          # 별도 유틸 없이), HwpxToJson이 그 구조를 그대로 재확인해야 한다.
+          Set-Content -Encoding utf8 hwpx-merge-blocks.json '{"blocks":[{"type":"table","rows":[[{"text":"병합","colSpan":2,"rowSpan":1}],[{"text":"10","colSpan":1,"rowSpan":1},{"text":"11","colSpan":1,"rowSpan":1}]],"colWidthsMm":[30.0,30.0]}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwpx hwpx-merge-blocks.json hwpx-merged.hwpx
+          if (-not (Test-Path hwpx-merged.hwpx)) {
+            Write-Error "HWPX write engine smoke failed: JsonToHwpx가 병합 표를 생성하지 못함(DEC-049)"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpxToJson hwpx-merged.hwpx hwpx-merged.json
+          $hwpxMergedJson = Get-Content hwpx-merged.json -Encoding utf8 -Raw
+          if (-not ($hwpxMergedJson | Select-String -Pattern '"type":"table","rows":\[\[\{"text":"병합","colSpan":2,"rowSpan":1\}\],\["10","11"\]\]' -Quiet)) {
+            Write-Error "HWPX write engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-049 회귀)"; exit 1
+          }
+          # DEC-049(DEC-038 대칭): 문자 서식(굵게/기울임/크기/색상).
+          Set-Content -Encoding utf8 hwpx-formatted-blocks.json '{"blocks":[{"type":"p","runs":[{"text":"굵은텍스트","bold":true},{"text":"일반텍스트"},{"text":"기울임텍스트","italic":true,"size":18,"color":"FF0000"}]}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwpx hwpx-formatted-blocks.json hwpx-formatted.hwpx
+          if (-not (Test-Path hwpx-formatted.hwpx)) {
+            Write-Error "HWPX write engine smoke failed: JsonToHwpx가 서식 있는 문서를 생성하지 못함(DEC-049)"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpxToJson hwpx-formatted.hwpx hwpx-formatted.json
+          $hwpxFormattedJson = Get-Content hwpx-formatted.json -Encoding utf8 -Raw
+          if (-not ($hwpxFormattedJson | Select-String -Pattern '"text":"굵은텍스트","bold":true,"italic":false,"underline":false' -Quiet)) {
+            Write-Error "HWPX write engine smoke failed: JsonToHwpx가 쓴 굵게 서식이 왕복 후 재확인되지 않음(DEC-049 회귀)"; exit 1
+          }
+          if (-not ($hwpxFormattedJson | Select-String -Pattern '"text":"일반텍스트","bold":false,"italic":false,"underline":false' -Quiet)) {
+            Write-Error "HWPX write engine smoke failed: JsonToHwpx가 서식 없는 run을 잘못된 서식으로 씀(DEC-049 회귀)"; exit 1
+          }
+          if (-not ($hwpxFormattedJson | Select-String -Pattern '"italic":true[^}]*"size":18(\.0)?[^}]*"color":"FF0000"' -Quiet)) {
+            Write-Error "HWPX write engine smoke failed: 기울임·크기·색상 서식이 같은 run 안에서 왕복 후 재확인되지 않음(DEC-049 회귀)"; exit 1
+          }
+          # DEC-049(DEC-040 대칭): 문단 정렬.
+          Set-Content -Encoding utf8 hwpx-align-blocks.json '{"blocks":[{"type":"p","text":"기본 정렬"},{"type":"p","text":"가운데 정렬","align":"center"},{"type":"p","text":"오른쪽 정렬","align":"right"}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwpx hwpx-align-blocks.json hwpx-align.hwpx
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpxToJson hwpx-align.hwpx hwpx-align.json
+          $hwpxAlignJson = Get-Content hwpx-align.json -Encoding utf8 -Raw
+          if (-not ($hwpxAlignJson | Select-String -Pattern '"text":"기본 정렬".*?"align":"justify"' -Quiet)) {
+            Write-Error "HWPX write engine smoke failed: 정렬 미지정 문단이 기본 정렬(양쪽)로 나오지 않음(DEC-049 회귀)"; exit 1
+          }
+          if (-not ($hwpxAlignJson | Select-String -Pattern '"text":"가운데 정렬".*?"align":"center"' -Quiet)) {
+            Write-Error "HWPX write engine smoke failed: 가운데 정렬이 왕복 후 재확인되지 않음(DEC-049 회귀)"; exit 1
+          }
+          if (-not ($hwpxAlignJson | Select-String -Pattern '"text":"오른쪽 정렬".*?"align":"right"' -Quiet)) {
+            Write-Error "HWPX write engine smoke failed: 오른쪽 정렬이 왕복 후 재확인되지 않음(DEC-049 회귀)"; exit 1
+          }
+          # DEC-049(DEC-039 대칭): 쪽 나눔(pageBreakBefore) — HwpxToJson 정식
+          # 스키마는 이 값을 안 보므로(HWP와 동일한 이유) PageBreakDebugHwpx
+          # (테스트 전용, 배포용 engine-build/hwp가 아닌 debug-tools에 컴파일)로
+          # 직접 확인한다.
+          New-Item -ItemType Directory -Force debug-tools | Out-Null
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/PageBreakDebugHwpx.java
+          Set-Content -Encoding utf8 hwpx-pagebreak-blocks.json '{"blocks":[{"type":"p","text":"1페이지 문단"},{"type":"p","text":"2페이지 문단","pageBreakBefore":true}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwpx hwpx-pagebreak-blocks.json hwpx-pagebreak.hwpx
+          if (-not (Test-Path hwpx-pagebreak.hwpx)) {
+            Write-Error "HWPX write engine smoke failed: JsonToHwpx가 페이지 구분 있는 문서를 생성하지 못함(DEC-049)"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp "debug-tools;engine-build/hwp" PageBreakDebugHwpx hwpx-pagebreak.hwpx hwpx-pagebreak-out.txt
+          $hwpxPageBreakOut = Get-Content -Encoding utf8 hwpx-pagebreak-out.txt
+          if (-not ($hwpxPageBreakOut | Select-String -Pattern "0`tfalse`t1페이지 문단" -SimpleMatch -Quiet)) {
+            Write-Error "HWPX write engine smoke failed: 1페이지 문단에 쪽 나눔이 잘못 붙음(DEC-049 회귀)"; exit 1
+          }
+          if (-not ($hwpxPageBreakOut | Select-String -Pattern "1`ttrue`t2페이지 문단" -SimpleMatch -Quiet)) {
+            Write-Error "HWPX write engine smoke failed: 2페이지 문단에 쪽 나눔이 반영되지 않음(DEC-049 회귀)"; exit 1
           }
       - name: Cache LibreOffice installer
         uses: actions/cache@v4
@@ -625,7 +691,7 @@ jobs:
           javac -encoding UTF-8 -nowarn @sources-hwpx.txt -d engine-build/hwp
           javac -encoding UTF-8 -cp engine-build/hwp -d engine-build/hwp \
             sidecar/hwp/HwpToText.java sidecar/hwp/HwpToJson.java sidecar/hwp/JsonToHwp.java \
-            sidecar/hwp/HwpxToText.java sidecar/hwp/HwpxToJson.java
+            sidecar/hwp/HwpxToText.java sidecar/hwp/HwpxToJson.java sidecar/hwp/JsonToHwpx.java
           jlink --add-modules java.base,java.desktop,java.xml,java.logging \
             --strip-debug --no-header-files --no-man-pages --output engine-build/jre
       - name: HWP engine smoke (bundled JRE + 한글 텍스트 샘플)
@@ -877,6 +943,75 @@ jobs:
               print("::error::HWPX engine smoke failed: 표 구조 불일치")
               sys.exit(1)
           PY
+      - name: HWPX write engine smoke (DOCX/PDF→HWPX 쓰기 — DEC-049)
+        run: |
+          # DEC-049(DEC-035 대칭): 셀 병합(colSpan/rowSpan) — JsonToHwpx가
+          # sparse 표현으로 곧바로 병합된 Tc를 쓰고(TableCellMerger 같은
+          # 별도 유틸 없이), HwpxToJson이 그 구조를 그대로 재확인해야 한다.
+          cat > hwpx-merge-blocks.json <<'JSON'
+          {"blocks":[{"type":"table","rows":[[{"text":"병합","colSpan":2,"rowSpan":1}],[{"text":"10","colSpan":1,"rowSpan":1},{"text":"11","colSpan":1,"rowSpan":1}]],"colWidthsMm":[30.0,30.0]}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwpx hwpx-merge-blocks.json hwpx-merged.hwpx
+          [ -f hwpx-merged.hwpx ] || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 병합 표를 생성하지 못함(DEC-049)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson hwpx-merged.hwpx hwpx-merged.json
+          python3 <<'PY'
+          import re, sys
+          text = open("hwpx-merged.json", encoding="utf-8").read()
+          if not re.search(r'"type":"table","rows":\[\[\{"text":"병합","colSpan":2,"rowSpan":1\}\],\["10","11"\]\]', text):
+              print("::error::HWPX write engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-049 회귀)")
+              sys.exit(1)
+          PY
+          # DEC-049(DEC-038 대칭): 문자 서식(굵게/기울임/크기/색상).
+          cat > hwpx-formatted-blocks.json <<'JSON'
+          {"blocks":[{"type":"p","runs":[{"text":"굵은텍스트","bold":true},{"text":"일반텍스트"},{"text":"기울임텍스트","italic":true,"size":18,"color":"FF0000"}]}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwpx hwpx-formatted-blocks.json hwpx-formatted.hwpx
+          [ -f hwpx-formatted.hwpx ] || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 서식 있는 문서를 생성하지 못함(DEC-049)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson hwpx-formatted.hwpx hwpx-formatted.json
+          grep -qF '"text":"굵은텍스트","bold":true,"italic":false,"underline":false' hwpx-formatted.json \
+            || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 쓴 굵게 서식이 왕복 후 재확인되지 않음(DEC-049 회귀)"; exit 1; }
+          grep -qF '"text":"일반텍스트","bold":false,"italic":false,"underline":false' hwpx-formatted.json \
+            || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 서식 없는 run을 잘못된 서식으로 씀(DEC-049 회귀)"; exit 1; }
+          python3 <<'PY'
+          import re, sys
+          text = open("hwpx-formatted.json", encoding="utf-8").read()
+          if not re.search(r'"italic":true[^}]*"size":18(\.0)?[^}]*"color":"FF0000"', text):
+              print("::error::HWPX write engine smoke failed: 기울임·크기·색상 서식이 같은 run 안에서 왕복 후 재확인되지 않음(DEC-049 회귀)")
+              sys.exit(1)
+          PY
+          # DEC-049(DEC-040 대칭): 문단 정렬.
+          cat > hwpx-align-blocks.json <<'JSON'
+          {"blocks":[{"type":"p","text":"기본 정렬"},{"type":"p","text":"가운데 정렬","align":"center"},{"type":"p","text":"오른쪽 정렬","align":"right"}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwpx hwpx-align-blocks.json hwpx-align.hwpx
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson hwpx-align.hwpx hwpx-align.json
+          python3 <<'PY'
+          import re, sys
+          text = open("hwpx-align.json", encoding="utf-8").read()
+          checks = [
+              (r'"text":"기본 정렬".*?"align":"justify"', "정렬 미지정 문단이 기본 정렬(양쪽)로 나오지 않음"),
+              (r'"text":"가운데 정렬".*?"align":"center"', "가운데 정렬이 왕복 후 재확인되지 않음"),
+              (r'"text":"오른쪽 정렬".*?"align":"right"', "오른쪽 정렬이 왕복 후 재확인되지 않음"),
+          ]
+          for pattern, msg in checks:
+              if not re.search(pattern, text):
+                  print(f"::error::HWPX write engine smoke failed: {msg}(DEC-049 회귀)")
+                  sys.exit(1)
+          PY
+          # DEC-049(DEC-039 대칭): 쪽 나눔(pageBreakBefore) — HwpxToJson 정식
+          # 스키마는 이 값을 안 보므로(HWP와 동일한 이유) PageBreakDebugHwpx
+          # (테스트 전용, 배포용 engine-build/hwp가 아닌 debug-tools에 컴파일)로
+          # 직접 확인한다.
+          mkdir -p debug-tools
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/PageBreakDebugHwpx.java
+          cat > hwpx-pagebreak-blocks.json <<'JSON'
+          {"blocks":[{"type":"p","text":"1페이지 문단"},{"type":"p","text":"2페이지 문단","pageBreakBefore":true}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwpx hwpx-pagebreak-blocks.json hwpx-pagebreak.hwpx
+          [ -f hwpx-pagebreak.hwpx ] || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 페이지 구분 있는 문서를 생성하지 못함(DEC-049)"; exit 1; }
+          engine-build/jre/bin/java -cp "debug-tools:engine-build/hwp" PageBreakDebugHwpx hwpx-pagebreak.hwpx hwpx-pagebreak-out.txt
+          grep -qF "$(printf '0\tfalse\t1페이지 문단')" hwpx-pagebreak-out.txt || { echo "::error::HWPX write engine smoke failed: 1페이지 문단에 쪽 나눔이 잘못 붙음(DEC-049 회귀)"; exit 1; }
+          grep -qF "$(printf '1\ttrue\t2페이지 문단')" hwpx-pagebreak-out.txt || { echo "::error::HWPX write engine smoke failed: 2페이지 문단에 쪽 나눔이 반영되지 않음(DEC-049 회귀)"; exit 1; }
       - name: Restore LibreOffice installer cache
         id: lo-cache
         uses: actions/cache/restore@v4
