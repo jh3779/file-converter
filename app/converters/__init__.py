@@ -10,11 +10,11 @@ from .base import ConversionError
 from . import data, pdf, office, hwp, hwpx, video, image
 
 TARGETS: dict[str, list[str]] = {
-    "docx": ["pdf", "hwp"],  # DEC-017/DEC-028 — 표는 실제 HWP 표로 생성됨(셀 병합 제외)
+    "docx": ["pdf", "hwp", "hwpx"],  # DEC-017/DEC-028 — 표는 실제 HWP/HWPX 표로 생성됨(셀 안 서식 제외). hwpx: DEC-049
     "pptx": ["pdf"],   # DEC-016
-    "pdf": ["txt", "docx", "hwp", "png", "jpg", "pptx"],  # DEC-023 — HWP도 텍스트 기반(DEC-010과 같은 원칙). png/jpg: DEC-026, 페이지별 이미지를 폴더에 저장(jpg 옵션은 DEC-043). pptx: DEC-030, 줄 단위 위치 재구성(이미지로 뭉개지 않음)
+    "pdf": ["txt", "docx", "hwp", "hwpx", "png", "jpg", "pptx"],  # DEC-023 — HWP/HWPX도 텍스트 기반(DEC-010과 같은 원칙, hwpx는 DEC-049). png/jpg: DEC-026, 페이지별 이미지를 폴더에 저장(jpg 옵션은 DEC-043). pptx: DEC-030, 줄 단위 위치 재구성(이미지로 뭉개지 않음)
     "hwp": ["txt", "pdf", "docx"],
-    "hwpx": ["txt", "pdf", "docx"],  # QA(h) Phase 1(읽기, 외부 QA 요청) — hwplib이 아닌 별도 라이브러리 hwpxlib 사용
+    "hwpx": ["txt", "pdf", "docx"],  # 읽기(Phase 1, 외부 QA 요청) — hwplib이 아닌 별도 라이브러리 hwpxlib 사용
     "csv": ["xlsx", "json"],
     "xlsx": ["csv"],
     "json": ["csv"],
@@ -60,10 +60,12 @@ _DISPATCH = {
     ("docx", "pdf"): office.office_to_pdf,
     ("pptx", "pdf"): office.office_to_pdf,  # DEC-016 — 동일 LibreOffice 경로 재사용
     ("docx", "hwp"): hwp.docx_to_hwp,      # DEC-017/DEC-028 — 문단+표(실제 표로 신규 생성)
+    ("docx", "hwpx"): hwpx.docx_to_hwpx,   # DEC-049 — hwp.docx_to_hwp와 대칭
+    ("pdf", "hwpx"): hwpx.pdf_to_hwpx,     # DEC-049 — hwp.pdf_to_hwp와 대칭
     ("hwp", "txt"): hwp.hwp_to_txt,
     ("hwp", "pdf"): hwp.hwp_to_pdf,        # DOCX 경유 → LibreOffice
     ("hwp", "docx"): hwp.hwp_to_docx,      # 구조 JSON → python-docx
-    ("hwpx", "txt"): hwpx.hwpx_to_txt,     # QA(h) Phase 1 — hwpxlib 사이드카
+    ("hwpx", "txt"): hwpx.hwpx_to_txt,     # 읽기(Phase 1) — hwpxlib 사이드카
     ("hwpx", "pdf"): hwpx.hwpx_to_pdf,     # DOCX 경유 → LibreOffice
     ("hwpx", "docx"): hwpx.hwpx_to_docx,   # 구조 JSON → python-docx
     **{(ext, "mp4"): video.video_to_mp4 for ext in _VIDEO_EXTS},  # DEC-024
