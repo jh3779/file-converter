@@ -350,6 +350,7 @@ class MainWindow(QMainWindow):
         bottom = QHBoxLayout()
         self.shield = QLabel()
         self.shield.setObjectName("shield")
+        self.shield.setWordWrap(True)
         bottom.addWidget(self.shield)
         self.update_notice = QLabel()
         self.update_notice.setObjectName("hint")

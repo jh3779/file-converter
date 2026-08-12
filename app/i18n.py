@@ -13,11 +13,13 @@ _S = {
     # 지원 포맷 목록(DEC-044로 HWPX가 추가되며 더 길어짐)이 한 줄이면 698px나
     # 필요해 저해상도(작업표시줄 뺀 가로 폭이 640px보다 좁은 화면)에서 잘릴
     # 수 있었다(QA(e), 실측 확인) — QPushButton은 자동 줄바꿈을 지원하지
-    # 않아(Qt 자체 제약, 명시적 \n만 줄바꿈됨) 여기서 직접 세 줄로 나눈다.
-    "drop.sub": ("또는 클릭해서 선택\nDOCX PPTX PDF HWP HWPX CSV XLSX JSON\n"
-                 "AVI MOV MKV 등 영상 · JPG PNG 등 이미지",
-                 "or click to browse\nDOCX PPTX PDF HWP HWPX CSV XLSX JSON\n"
-                 "AVI MOV MKV and other video · JPG PNG and other images"),
+    # 않아(Qt 자체 제약, 명시적 \n만 줄바꿈됨) 여기서 직접 여러 줄로 나눈다.
+    # 포맷 목록 줄과 영상·이미지 목록 줄은 각각 한 줄로는 폭이 넉넉하지 않아
+    # (특히 영문판 "and other video/images" 표현이 길다) 다시 한 번 나눴다.
+    "drop.sub": ("또는 클릭해서 선택\nDOCX PPTX PDF HWP HWPX\nCSV XLSX JSON\n"
+                 "AVI MOV MKV 등 영상\n· JPG PNG 등 이미지",
+                 "or click to browse\nDOCX PPTX PDF HWP HWPX\nCSV XLSX JSON\n"
+                 "AVI MOV MKV and other video\n· JPG PNG and other images"),
     "drop.strip": ("＋ 파일 추가 또는 끌어다 놓기", "＋ Add files or drag & drop"),
     "convert": ("변환하기", "Convert"),
     "cancel": ("취소", "Cancel"),
