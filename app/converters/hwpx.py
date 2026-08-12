@@ -18,9 +18,9 @@ align/colSpan/rowSpan/pageBreakBefore를 다 내보내고 있어(HWP 쓰기와
 공유) 수정 없이 그대로 재사용한다.
 
 HwpxToJson.java가 내는 구조 JSON은 HwpToJson.java(HWP용)와 스키마가 같아
-(Phase 2에서 align·colSpan/rowSpan 읽기도 대칭으로 확장) docx_build.
-blocks_to_docx를 그대로 재사용한다. 표 셀 안 서식·머리말/꼬리말
-텍스트는 여전히 범위 밖(문서화된 단순화, DEC-028과 같은 원칙).
+(Phase 2에서 align·colSpan/rowSpan 읽기도 대칭으로 확장, DEC-051부터
+표 셀 안 문자 서식·머리말/꼬리말/글상자 텍스트도 hwplib 쪽(DEC-032·
+DEC-038)과 대칭으로 반영) docx_build.blocks_to_docx를 그대로 재사용한다.
 """
 import json
 from pathlib import Path

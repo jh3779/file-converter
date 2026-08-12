@@ -2,7 +2,7 @@
 
 블록 형식: {"type":"p","runs":[{"text":str,"bold":bool,"italic":bool,
 "underline":bool,"size":float,"color":"RRGGBB"}, ...],"align":"left"|"center"|"right"|"justify"(선택)} |
-{"type":"table","rows":[[{"text":str,"colSpan":int,"rowSpan":int},...],...],"colWidthsMm":[float,...]}
+{"type":"table","rows":[[{"runs":[...],"colSpan":int,"rowSpan":int},...],...],"colWidthsMm":[float,...]}
 문서 순서(본문에 등장하는 순서)대로 문단·표를 함께 추출한다 — python-docx는
 document.paragraphs/document.tables를 각각 따로 주기 때문에 body XML을 직접
 순회해야 순서가 보존된다.
@@ -12,7 +12,10 @@ document.paragraphs/document.tables를 각각 따로 주기 때문에 body XML�
 경우) 미지정으로 보고 False로 안전하게 처리한다. HwpToJson.java(HWP→DOCX
 읽기 방향, DEC-027)와 대칭이지만 스타일 상속 체인 전체를 해석하지는
 않는다는 점은 같은 단순화 원칙(번호 매기기의 restart 규칙 미재현과 동일).
-표 셀 텍스트는 이번 범위 밖이라 문자 서식 없이 평문으로 남는다.
+표 셀 문자 서식은 DEC-051부터 문단과 같은 run 단위로 반영한다(그 전까지는
+평문이었음) — 셀 안에 문단이 여러 개면(흔치 않음) 공백 하나로 이어붙인다
+(HWP 표 셀은 항상 단일 문단이라는 기존 전제, JsonToHwp.java의
+`setParagraphForCell`과 대칭).
 
 문단 정렬(DEC-040): 문단에 직접 지정된 정렬(w:jc)만 읽는다(스타일 상속은
 범위 밖). 직접 지정이 없으면 Word가 실제로 렌더링하는 값인 "left"를
@@ -261,6 +264,60 @@ def _column_widths_mm(table) -> list[float] | None:
     return widths
 
 
+def _trim_cell_runs(runs: list[dict]) -> list[dict]:
+    """run 경계를 넘나들며 셀 전체 기준 앞뒤 공백만 정확히 제거한다
+    (문단 쪽 trimEdges와 같은 원칙 — HwpToJson.java의 Java 버전과 대칭)."""
+    if not runs:
+        return runs
+    full = "".join(r.get("text") or "" for r in runs)
+    if not full.strip():
+        return []
+    lead = len(full) - len(full.lstrip())
+    trail = len(full) - len(full.rstrip())
+    out = [dict(r) for r in runs]
+    remaining = lead
+    for r in out:
+        if remaining <= 0:
+            break
+        t = r.get("text") or ""
+        if len(t) <= remaining:
+            remaining -= len(t)
+            r["text"] = ""
+        else:
+            r["text"] = t[remaining:]
+            remaining = 0
+    remaining = trail
+    for r in reversed(out):
+        if remaining <= 0:
+            break
+        t = r.get("text") or ""
+        if len(t) <= remaining:
+            remaining -= len(t)
+            r["text"] = ""
+        else:
+            r["text"] = t[:len(t) - remaining]
+            remaining = 0
+    return [r for r in out if r.get("text")]
+
+
+def _cell_runs(cell) -> list[dict]:
+    """셀 안 모든 문단의 run을 이어붙인다 — 문단이 여러 개면(흔치 않음)
+    공백 하나로 이어붙인다(기존 cell.text의 '\\n'→' ' 평탄화와 동일한
+    결과 — HWP/HWPX 표 셀은 항상 단일 문단이라는 기존 전제, JsonToHwp.java/
+    JsonToHwpx.java의 setParagraphForCell/addCell과 대칭). run.text 안에
+    직접 삽입된 줄바꿈(<w:br/>, python-docx가 "\\n"로 돌려줌)도 같은
+    이유로 공백으로 바꾼다."""
+    runs = []
+    for i, p in enumerate(cell.paragraphs):
+        if i > 0:
+            runs.append({"text": " "})
+        for r in _paragraph_runs(p):
+            if "\n" in r["text"]:
+                r = {**r, "text": r["text"].replace("\n", " ")}
+            runs.append(r)
+    return _trim_cell_runs(runs)
+
+
 def _table_rows_with_spans(table) -> list[list[dict]]:
     """행마다 그 행에서 처음 등장하는 셀만 담되(병합의 왼쪽 위 모서리),
     colSpan/rowSpan을 함께 기록한다. table.cell(r, c)는 그리드의 모든
@@ -290,8 +347,7 @@ def _table_rows_with_spans(table) -> list[list[dict]]:
                     row_span += 1
                 else:
                     break
-            text = cells[c].text.strip().replace("\n", " ")
-            entry = {"text": text, "colSpan": col_span, "rowSpan": row_span}
+            entry = {"runs": _cell_runs(cells[c]), "colSpan": col_span, "rowSpan": row_span}
             row_out.append(entry)
         rows_out.append(row_out)
     return rows_out
@@ -321,7 +377,7 @@ def docx_to_blocks(src: Path) -> list[dict]:
     for item in _iter_block_items(doc):
         if isinstance(item, Table):
             rows = _table_rows_with_spans(item)
-            if any(cell["text"] for row in rows for cell in row):
+            if any(cell["runs"] for row in rows for cell in row):
                 block = {"type": "table", "rows": rows}
                 col_widths = _column_widths_mm(item)
                 if col_widths is not None:

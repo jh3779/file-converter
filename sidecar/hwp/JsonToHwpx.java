@@ -63,11 +63,13 @@ import java.util.Map;
  *
  * **표 셀 병합은 선택이 아니라 필수**다 — 공유 blocks 스키마("한 행에는
  * 그 행에서 처음 등장하는 셀만 담긴다")를 무시하면 열 개수 자체가
- * 깨진다. 문자 서식(DEC-038 대칭)·정렬(DEC-040 대칭)도 함께 반영한다.
- * **표 셀 안 서식·실제 한글/한워드 뷰어에서의 최종 렌더링은 이번 범위
- * 밖**(DEC-018·DEC-028과 동일한 원칙 — Mac 개발 환경에 뷰어가 없어
- * hwpxlib 자체 왕복 검증 이상은 이번 스파이크로도 확증 불가, Windows
- * 실사용자 테스트 필요).
+ * 깨진다. 문단·표 셀 문자 서식(DEC-038·DEC-051 대칭)·정렬(DEC-040 대칭)도
+ * 함께 반영한다 — 표 셀도 문단과 완전히 같은 `addRunsToParagraph`를
+ * 재사용해 셀 자체가 이제 정식 스키마에서 `{"runs":[...],"colSpan":n,
+ * "rowSpan":m}` 객체다(DEC-051, 이전엔 병합 없는 셀만 평문 문자열이었음).
+ * **실제 한글/한워드 뷰어에서의 최종 렌더링은 이번 범위 밖**(DEC-018·
+ * DEC-028과 동일한 원칙 — Mac 개발 환경에 뷰어가 없어 hwpxlib 자체 왕복
+ * 검증 이상은 확증 불가, Windows 실사용자 테스트 필요).
  */
 public class JsonToHwpx {
     // 표 크기 근사치 — JsonToHwp.java와 동일한 상수(hwpunit 단위계가
@@ -162,9 +164,10 @@ public class JsonToHwpx {
                 Map<String, Object> cell = (cellObj instanceof Map)
                         ? (Map<String, Object>) cellObj
                         : java.util.Collections.singletonMap("text", cellObj);
-                String text = String.valueOf(cell.get("text")).replace('\n', ' ');
+                List<Object> rawRuns = (List<Object>) cell.get("runs");
+                List<Map<String, Object>> runs = normalizeRuns(rawRuns, (String) cell.get("text"));
                 Map<String, Object> normalized = new java.util.LinkedHashMap<>();
-                normalized.put("text", text);
+                normalized.put("runs", runs);
                 normalized.put("colSpan", cell.get("colSpan"));
                 normalized.put("rowSpan", cell.get("rowSpan"));
                 row.add(normalized);
@@ -373,8 +376,8 @@ public class JsonToHwpx {
                 Map<String, Object> cellSpec = rowCells.get(cellIdx++);
                 int colSpan = spanInt(cellSpec, "colSpan");
                 int rowSpan = spanInt(cellSpec, "rowSpan");
-                addCell(tr, col, r, colSpan, rowSpan, (String) cellSpec.get("text"),
-                        cellBorderFillId, colWidthsMm[col]);
+                List<Map<String, Object>> cellRuns = (List<Map<String, Object>>) cellSpec.get("runs");
+                addCell(tr, col, r, colSpan, rowSpan, cellRuns, cellBorderFillId, colWidthsMm[col]);
                 if (rowSpan > 1) {
                     for (int cc = col; cc < col + colSpan; cc++) reservedUntilRow[cc] = r + rowSpan - 1;
                 }
@@ -383,8 +386,11 @@ public class JsonToHwpx {
         }
     }
 
-    private static void addCell(Tr tr, int col, int row, int colSpan, int rowSpan, String text,
-                                 String borderFillId, double widthMm) {
+    /** 셀 안 문자 서식(굵게/기울임/밑줄/크기/색상, 표 셀 안 서식 보존
+     * 개선)을 반영한다 — addRunsToParagraph(최상위 문단이 쓰는 것과 같은
+     * 함수)를 그대로 재사용한다. */
+    private static void addCell(Tr tr, int col, int row, int colSpan, int rowSpan,
+                                 List<Map<String, Object>> runs, String borderFillId, double widthMm) {
         Tc tc = tr.addNewTc();
         tc.nameAnd("").headerAnd(false).hasMarginAnd(false).protectAnd(false)
                 .editableAnd(false).dirtyAnd(false).borderFillIDRefAnd(borderFillId);
@@ -400,9 +406,7 @@ public class JsonToHwpx {
         Para p = tc.subList().addNewPara();
         p.idAnd(String.valueOf(nextParaId++)).paraPrIDRefAnd("3").styleIDRefAnd("0")
                 .pageBreakAnd(false).columnBreakAnd(false).merged(false);
-        Run r = p.addNewRun();
-        r.charPrIDRef("0");
-        r.addNewT().addNewText().textAnd(text == null ? "" : text);
+        addRunsToParagraph(p, runs != null ? runs : java.util.Collections.emptyList());
     }
 
     private static int spanInt(Map<String, Object> cellSpec, String key) {

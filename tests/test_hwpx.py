@@ -18,6 +18,8 @@ from app import converters
 REPO = Path(__file__).resolve().parents[1]
 HWPX_SAMPLE = REPO / "spike" / "hwpxlib" / "repo" / "testFile" / "tool" / "textextractor" / "multipara.hwpx"
 HWPX_TABLE_SAMPLE = REPO / "spike" / "hwpxlib" / "repo" / "testFile" / "tool" / "textextractor" / "Table.hwpx"
+HWPX_HEADER_FOOTER_SAMPLE = REPO / "spike" / "hwpxlib" / "repo" / "testFile" / "reader_writer" / "HeaderFooter.hwpx"
+HWPX_NESTED_SHAPE_SAMPLE = REPO / "spike" / "hwpxlib" / "repo" / "testFile" / "tool" / "textextractor" / "RectInRect.hwpx"
 
 
 def _find_soffice():
@@ -80,6 +82,31 @@ class TestHwpx(Base):
         by_text = {r.text.strip(): r for r in runs}
         self.assertIn("날짜", by_text)
         self.assertTrue(by_text["날짜"].font.italic)
+
+    def test_hwpx_to_docx_preserves_header_footer_text(self):
+        """HWPX Phase 1(DEC-044)·Phase 2(DEC-049)가 반복적으로 "범위 밖"으로
+        문서화해온 한계 — 머리말/꼬리말이 Ctrl RunItem으로 감싸여 있어
+        기존 emitParagraph가 아예 순회하지 않고 조용히 건너뛰었다(HwpToJson.java
+        쪽이 외부 QA #43로 이미 겪은 것과 같은 종류의 문제, DEC-032). 재귀
+        처리 추가 확인용 — HeaderFooter.hwpx는 본문이 없고 머리말/꼬리말
+        텍스트만 있는 픽스처라, 수정 전에는 결과 DOCX 문단이 전부 비어
+        있었다(직접 재현 확인)."""
+        from docx import Document
+        out = converters.convert(HWPX_HEADER_FOOTER_SAMPLE, "docx", self.tmp)
+        texts = [p.text for p in Document(out).paragraphs if p.text.strip()]
+        self.assertIn("머리말 테스트", texts)
+        self.assertIn("꼬리말", texts)
+
+    def test_hwpx_to_docx_preserves_nested_shape_text(self):
+        """글상자(도형) 안, 그리고 도형을 묶은 그룹(Container) 안의 텍스트도
+        재귀로 뽑아내는지 — RectInRect.hwpx는 사각형 안에 사각형이 중첩된
+        픽스처라, 수정 전에는 결과 DOCX 문단이 전부 비어 있었다(직접 재현
+        확인, hwplib 쪽 ControlContainer 중첩 그룹 처리와 대칭)."""
+        from docx import Document
+        out = converters.convert(HWPX_NESTED_SHAPE_SAMPLE, "docx", self.tmp)
+        texts = [p.text for p in Document(out).paragraphs if p.text.strip()]
+        self.assertTrue(texts, "글상자 안 텍스트가 하나도 안 나옴(회귀)")
+        self.assertTrue(any("사각형" in t for t in texts))
 
     def test_hwpx_tab_normalized_to_space_not_dropped(self):
         """HwpxToJson(HWPX→DOCX/PDF 경로, HWPX→TXT는 hwpxlib 자체
@@ -230,6 +257,39 @@ class TestHwpxWrite(Base):
         self.assertEqual(table2.cell(1, 2)._tc, table2.cell(2, 2)._tc,
                           "세로 병합이 풀려서 돌아옴")
 
+    def test_docx_to_hwpx_cell_char_formatting_roundtrip(self):
+        """표 셀 안 문자 서식 보존 개선(DEC-051) — HWP 쪽과 대칭. 굵게·
+        크기·색상이 표 셀의 run 단위로 반영되고, HWPX를 거쳐 다시 DOCX로
+        와도 그대로 남아있어야 한다."""
+        from docx import Document
+        from docx.shared import Pt, RGBColor
+
+        src = self.tmp / "cell_formatted.docx"
+        doc = Document()
+        table = doc.add_table(rows=1, cols=2)
+        p = table.cell(0, 0).paragraphs[0]
+        p.add_run("일반 ")
+        styled = p.add_run("굵고빨간18pt")
+        styled.bold = True
+        styled.font.size = Pt(18)
+        styled.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+        table.cell(0, 1).text = "plain"
+        doc.save(src)
+
+        out = converters.convert(src, "hwpx", self.tmp)
+        back_dir = self.tmp / "back_cell_fmt"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        doc2 = Document(back)
+
+        cell0_runs = doc2.tables[0].cell(0, 0).paragraphs[0].runs
+        by_text = {r.text: r for r in cell0_runs}
+        self.assertFalse(bool(by_text["일반 "].font.bold))
+        self.assertTrue(by_text["굵고빨간18pt"].font.bold)
+        self.assertEqual(by_text["굵고빨간18pt"].font.size, Pt(18))
+        self.assertEqual(by_text["굵고빨간18pt"].font.color.rgb, RGBColor(0xFF, 0x00, 0x00))
+        self.assertEqual(doc2.tables[0].cell(0, 1).text, "plain")
+
     def test_docx_to_hwpx_alignment_roundtrip(self):
         """DEC-049(DEC-040 대칭): DOCX 문단에 직접 지정된 정렬이 HWPX의
         실제 ParaPr.align()으로 반영되고, 다시 DOCX로 왕복해도 남는지."""
@@ -277,7 +337,8 @@ class TestHwpxWrite(Base):
         reread_json = self.tmp / "string-cells-reread.json"
         _run_sidecar("HwpxToJson", out, reread_json)
         rows = json.loads(reread_json.read_text(encoding="utf-8"))["blocks"][0]["rows"]
-        self.assertEqual(rows, [["a", "b"], ["c", "d"]])
+        texts = [["".join(r["text"] for r in cell["runs"]) for cell in row] for row in rows]
+        self.assertEqual(texts, [["a", "b"], ["c", "d"]])
 
     def test_pdf_to_hwpx_preserves_page_breaks(self):
         """DEC-049(DEC-039 대칭): PDF 여러 페이지가 HWPX 안에서도 페이지

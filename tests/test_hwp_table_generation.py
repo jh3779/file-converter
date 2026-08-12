@@ -146,6 +146,39 @@ class TestDocxToHwpTableGeneration(unittest.TestCase):
         self.assertEqual(table2.cell(1, 2)._tc, table2.cell(2, 2)._tc,
                           "세로 병합이 풀려서 돌아옴")
 
+    def test_cell_char_formatting_survives_docx_to_hwp_to_docx_round_trip(self):
+        """표 셀 안 문자 서식 보존 개선 — 굵게·기울임·밑줄·크기·색상이
+        표 셀의 run 단위로 반영되고, HWP를 거쳐 다시 DOCX로 와도
+        그대로 남아있어야 한다(DEC-038이 문단에 반영한 것과 대칭,
+        DEC-051)."""
+        from docx.shared import Pt, RGBColor
+
+        src = self.tmp / "cell_formatted.docx"
+        doc = Document()
+        table = doc.add_table(rows=1, cols=2)
+        p = table.cell(0, 0).paragraphs[0]
+        p.add_run("일반 ")
+        styled = p.add_run("굵고빨간18pt")
+        styled.bold = True
+        styled.font.size = Pt(18)
+        styled.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+        table.cell(0, 1).text = "plain"
+        doc.save(src)
+
+        out = converters.convert(src, "hwp", self.tmp)
+        back_dir = self.tmp / "back_fmt"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        doc2 = Document(back)
+
+        cell0_runs = doc2.tables[0].cell(0, 0).paragraphs[0].runs
+        by_text = {r.text: r for r in cell0_runs}
+        self.assertFalse(bool(by_text["일반 "].font.bold))
+        self.assertTrue(by_text["굵고빨간18pt"].font.bold)
+        self.assertEqual(by_text["굵고빨간18pt"].font.size, Pt(18))
+        self.assertEqual(by_text["굵고빨간18pt"].font.color.rgb, RGBColor(0xFF, 0x00, 0x00))
+        self.assertEqual(doc2.tables[0].cell(0, 1).text, "plain")
+
     def test_vertical_merge_spanning_entire_row_preserves_row_count(self):
         """세로 병합이 어떤 행 전체를 덮으면(예: 1열 표에서 위 셀이 아래
         행까지 병합) docx_extract.py는 그 행을 빈 배열([])로 낸다 — 이
@@ -178,7 +211,8 @@ class TestDocxToHwpTableGeneration(unittest.TestCase):
 
     def test_hwp_to_json_structure_matches_source_dimensions(self):
         """HwpToJson으로 재읽었을 때도 실제 표 블록(행렬 수 일치)으로
-        나오는지 — Python DOCX 재변환 경로를 거치지 않는 더 직접적인 확인."""
+        나오는지 — Python DOCX 재변환 경로를 거치지 않는 더 직접적인 확인.
+        DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다."""
         import json
         from app.converters import hwp as hwp_mod
 
@@ -193,7 +227,8 @@ class TestDocxToHwpTableGeneration(unittest.TestCase):
         rows = table_blocks[0]["rows"]
         self.assertEqual(len(rows), 2)
         self.assertEqual(len(rows[0]), 3)
-        self.assertEqual(rows, [["x", "y", "z"], ["1", "2", "3"]])
+        texts = [["".join(r["text"] for r in cell["runs"]) for cell in row] for row in rows]
+        self.assertEqual(texts, [["x", "y", "z"], ["1", "2", "3"]])
 
 
 if __name__ == "__main__":

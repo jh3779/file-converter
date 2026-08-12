@@ -129,12 +129,6 @@ _S = {
                          "Text is placed to match its original position — since each "
                          "line sits at a fixed spot, typing across lines may not flow "
                          "naturally, and images and table borders are not carried over"),
-    "note.hwpx_simplified": ("본문 문단·표 내용은 유지되지만, 머리말·꼬리말·글상자 "
-                             "안의 텍스트와 셀 병합·문단 정렬은 이번 버전에서 "
-                             "옮겨지지 않아요",
-                             "Body paragraph and table contents are kept, but text in "
-                             "headers, footers, and text boxes, plus cell merges and "
-                             "paragraph alignment, are not carried over in this version"),
     "note.stl_no_color": ("모양은 그대로 유지돼요 — STL 포맷은 색상·재질을 담지 "
                           "못해서 원본에 색이 있어도 사라져요",
                           "Shape is kept as-is — STL can't store color or materials, "
