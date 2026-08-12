@@ -69,23 +69,17 @@ class TestFormatNote(unittest.TestCase):
         visible, text = self._note_for("pdf", "hwp")
         self.assertTrue(visible)
 
-    def test_hwpx_to_docx_shows_header_footer_loss_note(self):
-        """DEC-044: HwpxToJson.java는 본문 문단·표만 순회하고 머리말·꼬리말·
-        글상자는 아예 훑지 않는다(Phase 1 범위 밖) — 일반 note.simplified
-        문구("텍스트·표 내용은 유지됩니다")를 그대로 쓰면 이 손실을 감추게
-        되므로, 실제 범위를 명시하는 전용 고지(note.hwpx_simplified)를
-        써야 한다(자동 PR 리뷰 지적, HwpxToJson.java 순회 범위를 직접
-        확인 후 보완)."""
+    def test_hwpx_to_docx_shows_layout_simplified_note(self):
+        """HwpxToJson.java가 이제 머리말·꼬리말·글상자까지 재귀로 훑는다
+        (hwplib 쪽 DEC-032와 대칭, 표 셀 안 서식 보존에 이은 개선) — 전용
+        note.hwpx_simplified가 더는 필요 없어져 HWP와 같은 일반
+        note.simplified로 통합됐다."""
         visible, text = self._note_for("hwpx", "docx")
         self.assertTrue(visible)
-        self.assertIn("머리말", text)
-        self.assertIn("꼬리말", text)
-        self.assertIn("글상자", text)
 
-    def test_hwpx_to_pdf_shows_header_footer_loss_note(self):
+    def test_hwpx_to_pdf_shows_layout_simplified_note(self):
         visible, text = self._note_for("hwpx", "pdf")
         self.assertTrue(visible)
-        self.assertIn("머리말", text)
 
     def test_docx_to_pdf_shows_no_note(self):
         visible, _ = self._note_for("docx", "pdf")

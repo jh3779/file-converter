@@ -311,6 +311,29 @@ jobs:
           if (-not ($hwpxTableJson | Select-String -Pattern $tableExpected -SimpleMatch -Quiet)) {
             Write-Error "HWPX engine smoke failed: 표 구조 불일치"; exit 1
           }
+      - name: HWPX header/footer/shape engine smoke (DEC-052)
+        shell: pwsh
+        run: |
+          # DEC-052: 머리말·꼬리말은 Ctrl(HeaderFooterCore) 안, 글상자는
+          # 도형 RunItem(DrawingObject/Container) 안에 있어 기존
+          # emitParagraph가 순회하지 않고 조용히 건너뛰었다(hwplib 쪽
+          # DEC-032와 대칭인 문제) — hwpxlib 자체 테스트 픽스처로 재귀
+          # 처리가 실제로 텍스트를 뽑아내는지 확인.
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpxToJson `
+            hwpxlib-src/testFile/reader_writer/HeaderFooter.hwpx hwpx_headerfooter.json
+          $hwpxHeaderFooterJson = Get-Content hwpx_headerfooter.json -Encoding utf8 -Raw
+          if (-not ($hwpxHeaderFooterJson | Select-String -Pattern '머리말 테스트' -SimpleMatch -Quiet)) {
+            Write-Error "HWPX engine smoke failed: 머리말 텍스트 유실(DEC-052 회귀)"; exit 1
+          }
+          if (-not ($hwpxHeaderFooterJson | Select-String -Pattern '꼬리말' -SimpleMatch -Quiet)) {
+            Write-Error "HWPX engine smoke failed: 꼬리말 텍스트 유실(DEC-052 회귀)"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpxToJson `
+            hwpxlib-src/testFile/tool/textextractor/RectInRect.hwpx hwpx_nestedshape.json
+          $hwpxNestedShapeJson = Get-Content hwpx_nestedshape.json -Encoding utf8 -Raw
+          if (-not ($hwpxNestedShapeJson | Select-String -Pattern '사각형' -SimpleMatch -Quiet)) {
+            Write-Error "HWPX engine smoke failed: 중첩 글상자 텍스트 유실(DEC-052 회귀)"; exit 1
+          }
       - name: HWPX write engine smoke (DOCX/PDF→HWPX 쓰기 — DEC-049)
         shell: pwsh
         run: |
@@ -1024,6 +1047,21 @@ jobs:
               print("::error::HWPX engine smoke failed: 표 구조 불일치")
               sys.exit(1)
           PY
+      - name: HWPX header/footer/shape engine smoke (DEC-052)
+        run: |
+          # DEC-052: 머리말·꼬리말은 Ctrl(HeaderFooterCore) 안, 글상자는
+          # 도형 RunItem(DrawingObject/Container) 안에 있어 기존
+          # emitParagraph가 순회하지 않고 조용히 건너뛰었다(hwplib 쪽
+          # DEC-032와 대칭인 문제) — hwpxlib 자체 테스트 픽스처로 재귀
+          # 처리가 실제로 텍스트를 뽑아내는지 확인.
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson \
+            hwpxlib-src/testFile/reader_writer/HeaderFooter.hwpx hwpx_headerfooter.json
+          grep -qF '머리말 테스트' hwpx_headerfooter.json || { echo "::error::HWPX engine smoke failed: 머리말 텍스트 유실(DEC-052 회귀)"; exit 1; }
+          grep -qF '꼬리말' hwpx_headerfooter.json || { echo "::error::HWPX engine smoke failed: 꼬리말 텍스트 유실(DEC-052 회귀)"; exit 1; }
+
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson \
+            hwpxlib-src/testFile/tool/textextractor/RectInRect.hwpx hwpx_nestedshape.json
+          grep -qF '사각형' hwpx_nestedshape.json || { echo "::error::HWPX engine smoke failed: 중첩 글상자 텍스트 유실(DEC-052 회귀)"; exit 1; }
       - name: HWPX write engine smoke (DOCX/PDF→HWPX 쓰기 — DEC-049)
         run: |
           # DEC-049(DEC-035 대칭): 셀 병합(colSpan/rowSpan) — JsonToHwpx가
