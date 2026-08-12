@@ -15,6 +15,10 @@ from app.converters.docx_build import blocks_to_docx
 from app.converters.docx_extract import docx_to_blocks
 
 
+def _cell_text(cell: dict) -> str:
+    return "".join(r.get("text") or "" for r in cell["runs"])
+
+
 class TestDocxExtractMerge(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -38,18 +42,24 @@ class TestDocxExtractMerge(unittest.TestCase):
         blocks = docx_to_blocks(src)
         rows = blocks[0]["rows"]
         self.assertEqual(len(rows[0]), 2)  # 병합으로 열이 하나 줄어듦
-        self.assertEqual(rows[0][0], {"text": "merged", "colSpan": 2, "rowSpan": 1})
-        self.assertEqual(rows[0][1], {"text": "02", "colSpan": 1, "rowSpan": 1})
+        self.assertEqual(_cell_text(rows[0][0]), "merged")
+        self.assertEqual(rows[0][0]["colSpan"], 2)
+        self.assertEqual(rows[0][0]["rowSpan"], 1)
+        self.assertEqual(_cell_text(rows[0][1]), "02")
+        self.assertEqual(rows[0][1]["colSpan"], 1)
+        self.assertEqual(rows[0][1]["rowSpan"], 1)
         self.assertEqual(len(rows[1]), 3)
 
     def test_vertical_merge_detected(self):
         src = self._table_docx(3, 2, merges=[(0, 1, 1, 1)])
         blocks = docx_to_blocks(src)
         rows = blocks[0]["rows"]
-        self.assertEqual(rows[0][1], {"text": "merged", "colSpan": 1, "rowSpan": 2})
+        self.assertEqual(_cell_text(rows[0][1]), "merged")
+        self.assertEqual(rows[0][1]["colSpan"], 1)
+        self.assertEqual(rows[0][1]["rowSpan"], 2)
         # 세로 병합이 차지한 (1,1)은 두 번째 행에서 생략된다.
         self.assertEqual(len(rows[1]), 1)
-        self.assertEqual(rows[1][0], {"text": "10", "colSpan": 1, "rowSpan": 1})
+        self.assertEqual(_cell_text(rows[1][0]), "10")
 
     def test_no_merge_matches_old_flat_shape(self):
         src = self._table_docx(2, 2)
@@ -145,6 +155,40 @@ class TestDocxBuildMerge(unittest.TestCase):
         table2 = rebuilt.tables[0]
         self.assertEqual(table2.cell(0, 0).text, "merged")
         self.assertEqual(table2.cell(0, 0)._tc, table2.cell(0, 1)._tc)
+
+    def test_cell_char_formatting_round_trip(self):
+        """표 셀 안 문자 서식 보존 개선 — 굵게/기울임/색상이 셀의 run
+        단위로 그대로 추출·재생성되는지(hwplib/hwpxlib을 거치지 않는
+        순수 파이썬 경로만 검증, 사이드카 왕복은 test_hwp_table_generation.py/
+        test_hwpx.py에 있음)."""
+        from docx.shared import RGBColor
+        from app.converters.docx_extract import docx_to_blocks
+
+        src = self.tmp / "formatted.docx"
+        doc = Document()
+        table = doc.add_table(rows=1, cols=1)
+        p = table.cell(0, 0).paragraphs[0]
+        p.add_run("일반 ")
+        bold_run = p.add_run("굵게빨강")
+        bold_run.bold = True
+        bold_run.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        cell = blocks[0]["rows"][0][0]
+        runs = cell["runs"]
+        self.assertEqual([r["text"] for r in runs], ["일반 ", "굵게빨강"])
+        self.assertFalse(runs[0]["bold"])
+        self.assertTrue(runs[1]["bold"])
+        self.assertEqual(runs[1]["color"], "FF0000")
+
+        out = blocks_to_docx(blocks, self.tmp / "rebuilt2.docx")
+        rebuilt = Document(out)
+        rebuilt_runs = rebuilt.tables[0].cell(0, 0).paragraphs[0].runs
+        self.assertEqual([r.text for r in rebuilt_runs], ["일반 ", "굵게빨강"])
+        self.assertFalse(bool(rebuilt_runs[0].font.bold))
+        self.assertTrue(rebuilt_runs[1].font.bold)
+        self.assertEqual(rebuilt_runs[1].font.color.rgb, RGBColor(0xFF, 0x00, 0x00))
 
 
 if __name__ == "__main__":
