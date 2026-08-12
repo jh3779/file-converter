@@ -51,12 +51,13 @@ REQ-F ID·DEC는 `docs/01_requirements.md`·`docs/06_open_questions.md` 참고.
 | HWPX→TXT/PDF/DOCX | DEC-044 | `test_hwpx.py::TestHwpx` | JDK+hwpxlib(soffice도 PDF 경로에 필요) |
 | 영상→MP4 | REQ-F-014, DEC-024 | `test_video.py` | ffmpeg |
 | 이미지↔이미지 | REQ-F-015, DEC-025 | `test_image.py::TestImageConversion` | 항상(Pillow) |
+| 3D 모델↔3D 모델(OBJ/STL/PLY/GLB/GLTF) | DEC-050 | `test_model3d.py::TestModel3DConversion` | 항상(trimesh) |
 
 ## UI·플랫폼·부가 기능 커버리지
 
 | 영역 | 관련 REQ/DEC | 테스트 파일 |
 |------|--------------|-------------|
-| 변환 전 단순화 고지 문구 | DEC-010·017·023·028·037·049 | `test_ui_notes.py::TestFormatNote`(15건, 모든 고지 키 조합) |
+| 변환 전 단순화 고지 문구 | DEC-010·017·023·028·037·049·050 | `test_ui_notes.py::TestFormatNote`(17건, 모든 고지 키 조합) |
 | 파일 목록 행(FileRow) — 미지원 형식 제거 버튼 | — | `test_ui_filerow.py` |
 | 결과 오버레이 — 저장 위치 안내 | REQ-F-008, DEC-042 | `test_ui_result_location.py` |
 | 결과 오버레이 — 저해상도 스크롤 | REQ-NF-008, DEC-045 | `test_ui_result_scroll.py` |

@@ -7,7 +7,7 @@ from functools import partial
 from pathlib import Path
 
 from .base import ConversionError
-from . import data, pdf, office, hwp, hwpx, video, image
+from . import data, pdf, office, hwp, hwpx, video, image, model3d
 
 TARGETS: dict[str, list[str]] = {
     "docx": ["pdf", "hwp", "hwpx"],  # DEC-017/DEC-028 — 표는 실제 HWP/HWPX 표로 생성됨(셀 안 서식 제외). hwpx: DEC-049
@@ -46,6 +46,14 @@ for _src in _IMAGE_SRC_EXTS:
     TARGETS[_src] = [t for t in _IMAGE_TARGET_EXTS if t != _IMAGE_CANON[_src]]
 del _src
 
+# 3D 모델 상호 변환(trimesh) — 스파이크로 5개 포맷 전 조합(20쌍)의 정점·면·
+# 부피 보존을 직접 확인(model3d.py 참고). 자기 자신으로의 "변환"은
+# 노출하지 않는다(이미지와 같은 원칙).
+_MODEL3D_EXTS = ("obj", "stl", "ply", "glb", "gltf")
+for _src in _MODEL3D_EXTS:
+    TARGETS[_src] = [t for t in _MODEL3D_EXTS if t != _src]
+del _src
+
 _DISPATCH = {
     ("csv", "xlsx"): data.csv_to_xlsx,
     ("xlsx", "csv"): data.xlsx_to_csv,
@@ -71,6 +79,8 @@ _DISPATCH = {
     **{(ext, "mp4"): video.video_to_mp4 for ext in _VIDEO_EXTS},  # DEC-024
     **{(src, tgt): partial(image.convert_image, target_ext=tgt)
        for src in _IMAGE_SRC_EXTS for tgt in TARGETS[src]},
+    **{(src, tgt): partial(model3d.convert_3d, target_ext=tgt)
+       for src in _MODEL3D_EXTS for tgt in TARGETS[src]},
 }
 
 

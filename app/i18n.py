@@ -133,6 +133,10 @@ _S = {
                              "Body paragraph and table contents are kept, but text in "
                              "headers, footers, and text boxes, plus cell merges and "
                              "paragraph alignment, are not carried over in this version"),
+    "note.stl_no_color": ("모양은 그대로 유지돼요 — STL 포맷은 색상·재질을 담지 "
+                          "못해서 원본에 색이 있어도 사라져요",
+                          "Shape is kept as-is — STL can't store color or materials, "
+                          "so any color in the original will be lost"),
     "err.notyet": ("이 변환은 다음 버전에서 지원될 예정입니다.",
                    "This conversion is coming in a future update."),
 }
