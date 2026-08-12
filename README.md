@@ -29,7 +29,7 @@
 > `FileConverter-latest-mac-arm64.dmg`로 고정이라 태그 부분만 바꾸면 됨).
 
 ## 무엇을 하나
-- **문서**: DOCX→PDF · PPTX→PDF · PDF→TXT/DOCX/이미지 · HWP→PDF/TXT/DOCX · **HWPX→PDF/TXT/DOCX**(hwplib이 아닌 별도 라이브러리 hwpxlib 사용, 읽기만 — DEC-044) · DOCX·PDF→HWP (문단 텍스트 + 실제 표, PDF는 표 구조가 없어 텍스트만 — DEC-017 정정·DEC-023·DEC-028, 셀 병합은 아직 미지원·실제 한글 뷰어 렌더링은 검증 중). PDF→이미지는 원본 파일명 폴더에 페이지별 PNG 또는 JPG 저장(DEC-026, JPG는 DEC-043). PDF→DOCX는 굵게/기울임/글자크기, HWP→DOCX는 굵게/기울임/밑줄/글자크기/색상 반영(PDF는 밑줄을 벡터 선으로 그리는 경우가 많아 폰트 기반 휴리스틱으로 판별 불가 — DEC-027). **PDF→DOCX의 굵게·기울임 감지는 한글 텍스트에서는 거의 항상 실패한다**(문서에 동아시아 글꼴이 명시적으로 지정된 드문 경우만 동작, 라틴 문자는 정상 동작 — 외부 QA #44)
+- **문서**: DOCX→PDF · PPTX→PDF · PDF→TXT/DOCX/이미지 · HWP→PDF/TXT/DOCX · **HWPX→PDF/TXT/DOCX**(hwplib이 아닌 별도 라이브러리 hwpxlib 사용 — DEC-044) · DOCX·PDF→HWP/**HWPX**(문단 텍스트 + 실제 표(셀 병합 포함, DEC-035·DEC-049) + 문자 서식(DEC-038·DEC-049) + 정렬(DEC-040·DEC-049), PDF는 표 구조가 없어 텍스트만 — DEC-017 정정·DEC-023·DEC-028, 표 셀 안 서식·실제 한글 뷰어 렌더링은 검증 중). PDF→이미지는 원본 파일명 폴더에 페이지별 PNG 또는 JPG 저장(DEC-026, JPG는 DEC-043). PDF→DOCX는 굵게/기울임/글자크기, HWP/HWPX→DOCX는 굵게/기울임/밑줄/글자크기/색상 반영(PDF는 밑줄을 벡터 선으로 그리는 경우가 많아 폰트 기반 휴리스틱으로 판별 불가 — DEC-027). **PDF→DOCX의 굵게·기울임 감지는 한글 텍스트에서는 거의 항상 실패한다**(문서에 동아시아 글꼴이 명시적으로 지정된 드문 경우만 동작, 라틴 문자는 정상 동작 — 외부 QA #44)
 - **데이터**: CSV↔XLSX · CSV↔JSON (한글 인코딩 깨짐 방지)
 - **영상**: AVI/MOV/MKV/WMV/FLV/M4V→MP4 (H.264/HEVC 스트림은 재인코딩 없이 무손실 복사, 그 외 코덱은 명확한 오류로 거부 — DEC-024)
 - **이미지**: JPG/JPEG/PNG/BMP/GIF/WEBP/TIFF 상호 변환 (EXIF 회전 반영, 투명 배경은 무알파 포맷 저장 시 흰 배경 합성, 애니메이션은 첫 프레임만 — DEC-025)
@@ -112,6 +112,7 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] **드롭존 안내 문구가 저해상도 화면 폭을 넘기던 문제 수정**(DEC-046, 외부 QA 피드백) — 지원 포맷 목록이 한 줄이라 필요 폭이 최소 창 너비보다 커져 있었다. 세 줄로 나눠 해소
 - [x] **기록 패널을 열면 파일 목록 항목이 잘리던 문제 수정**(DEC-047, 외부 QA 피드백) — 고정폭 260px 패널이 열리면 콤보박스·제거 버튼이 목록 뷰포트 밖으로 밀려날 수 있었다. 패널을 열 때 필요하면 창을 자동으로 넓히도록 수정
 - [x] **최소 창 크기 요구사항 문서화**(DEC-048, 외부 QA 피드백) — REQ-NF-008 신설. DEC-045~047로 실측·구현한 저해상도 지원 정책을 요구사항 문서에 명문화(QA(e) 전체 완료)
+- [x] **HWPX 쓰기 신규 지원(Phase 2)**(DEC-049) — DEC-044(Phase 1, 읽기만)에서 미뤄뒀던 DOCX·PDF→HWPX 쓰기를 hwplib 쪽이 그동안 쌓아온 것과 완전히 대칭으로 구현: 문자 서식(DEC-038 대칭)·표 병합(DEC-035 대칭)·정렬(DEC-040 대칭)까지 전부 반영. hwpxlib은 Run이 charPrIDRef를 직접 가지고 병합 표도 sparse 표현이라 hwplib보다 쓰기가 더 단순했다(문자 위치 가중치 역산·TableCellMerger 유틸이 둘 다 불필요, spike/hwpxlib/RESULT.md "Phase 2(쓰기)" 스파이크로 사전 검증). 쪽 나눔은 hwplib과 마찬가지로 정식 읽기 스키마에 넣지 않고 별도 디버그 도구(PageBreakDebugHwpx)로만 검증(DEC-039와 동일한 원칙). 부수 효과로 HwpxToJson의 읽기 스키마도 정렬·표 병합을 정식으로 내보내게 되어 HWPX→DOCX 읽기 충실도도 함께 개선됨
 
 ## 라이선스 고지
 - HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)
