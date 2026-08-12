@@ -140,7 +140,12 @@ class FileRow(QFrame):
             # 빠질 수 있다 — 이 격차를 문구에 명시(자동 리뷰 지적, HwpxToJson.java의
             # 순회 범위를 직접 읽어 확인 후 수정).
             note_key = "note.hwpx_simplified"
-        elif self.item.target_fmt == "hwp" and self.item.source_fmt in ("docx", "pdf"):
+        elif self.item.target_fmt in ("hwp", "hwpx") and self.item.source_fmt in ("docx", "pdf"):
+            # DEC-049: DOCX/PDF → HWPX 쓰기도 HWP 쓰기와 같은 고지를 쓴다 —
+            # 표 셀 안 서식·정밀한 레이아웃까지는 아니라는 같은 범위 제한이
+            # 대칭으로 적용된다(hwpx_simplified 같은 전용 문구를 새로 만들
+            # 이유 없음 — 그건 "본문만 훑고 머리말/꼬리말은 아예 빠진다"는
+            # 읽기 방향의 다른 문제였음, 위 hwpx 읽기 분기 참고).
             note_key = "note.simplified"
         elif self.item.target_fmt in ("png", "jpg") and self.item.source_fmt == "pdf":
             note_key = "note.pdf_to_images"
