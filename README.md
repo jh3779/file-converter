@@ -33,6 +33,7 @@
 - **데이터**: CSV↔XLSX · CSV↔JSON (한글 인코딩 깨짐 방지)
 - **영상**: AVI/MOV/MKV/WMV/FLV/M4V→MP4 (H.264/HEVC 스트림은 재인코딩 없이 무손실 복사, 그 외 코덱은 명확한 오류로 거부 — DEC-024)
 - **이미지**: JPG/JPEG/PNG/BMP/GIF/WEBP/TIFF 상호 변환 (EXIF 회전 반영, 투명 배경은 무알파 포맷 저장 시 흰 배경 합성, 애니메이션은 첫 프레임만 — DEC-025)
+- **3D 모델**: OBJ/STL/PLY/GLB/GLTF 상호 변환 (형태·정점 색상 보존, STL은 포맷 자체에 색상·재질이 없어 STL로 변환 시 색이 사라짐 — DEC-050)
 - **일괄 변환**: 여러 파일을 드래그앤드롭 → 포맷 선택 → 변환, 3클릭 완결
 - **원본 절대 보호**: 원본 폴더에 새 파일로 저장, 이름 충돌 시 자동 리네임 — 덮어쓰기 경로 없음
 - **한글 글꼴 번들**: PDF/HWP→DOCX로 생성하는 문서는 Noto Sans KR을 항상 명시 지정 —
@@ -113,6 +114,7 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] **기록 패널을 열면 파일 목록 항목이 잘리던 문제 수정**(DEC-047, 외부 QA 피드백) — 고정폭 260px 패널이 열리면 콤보박스·제거 버튼이 목록 뷰포트 밖으로 밀려날 수 있었다. 패널을 열 때 필요하면 창을 자동으로 넓히도록 수정
 - [x] **최소 창 크기 요구사항 문서화**(DEC-048, 외부 QA 피드백) — REQ-NF-008 신설. DEC-045~047로 실측·구현한 저해상도 지원 정책을 요구사항 문서에 명문화(QA(e) 전체 완료)
 - [x] **HWPX 쓰기 신규 지원(Phase 2)**(DEC-049) — DEC-044(Phase 1, 읽기만)에서 미뤄뒀던 DOCX·PDF→HWPX 쓰기를 hwplib 쪽이 그동안 쌓아온 것과 완전히 대칭으로 구현: 문자 서식(DEC-038 대칭)·표 병합(DEC-035 대칭)·정렬(DEC-040 대칭)까지 전부 반영. hwpxlib은 Run이 charPrIDRef를 직접 가지고 병합 표도 sparse 표현이라 hwplib보다 쓰기가 더 단순했다(문자 위치 가중치 역산·TableCellMerger 유틸이 둘 다 불필요, spike/hwpxlib/RESULT.md "Phase 2(쓰기)" 스파이크로 사전 검증). 쪽 나눔은 hwplib과 마찬가지로 정식 읽기 스키마에 넣지 않고 별도 디버그 도구(PageBreakDebugHwpx)로만 검증(DEC-039와 동일한 원칙). 부수 효과로 HwpxToJson의 읽기 스키마도 정렬·표 병합을 정식으로 내보내게 되어 HWPX→DOCX 읽기 충실도도 함께 개선됨
+- [x] **3D 모델 포맷 상호 변환 신규 지원**(DEC-050) — OBJ/STL/PLY/GLB/GLTF 5개 포맷을 trimesh(MIT, numpy만 필수 의존)로 상호 변환. 형태(정점·면·부피)는 모든 조합에서 보존되고, 정점 색상은 STL을 제외한 나머지 포맷 간에는 보존됨 — STL 포맷 자체가 색상·재질을 못 담아 STL로 갈 때만 전용 고지(note.stl_no_color)
 
 ## 라이선스 고지
 - HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)
