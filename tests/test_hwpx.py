@@ -101,5 +101,187 @@ class TestHwpx(Base):
         self.assertEqual(out.read_bytes()[:5], b"%PDF-")
 
 
+def _run_pagebreakdebug_hwpx(hwpx_path: Path):
+    """PageBreakDebugHwpx(테스트 전용 디버그 도구, sidecar/hwp/
+    PageBreakDebugHwpx.java)를 직접 실행해 문단별 (pageBreakBefore, 텍스트)를
+    돌려준다 — DEC-049(DEC-039 대칭). HwpxToJson 정식 스키마는 이 속성을
+    안 보므로(HWP 쪽과 동일한 이유) hwpxlib으로 직접 열어 확인해야 한다."""
+    from app.converters import hwp as hwp_mod
+    java = hwp_mod._java()
+    cp = hwp_mod._classpath()
+    with tempfile.TemporaryDirectory() as tmp:
+        out_path = Path(tmp) / "pagebreak-debug.txt"
+        proc = subprocess.run([java, "-cp", cp, "PageBreakDebugHwpx", str(hwpx_path), str(out_path)],
+                               capture_output=True, text=True, timeout=30)
+        assert proc.returncode == 0, proc.stderr
+        content = out_path.read_text(encoding="utf-8")
+    rows = []
+    for line in content.strip().splitlines():
+        idx, page_break_before, text = line.split("\t", 2)
+        rows.append((int(idx), page_break_before == "true", text))
+    return rows
+
+
+@unittest.skipUnless(
+    HWPX_SAMPLE.exists() and shutil.which("java"),
+    "hwpxlib 샘플/JDK 없음 — spike/hwpxlib/RESULT.md 절차로 로컬 빌드 후 실행")
+class TestHwpxWrite(Base):
+    """DOCX/PDF → HWPX 쓰기(HWPX Phase 2, DEC-049) — hwp.py의 docx_to_hwp/
+    pdf_to_hwp 왕복 테스트(tests/test_pipeline.py TestHwp)와 대칭."""
+
+    def test_docx_to_hwpx_roundtrip(self):
+        from docx import Document
+        src = self.tmp / "한글.docx"
+        doc = Document()
+        doc.add_paragraph("뷁 밟 닳 넋 앎 옳 훑 흙 삵 값 넓 얹 앉 닭 없")
+        doc.add_paragraph("大韓民國 韓國語 漢字 契約書 委任狀")
+        table = doc.add_table(rows=2, cols=2)
+        table.cell(0, 0).text = "이름"
+        table.cell(0, 1).text = "부서"
+        table.cell(1, 0).text = "김철수"
+        table.cell(1, 1).text = "영업1팀"
+        doc.save(src)
+
+        out = converters.convert(src, "hwpx", self.tmp)
+        self.assertTrue(out.exists())
+
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        doc2 = Document(back)
+        texts = [p.text for p in doc2.paragraphs]
+        self.assertIn("뷁 밟 닳 넋 앎 옳 훑 흙 삵 값 넓 얹 앉 닭 없", texts)
+        self.assertIn("大韓民國 韓國語 漢字 契約書 委任狀", texts)
+        self.assertTrue(doc2.tables)
+        cells = [c.text for row in doc2.tables[0].rows for c in row.cells]
+        self.assertIn("이름", cells)
+        self.assertIn("김철수", cells)
+        self.assertIn("영업1팀", cells)
+
+    def test_docx_to_hwpx_char_formatting_roundtrip(self):
+        """DEC-049(DEC-038 대칭): 문단 문자 서식(굵게/기울임/밑줄/크기/색상)이
+        DOCX→HWPX 쓰기 방향에도 반영되는지 — 실제 hwpxlib으로
+        DOCX→HWPX→DOCX 왕복 확인."""
+        from docx import Document
+        from docx.shared import Pt, RGBColor
+
+        src = self.tmp / "formatted.docx"
+        doc = Document()
+        p = doc.add_paragraph()
+        p.add_run("일반 ")
+        bold_run = p.add_run("굵게")
+        bold_run.bold = True
+        styled_run = p.add_run("기울임+18pt+빨강")
+        styled_run.italic = True
+        styled_run.font.size = Pt(18)
+        styled_run.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+
+        p2 = doc.add_paragraph()
+        p2.add_run("둘째 문단 ")
+        underline_run = p2.add_run("밑줄")
+        underline_run.underline = True
+        doc.save(src)
+
+        out = converters.convert(src, "hwpx", self.tmp)
+        back_dir = self.tmp / "back_fmt"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        doc2 = Document(back)
+
+        by_text = {run.text: run for p in doc2.paragraphs for run in p.runs}
+        self.assertFalse(bool(by_text["일반 "].font.bold))
+        self.assertTrue(by_text["굵게"].font.bold)
+        self.assertTrue(by_text["기울임+18pt+빨강"].font.italic)
+        self.assertEqual(by_text["기울임+18pt+빨강"].font.size, Pt(18))
+        self.assertEqual(by_text["기울임+18pt+빨강"].font.color.rgb, RGBColor(0xFF, 0x00, 0x00))
+        self.assertTrue(by_text["밑줄"].font.underline)
+
+    def test_docx_to_hwpx_table_merge_roundtrip(self):
+        """DEC-049(DEC-035 대칭): DOCX의 병합된 셀(가로+세로)이 HWPX를
+        거쳐 다시 DOCX로 와도 실제 병합(gridSpan/vMerge)으로 남아있어야
+        한다 — hwpxlib의 sparse 표현(스파이크로 확인, spike/hwpxlib/
+        RESULT.md "Phase 2(쓰기)")이 정확히 왕복하는지 검증."""
+        from docx import Document
+        src = self.tmp / "merged.docx"
+        doc = Document()
+        table = doc.add_table(rows=3, cols=3)
+        for r in range(3):
+            for c in range(3):
+                table.cell(r, c).text = f"{r}{c}"
+        table.cell(0, 0).merge(table.cell(0, 1))
+        table.cell(0, 0).text = "H-merged"
+        table.cell(1, 2).merge(table.cell(2, 2))
+        table.cell(1, 2).text = "V-merged"
+        doc.save(src)
+
+        out = converters.convert(src, "hwpx", self.tmp)
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        doc2 = Document(back)
+
+        table2 = doc2.tables[0]
+        self.assertEqual(len(table2.rows), 3)
+        self.assertEqual(len(table2.columns), 3)
+        self.assertEqual(table2.cell(0, 0).text, "H-merged")
+        self.assertEqual(table2.cell(0, 0)._tc, table2.cell(0, 1)._tc,
+                          "가로 병합이 풀려서 돌아옴")
+        self.assertEqual(table2.cell(1, 2).text, "V-merged")
+        self.assertEqual(table2.cell(1, 2)._tc, table2.cell(2, 2)._tc,
+                          "세로 병합이 풀려서 돌아옴")
+
+    def test_docx_to_hwpx_alignment_roundtrip(self):
+        """DEC-049(DEC-040 대칭): DOCX 문단에 직접 지정된 정렬이 HWPX의
+        실제 ParaPr.align()으로 반영되고, 다시 DOCX로 왕복해도 남는지."""
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        src = self.tmp / "정렬.docx"
+        doc = Document()
+        doc.add_paragraph("기본 정렬")
+        p_center = doc.add_paragraph("가운데 정렬")
+        p_center.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_right = doc.add_paragraph("오른쪽 정렬")
+        p_right.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        doc.save(src)
+
+        out = converters.convert(src, "hwpx", self.tmp)
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        by_text = {p.text: p.alignment for p in Document(back).paragraphs}
+
+        self.assertEqual(by_text["기본 정렬"], WD_ALIGN_PARAGRAPH.LEFT)
+        self.assertEqual(by_text["가운데 정렬"], WD_ALIGN_PARAGRAPH.CENTER)
+        self.assertEqual(by_text["오른쪽 정렬"], WD_ALIGN_PARAGRAPH.RIGHT)
+
+    def test_pdf_to_hwpx_preserves_page_breaks(self):
+        """DEC-049(DEC-039 대칭): PDF 여러 페이지가 HWPX 안에서도 페이지
+        구분 없이 하나로 이어 붙지 않아야 한다 — 각 페이지 첫 문단에
+        pageBreakBefore가 반영되는지 PageBreakDebugHwpx로 직접 확인."""
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from test_pipeline import _mini_pdf_pages
+
+        src = self.tmp / "pages.pdf"
+        _mini_pdf_pages(src, ["Page One Text", "Page Two Text", "Page Three Text"])
+        out = converters.convert(src, "hwpx", self.tmp)
+
+        rows = _run_pagebreakdebug_hwpx(out)
+        by_text = {text: page_break_before for _, page_break_before, text in rows}
+        self.assertEqual(by_text.get("Page One Text"), False)
+        self.assertEqual(by_text.get("Page Two Text"), True)
+        self.assertEqual(by_text.get("Page Three Text"), True)
+
+        back_dir = self.tmp / "back"
+        back_dir.mkdir()
+        back = converters.convert(out, "txt", back_dir)
+        back_text = back.read_text(encoding="utf-8")
+        self.assertIn("Page One Text", back_text)
+        self.assertIn("Page Two Text", back_text)
+        self.assertIn("Page Three Text", back_text)
+        self.assertLess(back_text.index("Page One Text"), back_text.index("Page Two Text"))
+        self.assertLess(back_text.index("Page Two Text"), back_text.index("Page Three Text"))
+
+
 if __name__ == "__main__":
     unittest.main()
