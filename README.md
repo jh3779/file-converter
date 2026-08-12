@@ -2,14 +2,14 @@
 
 비개발자를 위한 **완전 오프라인** 데스크톱 파일 포맷 변환기. 파일이 PC 밖으로 절대 나가지 않습니다.
 
-> Windows·macOS 배포 (v0.3.9 프리릴리스) · 사이드 프로젝트 · MVP 완성
+> Windows·macOS 배포 (v0.3.10 프리릴리스) · 사이드 프로젝트 · MVP 완성
 
 ## 다운로드
 
 | 플랫폼 | 방법 |
 |---|---|
-| 🪟 **Windows** | **[v0.3.9 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.9/FileConverter-Setup-latest.exe)** — 인스톨러 실행 중 "설치 모드 선택" 화면이 뜨면 **기본값("나만 사용하도록 설치")을 그대로 두고 진행**하세요 — 그러면 관리자 권한이 필요 없습니다(v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
-| 🍎 **macOS** (Apple Silicon) | **[v0.3.9 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.9/FileConverter-latest-mac-arm64.dmg)** — dmg를 열어 Applications로 드래그(DEC-029). **미서명 배포**라 처음 실행 시 Gatekeeper가 막습니다 — 아래 안내 참고. Intel Mac은 아직 미지원, **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
+| 🪟 **Windows** | **[v0.3.10 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.10/FileConverter-Setup-latest.exe)** — 인스톨러 실행 중 "설치 모드 선택" 화면이 뜨면 **기본값("나만 사용하도록 설치")을 그대로 두고 진행**하세요 — 그러면 관리자 권한이 필요 없습니다(v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
+| 🍎 **macOS** (Apple Silicon) | **[v0.3.10 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.10/FileConverter-latest-mac-arm64.dmg)** — dmg를 열어 Applications로 드래그(DEC-029). **미서명 배포**라 처음 실행 시 Gatekeeper가 막습니다 — 아래 안내 참고. Intel Mac은 아직 미지원, **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
 | 🐧 Linux | 지원 계획 없음 |
 
 > ⚠️ 설치 파일을 브라우저로 받아 실행하면 Windows SmartScreen이 **빨간 "Windows의 PC
@@ -117,6 +117,7 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] **3D 모델 포맷 상호 변환 신규 지원**(DEC-050) — OBJ/STL/PLY/GLB/GLTF 5개 포맷을 trimesh(MIT, numpy만 필수 의존)로 상호 변환. 형태(정점·면·부피)는 모든 조합에서 보존되고, 정점 색상은 STL을 제외한 나머지 포맷 간에는 보존됨 — STL 포맷 자체가 색상·재질을 못 담아 STL로 갈 때만 전용 고지(note.stl_no_color)
 - [x] **표 셀 안 문자 서식(굵게/기울임/밑줄/크기/색상) 보존**(DEC-051, 변환 품질 개선 1순위) — DOCX↔HWP·DOCX↔HWPX 표 셀 텍스트도 문단과 완전히 같은 표현으로 통일해 서식을 그대로 왕복시킨다. DEC-027/038(문단 서식)·DEC-035/049(표 병합)가 이미 검증해둔 함수를 표 셀에 그대로 재사용해 새로운 위험 없이 구현. 표 셀 안 문단 정렬은 여전히 범위 밖(문단 자체의 정렬은 이미 반영됨)
 - [x] **HWPX 머리말/꼬리말/각주/미주·글상자 텍스트 유실 수정**(DEC-052, 변환 품질 개선 2순위) — HWPX→DOCX/PDF에서 머리말·꼬리말·각주·미주(Ctrl로 감싸인 항목)와 글상자(도형, 묶음 그룹 포함) 안의 텍스트가 조용히 사라지던 문제를 hwplib 쪽 DEC-032와 대칭으로 수정. 검증 중 도형·Ctrl 경계에서 텍스트가 flush 없이 서로 이어붙는 더 심한 문제도 함께 발견해 고쳤다(hwpxlib 자체 테스트 픽스처로 수정 전/후 대조 확인)
+- [x] v0.3.10 — **v0.3.9 이후 밀려 있던 태그 릴리스 반영**(PDF→PPTX·HWPX 읽기/쓰기·3D 모델 변환 등 위 DEC-030~052 항목 전부, v0.3.9는 2026-08-06 발행 이후 태그 없이 6일간 변경분만 누적됨). 그 외 3D 모델 포맷 파일 행에 미지원(🚫) 아이콘이 잘못 표시되던 문제, 영문 로케일에서 최소 창 너비를 넘기던 레이아웃 문제도 함께 수정
 
 ## 라이선스 고지
 - HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)
