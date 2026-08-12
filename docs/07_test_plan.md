@@ -12,7 +12,7 @@
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
-전체 195개 중 7개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
+전체 197개 중 7개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
 CI(`test` job, `.github/workflows/build.yml`)는 매 push/PR마다 이 명령을
 그대로 실행한다 — Java/LibreOffice/FFmpeg가 없는 가벼운 러너라 사이드카
 필요 테스트는 CI에서도 스킵되고, 그 부분은 `build-windows`/`build-macos`
@@ -48,7 +48,7 @@ REQ-F ID·DEC는 `docs/01_requirements.md`·`docs/06_open_questions.md` 참고.
 | DOCX→HWP(표 신규 생성·병합·서식·정렬, 표 셀 안 서식) | REQ-F-005, DEC-017·DEC-028·DEC-035·DEC-038·DEC-040·DEC-051 | `test_pipeline.py::TestHwp`(`test_docx_to_hwp_*`), `test_hwp_table_generation.py`, `test_docx_table_merge.py`(추출 쪽, 사이드카 불요) | JDK+hwplib |
 | DOCX→HWPX(표 신규 생성·병합·서식·정렬, 표 셀 안 서식) | DEC-049·DEC-051 | `test_hwpx.py::TestHwpxWrite`(`test_docx_to_hwpx_*`) | JDK+hwpxlib |
 | HWP→TXT/PDF/DOCX | REQ-F-005, DEC-027 | `test_pipeline.py::TestHwp`, `test_format_fidelity.py::TestHwpToDocxFormatting` | JDK+hwplib(soffice도 PDF 경로에 필요) |
-| HWPX→TXT/PDF/DOCX | DEC-044 | `test_hwpx.py::TestHwpx` | JDK+hwpxlib(soffice도 PDF 경로에 필요) |
+| HWPX→TXT/PDF/DOCX(머리말·꼬리말·각주·미주·글상자 텍스트 포함) | DEC-044·DEC-052 | `test_hwpx.py::TestHwpx`(`test_hwpx_to_docx_preserves_header_footer_text`·`test_hwpx_to_docx_preserves_nested_shape_text`) | JDK+hwpxlib(soffice도 PDF 경로에 필요) |
 | 영상→MP4 | REQ-F-014, DEC-024 | `test_video.py` | ffmpeg |
 | 이미지↔이미지 | REQ-F-015, DEC-025 | `test_image.py::TestImageConversion` | 항상(Pillow) |
 | 3D 모델↔3D 모델(OBJ/STL/PLY/GLB/GLTF) | DEC-050 | `test_model3d.py::TestModel3DConversion` | 항상(trimesh) |
