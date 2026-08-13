@@ -12,7 +12,7 @@
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
-전체 208개 중 7개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
+전체 210개 중 7개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
 CI(`test` job, `.github/workflows/build.yml`)는 매 push/PR마다 이 명령을
 그대로 실행한다 — Java/LibreOffice/FFmpeg가 없는 가벼운 러너라 사이드카
 필요 테스트는 CI에서도 스킵되고, 그 부분은 `build-windows`/`build-macos`
@@ -38,7 +38,7 @@ REQ-F ID·DEC는 `docs/01_requirements.md`·`docs/06_open_questions.md` 참고.
 | CSV↔XLSX | REQ-F-006 | `test_converters.py::TestCsvXlsx` | 항상 |
 | CSV↔JSON | REQ-F-006 | `test_converters.py::TestCsvJson` | 항상 |
 | PDF→TXT | REQ-F-004 | `test_pipeline.py::TestPdf` | 항상 |
-| PDF→DOCX(절대 위치 레이아웃, 이미지·표 테두리, 밑줄) | REQ-F-004, DEC-010·DEC-037·DEC-054·DEC-055 | `test_pipeline.py::TestPdf`, `test_pdf_to_docx_layout.py::TestPdfToDocxLayout`, `test_pdf_to_docx_visuals.py`, `test_pdf_to_docx_underline.py`, `test_format_fidelity.py::TestPdfToDocxFormatting/TestPdfToDocxAlignment` | 항상 |
+| PDF→DOCX(절대 위치 레이아웃, 이미지·표 테두리, 밑줄) | REQ-F-004, DEC-010·DEC-037·DEC-054·DEC-055·DEC-057 | `test_pipeline.py::TestPdf`, `test_pdf_to_docx_layout.py::TestPdfToDocxLayout`, `test_pdf_to_docx_visuals.py`, `test_pdf_to_docx_underline.py`, `test_format_fidelity.py::TestPdfToDocxFormatting/TestPdfToDocxAlignment` | 항상 |
 | PDF→HWP | REQ-F-005, DEC-023·DEC-039·DEC-040 | `test_pipeline.py::TestHwp`(`test_pdf_to_hwp_*`), `test_converters.py::TestPdfToHwpPageBreaks` | JDK+hwplib(왕복 검증 부분) |
 | PDF→HWPX | DEC-049 | `test_hwpx.py::TestHwpxWrite`(`test_pdf_to_hwpx_preserves_page_breaks`) | JDK+hwpxlib |
 | PDF→PNG/JPG | REQ-F-016, DEC-026·DEC-043 | `test_pdf_images.py::TestPdfToImages` | 항상 |
@@ -80,7 +80,7 @@ REQ-F ID·DEC는 `docs/01_requirements.md`·`docs/06_open_questions.md` 참고.
 | Windows/macOS 실제 패키징 산출물(exe/dmg) 설치·엔진 실행 | 유닛 테스트는 소스만 다루고 PyInstaller 번들·jlink JRE·인스톨러는 안 만듦 | CI `build-windows`/`build-macos` job의 엔진 스모크 + 인스톨러 스모크(`build.yml`) |
 | 완전히 클린한 Windows(사전 설치된 VC++ 런타임 없음)에서의 동작 | CI 러너에는 이미 VC++ 런타임이 있음 | `testing/MANUAL_TEST_CHECKLIST.md` — 실기기 권장 |
 | 백신 오탐(SmartScreen/Defender 격리) | 로컬·CI 환경의 백신 정책과 무관 | 실사용 중 관측 시 README/DEC로 사후 대응(DEC-033 선례) |
-| PDF→DOCX(`w:framePr` 절대 위치, DEC-037) 결과물이 실제 뷰어에서 어떻게 렌더링되는지 | python-docx는 XML 구조만 확인하지 실제 렌더링은 안 함 — DEC-055 검증 중 처음으로 `pdftoppm`+LibreOffice 렌더링을 직접 육안 확인해 글자가 잘려 보이는 사전 존재 결함을 발견(밑줄 유무와 무관하게 재현) | 후속 과제로 분리 필요 — 현재는 미해결. 로컬에서 `soffice --headless --convert-to pdf`+`pdftoppm`로 재현 가능 |
+| PDF→DOCX(`w:framePr` 절대 위치, DEC-037) 결과물이 실제 뷰어에서 어떻게 렌더링되는지 | python-docx는 XML 구조만 확인하지 실제 렌더링은 안 함 — DEC-055 검증 중 처음으로 `pdftoppm`+LibreOffice 렌더링을 직접 육안 확인해 글자가 잘려 보이는 결함을 발견, DEC-057로 수정 완료(fontTools로 실측한 Noto Sans KR 배율 반영). 다만 이 근본적 한계(자동 테스트는 XML 선언값만 확인, 픽셀 단위 렌더링은 못 봄) 자체는 여전함 — 이번처럼 육안 확인 없이는 유사한 결함이 또 있어도 못 잡을 수 있음 | 로컬에서 `soffice --headless --convert-to pdf`+`pdftoppm`로 재현·확인 가능(DEC-057에서 실제로 이렇게 검증) |
 
 ## 새 기능을 추가할 때
 
