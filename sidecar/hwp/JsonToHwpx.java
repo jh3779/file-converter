@@ -170,6 +170,7 @@ public class JsonToHwpx {
                 normalized.put("runs", runs);
                 normalized.put("colSpan", cell.get("colSpan"));
                 normalized.put("rowSpan", cell.get("rowSpan"));
+                normalized.put("align", cell.get("align"));
                 row.add(normalized);
             }
             spec.rows.add(row);
@@ -377,7 +378,8 @@ public class JsonToHwpx {
                 int colSpan = spanInt(cellSpec, "colSpan");
                 int rowSpan = spanInt(cellSpec, "rowSpan");
                 List<Map<String, Object>> cellRuns = (List<Map<String, Object>>) cellSpec.get("runs");
-                addCell(tr, col, r, colSpan, rowSpan, cellRuns, cellBorderFillId, colWidthsMm[col]);
+                String cellAlign = (String) cellSpec.get("align");
+                addCell(tr, col, r, colSpan, rowSpan, cellRuns, cellAlign, cellBorderFillId, colWidthsMm[col]);
                 if (rowSpan > 1) {
                     for (int cc = col; cc < col + colSpan; cc++) reservedUntilRow[cc] = r + rowSpan - 1;
                 }
@@ -388,9 +390,14 @@ public class JsonToHwpx {
 
     /** 셀 안 문자 서식(굵게/기울임/밑줄/크기/색상, 표 셀 안 서식 보존
      * 개선)을 반영한다 — addRunsToParagraph(최상위 문단이 쓰는 것과 같은
-     * 함수)를 그대로 재사용한다. */
+     * 함수)를 그대로 재사용한다. 셀 안 문단 정렬(align, 표 셀 정렬 보존
+     * 개선)도 함께 반영 — align이 없으면(구버전 입력) 기존과 똑같이 고정
+     * paraPrIDRef="3"(hwpxlib 기본 ParaPr, 양쪽 정렬)을 쓰고, align이
+     * 있을 때만 최상위 문단과 같은 findOrCreateParaPr(DEC-049)로 만든
+     * ParaPr을 쓴다 — 하위 호환 분기를 명시적으로 유지한다. */
     private static void addCell(Tr tr, int col, int row, int colSpan, int rowSpan,
-                                 List<Map<String, Object>> runs, String borderFillId, double widthMm) {
+                                 List<Map<String, Object>> runs, String align,
+                                 String borderFillId, double widthMm) {
         Tc tc = tr.addNewTc();
         tc.nameAnd("").headerAnd(false).hasMarginAnd(false).protectAnd(false)
                 .editableAnd(false).dirtyAnd(false).borderFillIDRefAnd(borderFillId);
@@ -404,7 +411,8 @@ public class JsonToHwpx {
         tc.cellMargin().leftAnd(0L).rightAnd(0L).topAnd(0L).bottomAnd(0L);
         tc.createSubList();
         Para p = tc.subList().addNewPara();
-        p.idAnd(String.valueOf(nextParaId++)).paraPrIDRefAnd("3").styleIDRefAnd("0")
+        String paraPrId = align != null ? findOrCreateParaPr(false, align) : "3";
+        p.idAnd(String.valueOf(nextParaId++)).paraPrIDRefAnd(paraPrId).styleIDRefAnd("0")
                 .pageBreakAnd(false).columnBreakAnd(false).merged(false);
         addRunsToParagraph(p, runs != null ? runs : java.util.Collections.emptyList());
     }

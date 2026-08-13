@@ -206,6 +206,7 @@ public class JsonToHwp {
                 normalized.put("runs", runs);
                 normalized.put("colSpan", cell.get("colSpan"));
                 normalized.put("rowSpan", cell.get("rowSpan"));
+                normalized.put("align", cell.get("align"));
                 row.add(normalized);
             }
             spec.rows.add(row);
@@ -480,12 +481,13 @@ public class JsonToHwp {
         for (int r = 0; r < rowCount; r++) tableRecord.getCellCountOfRowList().add(colCount);
 
         // 1단계: 병합 없는 균일한 rowCount×colCount 그리드를 통째로 만든다.
-        // 각 그리드 칸의 run 목록은 grid[r][c]에 미리 채워 둔다 — 병합 마스터
-        // 칸(각 병합 영역의 왼쪽 위)만 실제 run을 받고, 나머지(오른쪽·
-        // 아래로 병합에 덮이는 칸)는 빈 목록으로 채운 뒤 2단계에서 제거된다.
+        // 각 그리드 칸의 cellSpec(runs+align)은 grid[r][c]에 미리 채워 둔다 —
+        // 병합 마스터 칸(각 병합 영역의 왼쪽 위)만 실제 내용을 받고, 나머지
+        // (오른쪽·아래로 병합에 덮이는 칸)는 빈 맵으로 채운 뒤 2단계에서
+        // 제거된다.
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>>[][] grid = new List[rowCount][colCount];
-        for (List<Map<String, Object>>[] r : grid) Arrays.fill(r, java.util.Collections.emptyList());
+        Map<String, Object>[][] grid = new Map[rowCount][colCount];
+        for (Map<String, Object>[] r : grid) Arrays.fill(r, java.util.Collections.emptyMap());
         // merges: {row, col, rowSpan, colSpan} — TableCellMerger.mergeCell 인자 순서 그대로.
         List<int[]> merges = new ArrayList<>();
         // 세로 병합이 위에서 내려와 점유한 칸을 추적 — reservedUntilRow[c]는
@@ -504,7 +506,7 @@ public class JsonToHwp {
                 Map<String, Object> cellSpec = rowCells.get(cellIdx++);
                 int colSpan = spanInt(cellSpec, "colSpan");
                 int rowSpan = spanInt(cellSpec, "rowSpan");
-                grid[r][col] = (List<Map<String, Object>>) cellSpec.get("runs");
+                grid[r][col] = cellSpec;
                 if (colSpan > 1 || rowSpan > 1) {
                     merges.add(new int[]{r, col, rowSpan, colSpan});
                 }
@@ -521,7 +523,8 @@ public class JsonToHwp {
             for (int c = 0; c < colCount; c++) {
                 Cell cell = row.addNewCell();
                 setListHeaderForCell(cell, c, r, cellBorderFillId, colWidthsMm[c]);
-                setParagraphForCell(cell, grid[r][c]);
+                setParagraphForCell(cell, (List<Map<String, Object>>) grid[r][c].get("runs"),
+                        (String) grid[r][c].get("align"));
             }
         }
 
@@ -663,12 +666,16 @@ public class JsonToHwp {
 
     /** 셀 안 문자 서식(굵게/기울임/밑줄/크기/색상, 표 셀 안 서식 보존
      * 개선)을 반영한다 — addRunsToParagraph(최상위 문단이 쓰는 것과 같은
-     * 함수)를 그대로 재사용해 run별 CharShape을 건다. */
-    private static void setParagraphForCell(Cell cell, List<Map<String, Object>> runs) throws Exception {
+     * 함수)를 그대로 재사용해 run별 CharShape을 건다. 셀 안 문단 정렬
+     * (표 셀 정렬 보존 개선)도 함께 반영 — align이 없으면(구버전 입력)
+     * 기존과 똑같이 고정 ParaShapeId=1(기본 템플릿의 셀 전용 정렬)을 쓰고,
+     * align이 있을 때만 최상위 문단과 같은 findOrCreateParaShape(DEC-040)로
+     * 새 ParaShape을 만들어 쓴다 — 하위 호환 분기를 명시적으로 유지한다. */
+    private static void setParagraphForCell(Cell cell, List<Map<String, Object>> runs, String align) throws Exception {
         Paragraph p = cell.getParagraphList().addNewParagraph();
         ParaHeader ph = p.getHeader();
         ph.setLastInList(true);
-        ph.setParaShapeId(1);
+        ph.setParaShapeId(align != null ? findOrCreateParaShape(false, align) : 1);
         ph.setStyleId((short) 1);
         ph.getDivideSort().setDivideSection(false);
         ph.getDivideSort().setDivideMultiColumn(false);
