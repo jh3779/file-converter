@@ -46,6 +46,14 @@ def pdf_to_docx(src: Path, tmpdir: Path) -> Path:
     그림을 넣고, 사각형·직선은 문단 테두리(w:pBdr, DOCX가 지원하는 몇 안
     되는 절대 배치 가능한 그리기 수단)로 표현한다.
 
+    밑줄은 굵게/기울임과 달리 폰트 속성이 아니라 별도의 벡터 선(그림)으로
+    그려지는 경우가 많아(PDF→DOCX 밑줄 감지 개선) 폰트 이름 휴리스틱과는
+    별도로, 방금 뽑은 visuals 중 거의 수평인 선(_underline_candidates)이
+    글자 바로 아래에 겹치는지 보고 판별한다(_char_is_underlined) — 이미
+    밑줄로 쓰인 선은 run.underline=True(실제 DOCX 밑줄 서식)로 반영되고
+    나면 표 테두리 도형으로 다시 그리면 겹쳐 보이므로 visuals 목록에서
+    제외한다.
+
     **알려진 한계(정직하게 문서화)**: (1) 사각형이 아닌 곡선(LTCurve)은
     pdf_to_pptx처럼 다각형으로 정확히 근사하지 않고 bounding box 사각형
     테두리로 더 단순하게 근사한다 — python-docx가 pptx의 프리폼(자유 곡선)
@@ -57,7 +65,13 @@ def pdf_to_docx(src: Path, tmpdir: Path) -> Path:
     (4) 재구성에 항상 Noto Sans KR을 지정하므로(DEC-015와 같은 이유) 원본
     폰트와 글자 폭이 달라 드물게 줄바꿈이 살짝 밀릴 수 있다. (5) 기울임은
     한글 글꼴 대부분에 별도 이탤릭 글리프가 없어(CJK 타이포그래피 관행)
-    감지되지 않는 경우가 흔함(pdf_to_pptx와 동일한 제약).
+    감지되지 않는 경우가 흔함(pdf_to_pptx와 동일한 제약). (6) 밑줄 판정도
+    위치 근접성만으로 추정하는 휴리스틱이라, 밑줄이 아니라 텍스트 바로
+    아래 우연히 지나가는 다른 용도의 수평선(드문 경우)을 밑줄로 오판할
+    가능성이 이론적으로 있다 — 반대로 표 테두리를 밑줄로 오판하면 그
+    선이 표 테두리 도형에서는 빠지므로(사용됨 표시), 실사용 검증에서
+    이런 오판이 나오면 겹침 판정 임계값(_UNDERLINE_MAX_GAP_PT 등)을
+    조정할 것.
     """
     from docx import Document
     from docx.enum.section import WD_SECTION
@@ -670,7 +684,10 @@ def _extract_pdf_line_layout(src: Path, image_dir: Path) -> list[dict]:
     _extract_pdf_layout()과 이미지·도형(visuals) 추출은 같은 헬퍼
     (_iter_visuals/_visual_to_dict)를 그대로 재사용한다 — 이제 DOCX도
     이미지·표 테두리를 반영하므로 두 함수가 다시 갈라질 이유는 "align"
-    (문단 단위 정렬, PPTX 쪽은 안 씀)뿐이라 유지한다. 정렬(DEC-040)은
+    (문단 단위 정렬, PPTX 쪽은 안 씀)과 밑줄 감지(마찬가지로 PPTX 쪽은
+    안 씀)뿐이라 유지한다. visuals는 줄을 훑기 전에 먼저 뽑는다 — 밑줄
+    후보(_underline_candidates)를 문단 순회보다 앞서 계산해둬야 각 줄의
+    _container_to_runs 호출에 넘겨줄 수 있기 때문이다. 정렬(DEC-040)은
     컨테이너(원본 문단) 단위로 한 번만 판정해(_detect_alignment) 그
     문단에 속한 모든 줄에 같은 값을 붙인다 — 줄마다 독립된 프레임으로
     배치되지만(pdf_to_docx), 정렬 판정 자체는 여러 줄을 함께 봐야 하는
@@ -686,20 +703,24 @@ def _extract_pdf_line_layout(src: Path, image_dir: Path) -> list[dict]:
     pages = []
     try:
         for page in extract_pages(str(src)):
+            visuals = [
+                v for item in _iter_visuals(page)
+                if (v := _visual_to_dict(item, writer, image_dir)) is not None
+            ]
+            underline_segments = _underline_candidates(visuals)
             lines = []
             for container in _paragraph_candidates(page):
                 align = _detect_alignment(container, page.width)
                 for line in _iter_lines(container):
-                    runs = _container_to_runs(line)
+                    runs = _container_to_runs(line, underline_segments=underline_segments)
                     if runs:
                         entry = {"bbox": line.bbox, "runs": runs}
                         if align:
                             entry["align"] = align
                         lines.append(entry)
-            visuals = [
-                v for item in _iter_visuals(page)
-                if (v := _visual_to_dict(item, writer, image_dir)) is not None
-            ]
+            # 밑줄로 쓰인 선은 run.underline=True로 이미 반영됐으니
+            # 표 테두리 도형(w:pBdr)으로 다시 그리면 겹쳐 보인다 — 제외.
+            visuals = [v for v in visuals if not v.get("_used_as_underline")]
             pages.append({"width": page.width, "height": page.height, "lines": lines, "visuals": visuals})
     except PDFPasswordIncorrect:
         raise ConversionError("err.password")
@@ -732,6 +753,60 @@ def _paragraph_candidates(obj):
                 yield from _paragraph_candidates(child)
 
 
+_UNDERLINE_MAX_SLOPE_PT = 2.0  # pt — 이보다 기울면 밑줄 후보에서 제외(표 테두리 대각선 등)
+_UNDERLINE_MAX_GAP_PT = 4.0  # pt — 글자 bbox 아래로 이 거리 안에 있는 선만 밑줄로 인정
+_UNDERLINE_MIN_OVERLAP_RATIO = 0.4  # 글자 폭 대비 선과 겹치는 비율 최소치
+
+
+def _underline_candidates(visuals: list[dict]) -> list[dict]:
+    """페이지 visuals(pdf_to_docx의 이미지·표 테두리 반영 개선이 이미
+    뽑아둔 것)에서 밑줄 후보만 {"x0","x1","y","visual"} 딕셔너리로
+    추린다 — LTLine 중 거의 수평(기울기가 작은)인 선만 후보다. 표
+    테두리·구분선 등 다른 용도의 수평선도 섞여 나올 수 있지만, 실제
+    밑줄 판정은 텍스트 바로 아래 짧은 거리 안에 있는지로 한 번 더
+    거른다(_char_is_underlined). "visual"에는 원본 visual dict를 그대로
+    담아둬, 실제로 밑줄로 쓰인 선은 나중에 그 dict에 표시(_char_is_underlined
+    참고)해 표 테두리 도형으로 중복 렌더링(w:pBdr)되지 않게 한다 — 밑줄은
+    이미 run의 underline=True(python-docx의 실제 밑줄 서식)로 반영되므로
+    같은 선을 도형으로도 그리면 겹쳐 보인다."""
+    out = []
+    for v in visuals:
+        if v["kind"] != "line":
+            continue
+        (lx0, ly0), (lx1, ly1) = v["p0"], v["p1"]
+        if abs(ly1 - ly0) > _UNDERLINE_MAX_SLOPE_PT:
+            continue
+        out.append({"x0": min(lx0, lx1), "x1": max(lx0, lx1), "y": (ly0 + ly1) / 2, "visual": v})
+    return out
+
+
+def _char_is_underlined(ch, segments: list[dict]) -> bool:
+    """글자 하나의 bbox 아래쪽(밑줄이 실제로 그려지는 자리)에 겹치는
+    벡터 선이 있는지 본다. 기준점은 bbox 중간이 아니라 bbox 아래쪽
+    끝(y0)이다 — pdfminer가 표준 14 폰트(Helvetica 등)의 glyph bbox를
+    실제 잉크 범위가 아니라 폰트 자체의 ascent/descent로 균일하게 매겨
+    (로컬 검증으로 확인), y0가 대략 폰트 디센트 라인(베이스라인보다
+    약간 아래)과 같다 — 실제 밑줄은 베이스라인 바로 아래에 그려지므로
+    y0 근방(살짝 위·아래 모두 허용)에 있어야 한다. 다만 글자 중간
+    높이(bbox 세로 중앙)보다 위에 있는 선은 취소선일 가능성이 높아
+    제외한다. 매치되면 그 선의 원본 visual dict에 "_used_as_underline"
+    표시를 남긴다(호출자가 이 표시로 표 테두리 도형 렌더링에서 걸러낼
+    수 있게)."""
+    x0, y0, x1, y1 = ch.bbox
+    mid_y = (y0 + y1) / 2
+    for seg in segments:
+        seg_x0, seg_x1, seg_y = seg["x0"], seg["x1"], seg["y"]
+        if seg_y > mid_y:
+            continue  # 취소선 등 글자 중간·위쪽 높이 — 밑줄 아님
+        if y0 - seg_y > _UNDERLINE_MAX_GAP_PT:
+            continue  # bbox 아래쪽 끝보다 너무 많이 처져 있으면 다른 용도의 선
+        overlap = min(x1, seg_x1) - max(x0, seg_x0)
+        if overlap > 0 and overlap >= (x1 - x0) * _UNDERLINE_MIN_OVERLAP_RATIO:
+            seg["visual"]["_used_as_underline"] = True
+            return True
+    return False
+
+
 def _iter_chars(container):
     """컨테이너 안의 LTChar/LTAnno를 순서대로 낸다. LTTextContainer(문단)
     안의 LTTextLine(줄) 한 겹, 또는 LTFigure처럼 줄로 안 묶이고 글자를
@@ -745,9 +820,9 @@ def _iter_chars(container):
             yield item
 
 
-def _container_to_runs(container) -> list[dict]:
-    """컨테이너(문단 또는 줄)를 글자 단위로 훑어 굵게/기울임/크기가 바뀌는
-    지점마다 run을 새로 만든다(DEC-027, pdf_to_docx·pdf_to_pptx 공용).
+def _container_to_runs(container, underline_segments: list[dict] | None = None) -> list[dict]:
+    """컨테이너(문단 또는 줄)를 글자 단위로 훑어 굵게/기울임/크기/밑줄이
+    바뀌는 지점마다 run을 새로 만든다(DEC-027, pdf_to_docx·pdf_to_pptx 공용).
 
     굵게/기울임 판정은 pdfminer가 넘겨주는 폰트 리소스 이름(LTChar.fontname,
     예: "Caladea-Bold")에 "Bold"/"Italic"/"Oblique" 문자열이 포함되는지 보는
@@ -760,31 +835,40 @@ def _container_to_runs(container) -> list[dict]:
     굵기 정보 자체가 사라져 감지 불가(로컬 재현 확인), (2) 기울임은 한글
     글꼴 대부분이 별도 이탤릭 글리프가 없어(CJK 타이포그래피 관행) 애초에
     렌더러가 반영하지 않는 경우가 흔함 — 이 경우 우리 휴리스틱의 실패가
-    아니라 원본 자체에 감지할 서식이 없는 것. **밑줄은 감지하지 않는다** —
-    PDF는 밑줄을 폰트 속성이 아니라 별도의 벡터 선(그림)으로 그리는 경우가
-    많아 이 휴리스틱(폰트 이름 기반)으로는 원천적으로 판별할 수 없다(모든
-    PDF run은 항상 underline=False — HWP→DOCX만 밑줄을 지원, DEC-027).
-    텍스트 보존은 서식 감지 실패와 무관하게 항상 보장한다(서식 불명 시
-    bold=False/italic=False로 안전하게 처리).
+    아니라 원본 자체에 감지할 서식이 없는 것.
+
+    밑줄은 폰트 속성이 아니라 별도의 벡터 선(그림)으로 그려지는 경우가
+    많아 굵게/기울임과 같은 폰트 이름 휴리스틱으로는 원천적으로 판별할
+    수 없다(PDF→DOCX 밑줄 감지 개선) — 호출자가 `underline_segments`
+    (페이지의 근사-수평 벡터 선을 (x0,x1,y) 튜플로 미리 추린 목록,
+    `_underline_candidates` 참고)를 넘겨주면 각 글자의 bbox 바로 아래에
+    겹치는 선이 있는지로 판별한다(`_char_is_underlined`). 넘기지 않으면
+    (기본값 None, pdf_to_pptx·pdf_to_hwp 등 다른 호출자) 항상
+    underline=False — 이 판정 자체가 필요 없는 경로에서 매 글자마다
+    선 목록을 대조하는 비용을 안 치르게 한다. 텍스트 보존은 서식 감지
+    실패와 무관하게 항상 보장한다(서식 불명 시 bold=False/italic=False/
+    underline=False로 안전하게 처리).
     """
     from pdfminer.layout import LTChar
 
     runs = []
     cur_text = []
-    cur_style = (False, False, None)  # (bold, italic, size) — 셋 중 하나라도 바뀌면 run 분리
+    cur_style = (False, False, None, False)  # (bold, italic, size, underline) — 넷 중 하나라도 바뀌면 run 분리
 
     def flush():
         if cur_text:
-            bold, italic, size = cur_style
+            bold, italic, size, underline = cur_style
             runs.append({"text": "".join(cur_text), "bold": bool(bold),
-                         "italic": bool(italic), "underline": False,
+                         "italic": bool(italic), "underline": bool(underline),
                          "size": size, "color": None})
 
     for ch in _iter_chars(container):
         if isinstance(ch, LTChar):
             fontname = ch.fontname.lower()
+            underline = (_char_is_underlined(ch, underline_segments)
+                         if underline_segments else False)
             style = ("bold" in fontname, "italic" in fontname or "oblique" in fontname,
-                     round(ch.size, 1))
+                     round(ch.size, 1), underline)
             text = ch.get_text()
         else:
             # LTAnno(가상 문자 — 줄바꿈·자간 보정 등, 폰트 정보 없음): 현재
