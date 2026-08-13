@@ -179,6 +179,30 @@ class TestDocxToHwpTableGeneration(unittest.TestCase):
         self.assertEqual(by_text["굵고빨간18pt"].font.color.rgb, RGBColor(0xFF, 0x00, 0x00))
         self.assertEqual(doc2.tables[0].cell(0, 1).text, "plain")
 
+    def test_cell_alignment_survives_docx_to_hwp_to_docx_round_trip(self):
+        """표 셀 정렬 보존 개선 — 셀 안 문단 정렬(가운데/오른쪽)이 HWP를
+        거쳐 다시 DOCX로 와도 그대로 남아있어야 한다."""
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+        src = self.tmp / "cell_aligned.docx"
+        doc = Document()
+        table = doc.add_table(rows=1, cols=2)
+        table.cell(0, 0).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        table.cell(0, 0).paragraphs[0].add_run("가운데")
+        table.cell(0, 1).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        table.cell(0, 1).paragraphs[0].add_run("오른쪽")
+        doc.save(src)
+
+        out = converters.convert(src, "hwp", self.tmp)
+        back_dir = self.tmp / "back_align"
+        back_dir.mkdir()
+        back = converters.convert(out, "docx", back_dir)
+        doc2 = Document(back)
+
+        cells = doc2.tables[0].rows[0].cells
+        self.assertEqual(cells[0].paragraphs[0].alignment, WD_ALIGN_PARAGRAPH.CENTER)
+        self.assertEqual(cells[1].paragraphs[0].alignment, WD_ALIGN_PARAGRAPH.RIGHT)
+
     def test_vertical_merge_spanning_entire_row_preserves_row_count(self):
         """세로 병합이 어떤 행 전체를 덮으면(예: 1열 표에서 위 셀이 아래
         행까지 병합) docx_extract.py는 그 행을 빈 배열([])로 낸다 — 이
