@@ -110,6 +110,46 @@ class TestPdfToDocxLayout(unittest.TestCase):
         expected_y_approx = 792 - 700
         self.assertAlmostEqual(frame["y"], expected_y_approx, delta=15)
 
+    def test_frame_height_generous_enough_to_avoid_clipping(self):
+        """텍스트 클리핑 결함 수정 — 실제 렌더링은 항상 Noto Sans KR로
+        대체되는데(DEC-015) 이 폰트의 실제 줄 높이가 원본 PDF 폰트 기준
+        bbox 높이보다 커서, framePr 높이를 그 bbox 높이 그대로 쓰면
+        LibreOffice가 초과분을 잘라내 글자 대부분이 안 보였다(글꼴
+        크기·서식과 무관하게 재현, pdftoppm으로 직접 렌더링해 확인). 프레임
+        높이가 원본 폰트 크기(12pt)보다 넉넉히(Noto Sans KR 실측 줄 높이
+        비율만큼) 커야 한다."""
+        src = self.tmp / "height.pdf"
+        _mini_pdf(src, [[("Tall text gpqy", 100, 700, "F1", 12)]])
+        out = converters.convert(src, "docx", self.tmp)
+        doc = Document(out)
+        p = next(p for p in doc.paragraphs if p.text == "Tall text gpqy")
+        frame = _frame_pr(p)
+        self.assertIsNotNone(frame)
+        # 원본 bbox 높이(~12pt)를 그대로 썼다면 12~13pt대에 그쳤을 것 —
+        # Noto Sans KR 실측 줄 높이 비율(1.448)을 반영해 17pt 이상이어야
+        # 클리핑 없이 렌더링된다(직접 렌더링 비교로 확인한 값).
+        self.assertGreater(frame["h"], 17)
+
+    def test_multiple_close_lines_do_not_overlap(self):
+        """프레임 높이를 키워도(위 테스트) 촘촘한 줄 간격에서 다음 줄과
+        겹치면 안 된다 — hRule="atLeast"(자동으로 늘어남) 대신
+        hRule="exact"로 필요한 높이만 정확히 계산해 쓰기로 한 이유
+        (직접 렌더링 비교로 다른 대안이 겹침을 유발함을 확인 후 채택)."""
+        src = self.tmp / "close.pdf"
+        _mini_pdf(src, [[
+            ("Line one", 100, 600, "F1", 12),
+            ("Line two", 100, 580, "F1", 12),
+            ("Line three", 100, 560, "F1", 12),
+        ]])
+        out = converters.convert(src, "docx", self.tmp)
+        doc = Document(out)
+        frames = [_frame_pr(p) for p in doc.paragraphs if p.text.startswith("Line")]
+        self.assertEqual(len(frames), 3)
+        frames.sort(key=lambda f: f["y"])
+        for top, bottom in zip(frames, frames[1:]):
+            self.assertLessEqual(top["y"] + top["h"], bottom["y"] + 0.5,
+                                  "인접한 줄의 프레임이 서로 겹침(텍스트가 뒤섞여 보이는 회귀)")
+
     def test_bold_font_detected_via_fontname_heuristic(self):
         """pdf_to_pptx(DEC-030)와 같은 휴리스틱 재사용 — Helvetica-Bold로
         그려진 줄은 run.font.bold=True로 반영돼야 한다."""
