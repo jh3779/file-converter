@@ -131,7 +131,7 @@ def pdf_to_docx(src: Path, tmpdir: Path) -> Path:
             if align is not None:
                 p.alignment = align
             _set_frame_pr(p, x_pt=x0, y_pt=page_h - y1,
-                          w_pt=max(x1 - x0, 1), h_pt=max(y1 - y0, 1))
+                          w_pt=max(x1 - x0, 1), h_pt=_text_frame_height_pt(y0, y1))
 
     out = tmpdir / (src.stem + ".docx")
     doc.save(out)
@@ -144,7 +144,9 @@ def _set_frame_pr(paragraph, x_pt: float, y_pt: float, w_pt: float, h_pt: float)
     이 용도(줄 단위 위치 재현)엔 충분하다. 스파이크로 실측: 지정한 x/y와
     LibreOffice로 렌더링한 PDF의 실제 텍스트 위치가 2pt 이내로 일치함을
     확인(hAnchor/vAnchor="page" 기준, 페이지 여백은 0으로 맞춰 좌표계를
-    pdf_to_pptx의 EMU 변환과 동일하게 단순화)."""
+    pdf_to_pptx의 EMU 변환과 동일하게 단순화). h_pt는 호출자가 이미
+    필요한 여유를 계산해서 넘긴다고 가정한다(텍스트 줄은
+    _text_frame_height_pt, 이미지·도형은 원래 크기 그대로 — 아래 참고)."""
     from docx.oxml.ns import qn
 
     TWIPS_PER_PT = 20
@@ -160,6 +162,33 @@ def _set_frame_pr(paragraph, x_pt: float, y_pt: float, w_pt: float, h_pt: float)
         qn("w:wrap"): "none",
     })
     pPr.append(frame_pr)
+
+
+# 번들 Noto Sans KR(Regular·Bold 둘 다 동일, fontTools로 직접 측정해 확인)의
+# 실제 줄 높이 = (hhea/OS-2 usWin ascent + descent) / unitsPerEm = (1160+288)/1000
+# = 1.448 — 즉 지정한 폰트 크기의 약 1.448배 높이가 있어야 글자(특히
+# 내림선이 있는 g/p/디센더)가 위아래로 잘리지 않는다.
+_NOTO_SANS_KR_LINE_HEIGHT_RATIO = 1.448
+
+
+def _text_frame_height_pt(y0: float, y1: float) -> float:
+    """텍스트 줄 프레임의 높이(pt)를 정한다 — pdf_to_docx 텍스트 클리핑
+    결함 수정. PDF 원문 폰트가 무엇이었든 렌더링은 항상 Noto Sans KR로
+    대체되는데(DEC-015), 이 폰트의 실제 줄 높이가 pdfminer가 준 원본
+    bbox 높이(y1-y0, 원본 폰트 기준이라 대개 더 작음)보다 커서, 그
+    bbox 높이 그대로 `w:framePr`(hRule="exact")을 걸면 초과분이 프레임
+    밖으로 잘려 글자 대부분이 안 보이는 결함이 있었다(글꼴 크기·서식과
+    무관하게 재현, DEC-055 검증 중 실제 LibreOffice 렌더링을 처음 육안
+    확인해 발견). 대안으로 hRule="atLeast"(프레임이 필요하면 자동으로
+    늘어남)도 시도했으나, 원본 PDF의 줄 간격이 원래 폰트 기준으로 촘촘한
+    경우(흔함) 늘어난 프레임이 바로 다음 줄과 겹쳐 텍스트가 뒤섞여
+    보이는 새 문제가 생겼다(직접 렌더링 비교로 확인) — 대신 필요한 높이를
+    미리 계산해 hRule="exact"인 채로 정확히 그만큼만 키운다(오버랩·
+    클리핑 둘 다 없음을 3줄짜리 촘촘한 간격으로 직접 확인). 이미지·도형
+    (DEC-054)은 이 함수를 거치지 않고 원래 크기를 그대로 쓴다 — 폰트
+    메트릭과 무관한 내용이라 키울 이유가 없다."""
+    font_size = max(y1 - y0, 1)
+    return font_size * _NOTO_SANS_KR_LINE_HEIGHT_RATIO
 
 
 def _add_visual_to_docx(doc, visual: dict, page_h: float):
