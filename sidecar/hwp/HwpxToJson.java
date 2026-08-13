@@ -246,11 +246,15 @@ public class HwpxToJson {
      * 크기/색상, 표 셀 안 서식 보존 개선)을 함께 낸다 — HwpToJson.java의
      * cellJson과 대칭. 셀 안에 문단이 여러 개면 개행 하나를 서식 없는
      * run으로 끼워 넣는다(HWP 쪽과 동일한 원칙). 중첩 표는 여전히 범위
-     * 밖(표 셀 안의 Table RunItem은 무시, 기존 extractPlainText와 동일). */
+     * 밖(표 셀 안의 Table RunItem은 무시, 기존 extractPlainText와 동일).
+     * 셀 안 문단 정렬(align, 표 셀 정렬 보존 개선)도 함께 낸다 — 최상위
+     * 문단과 같은 paragraphAlign()을 첫 문단에 재사용(셀 전체 대표값). */
     private static String cellJson(HWPXFile hwpx, Tc tc) {
         StringBuilder runsJson = new StringBuilder();
         boolean first = true;
+        Para firstPara = null;
         for (Para p : tc.subList().paras()) {
+            if (firstPara == null) firstPara = p;
             String rj = paragraphRunsJsonForCell(hwpx, p);
             if (rj == null || rj.isEmpty()) continue;
             if (!first) {
@@ -263,7 +267,9 @@ public class HwpxToJson {
                 ? tc.cellSpan().colSpan() : 1;
         int rowSpan = (tc.cellSpan() != null && tc.cellSpan().rowSpan() != null)
                 ? tc.cellSpan().rowSpan() : 1;
-        return "{\"runs\":[" + runsJson + "],\"colSpan\":" + colSpan + ",\"rowSpan\":" + rowSpan + "}";
+        String align = firstPara == null ? "justify" : paragraphAlign(hwpx, firstPara);
+        return "{\"runs\":[" + runsJson + "],\"colSpan\":" + colSpan + ",\"rowSpan\":" + rowSpan
+                + ",\"align\":\"" + align + "\"}";
     }
 
     private static String paragraphRunsJsonForCell(HWPXFile hwpx, Para p) {

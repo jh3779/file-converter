@@ -190,6 +190,34 @@ class TestDocxBuildMerge(unittest.TestCase):
         self.assertTrue(rebuilt_runs[1].font.bold)
         self.assertEqual(rebuilt_runs[1].font.color.rgb, RGBColor(0xFF, 0x00, 0x00))
 
+    def test_cell_alignment_round_trip(self):
+        """표 셀 정렬 보존 개선 — 셀 안 문단 정렬(가운데/오른쪽)이 그대로
+        추출·재생성되는지(hwplib/hwpxlib을 거치지 않는 순수 파이썬 경로만
+        검증, 사이드카 왕복은 test_hwp_table_generation.py/test_hwpx.py에
+        있음)."""
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from app.converters.docx_extract import docx_to_blocks
+
+        src = self.tmp / "aligned.docx"
+        doc = Document()
+        table = doc.add_table(rows=1, cols=2)
+        table.cell(0, 0).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        table.cell(0, 0).paragraphs[0].add_run("가운데")
+        table.cell(0, 1).paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        table.cell(0, 1).paragraphs[0].add_run("오른쪽")
+        doc.save(src)
+
+        blocks = docx_to_blocks(src)
+        row = blocks[0]["rows"][0]
+        self.assertEqual(row[0]["align"], "center")
+        self.assertEqual(row[1]["align"], "right")
+
+        out = blocks_to_docx(blocks, self.tmp / "rebuilt3.docx")
+        rebuilt = Document(out)
+        rebuilt_cells = rebuilt.tables[0].rows[0].cells
+        self.assertEqual(rebuilt_cells[0].paragraphs[0].alignment, WD_ALIGN_PARAGRAPH.CENTER)
+        self.assertEqual(rebuilt_cells[1].paragraphs[0].alignment, WD_ALIGN_PARAGRAPH.RIGHT)
+
 
 if __name__ == "__main__":
     unittest.main()

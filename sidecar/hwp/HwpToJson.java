@@ -167,6 +167,8 @@ public class HwpToJson {
         firstBlock = false;
     }
 
+    /** 셀 안 문단 정렬(align, 표 셀 정렬 보존 개선)도 함께 낸다 — 최상위
+     * 문단과 같은 paragraphAlign()을 첫 문단에 재사용(셀 전체 대표값). */
     private String cellJson(Cell cell, DocInfo docInfo) {
         StringBuilder runsJson = new StringBuilder();
         boolean first = true;
@@ -181,7 +183,10 @@ public class HwpToJson {
         }
         int colSpan = cell.getListHeader().getColSpan();
         int rowSpan = cell.getListHeader().getRowSpan();
-        return "{\"runs\":[" + runsJson + "],\"colSpan\":" + colSpan + ",\"rowSpan\":" + rowSpan + "}";
+        String align = cell.getParagraphList().getParagraphCount() == 0 ? "justify"
+                : paragraphAlign(cell.getParagraphList().getParagraph(0), docInfo);
+        return "{\"runs\":[" + runsJson + "],\"colSpan\":" + colSpan + ",\"rowSpan\":" + rowSpan
+                + ",\"align\":\"" + align + "\"}";
     }
 
     /**

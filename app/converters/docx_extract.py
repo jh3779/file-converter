@@ -2,7 +2,7 @@
 
 블록 형식: {"type":"p","runs":[{"text":str,"bold":bool,"italic":bool,
 "underline":bool,"size":float,"color":"RRGGBB"}, ...],"align":"left"|"center"|"right"|"justify"(선택)} |
-{"type":"table","rows":[[{"runs":[...],"colSpan":int,"rowSpan":int},...],...],"colWidthsMm":[float,...]}
+{"type":"table","rows":[[{"runs":[...],"colSpan":int,"rowSpan":int,"align":str},...],...],"colWidthsMm":[float,...]}
 문서 순서(본문에 등장하는 순서)대로 문단·표를 함께 추출한다 — python-docx는
 document.paragraphs/document.tables를 각각 따로 주기 때문에 body XML을 직접
 순회해야 순서가 보존된다.
@@ -15,7 +15,10 @@ document.paragraphs/document.tables를 각각 따로 주기 때문에 body XML�
 표 셀 문자 서식은 DEC-051부터 문단과 같은 run 단위로 반영한다(그 전까지는
 평문이었음) — 셀 안에 문단이 여러 개면(흔치 않음) 공백 하나로 이어붙인다
 (HWP 표 셀은 항상 단일 문단이라는 기존 전제, JsonToHwp.java의
-`setParagraphForCell`과 대칭).
+`setParagraphForCell`과 대칭). 표 셀 안 문단 정렬(표 셀 정렬 보존 개선)도
+같은 원칙으로 함께 낸다 — `_paragraph_align`을 셀의 첫 문단에 재사용해
+"align" 필드를 항상 채운다(문단과 마찬가지로 절대 생략하지 않음, 이유는
+아래 문단 정렬 문단 참고).
 
 문단 정렬(DEC-040): 문단에 직접 지정된 정렬(w:jc)만 읽는다(스타일 상속은
 범위 밖). 직접 지정이 없으면 Word가 실제로 렌더링하는 값인 "left"를
@@ -347,7 +350,9 @@ def _table_rows_with_spans(table) -> list[list[dict]]:
                     row_span += 1
                 else:
                     break
-            entry = {"runs": _cell_runs(cells[c]), "colSpan": col_span, "rowSpan": row_span}
+            cell_align = _paragraph_align(cells[c].paragraphs[0]) if cells[c].paragraphs else "left"
+            entry = {"runs": _cell_runs(cells[c]), "colSpan": col_span, "rowSpan": row_span,
+                     "align": cell_align}
             row_out.append(entry)
         rows_out.append(row_out)
     return rows_out
