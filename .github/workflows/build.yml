@@ -123,7 +123,7 @@ jobs:
           & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToJson created.hwp created.json
           $createdJson = Get-Content created.json -Encoding utf8 -Raw
           # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다.
-          $dec028Expected = '"type":"table","rows":[[{"runs":[{"text":"이름","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1},{"runs":[{"text":"부서","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1}],[{"runs":[{"text":"김철수","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1},{"runs":[{"text":"영업1팀","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1}]]'
+          $dec028Expected = '"type":"table","rows":[[{"runs":[{"text":"이름","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"justify"},{"runs":[{"text":"부서","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"justify"}],[{"runs":[{"text":"김철수","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"justify"},{"runs":[{"text":"영업1팀","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"justify"}]]'
           if (-not ($createdJson | Select-String -Pattern $dec028Expected -SimpleMatch -Quiet)) {
             Write-Error "HWP engine smoke failed: JsonToHwp가 만든 표가 실제 표 구조(2행×2열)로 재확인되지 않음(DEC-028 회귀)"; exit 1
           }
@@ -139,7 +139,7 @@ jobs:
           $mergedJson = Get-Content merged.json -Encoding utf8 -Raw
           # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다
           # (문단 블록과 같은 표현, 표 셀 안 서식 보존).
-          if (-not ($mergedJson | Select-String -Pattern '"type":"table","rows":\[\[\{"runs":\[\{"text":"병합","bold":false,"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":2,"rowSpan":1\}\],\[\{"runs":\[\{"text":"10","bold":false,"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1\},\{"runs":\[\{"text":"11","bold":false,"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1\}\]\]' -Quiet)) {
+          if (-not ($mergedJson | Select-String -Pattern '"type":"table","rows":\[\[\{"runs":\[\{"text":"병합","bold":false,"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":2,"rowSpan":1,"align":"justify"\}\],\[\{"runs":\[\{"text":"10","bold":false,"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1,"align":"justify"\},\{"runs":\[\{"text":"11","bold":false,"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1,"align":"justify"\}\]\]' -Quiet)) {
             Write-Error "HWP engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-035 회귀)"; exit 1
           }
           # DEC-051: 표 셀 안 문자 서식(굵게/기울임/밑줄/크기/색상) — DEC-038이
@@ -156,6 +156,21 @@ jobs:
           }
           if (-not ($cellFormattedJson | Select-String -Pattern '"text":"일반 ","bold":false,"italic":false,"underline":false' -Quiet)) {
             Write-Error "HWP engine smoke failed: 표 셀 안 서식 없는 run이 잘못된 서식으로 나옴(DEC-051 회귀)"; exit 1
+          }
+          # DEC-053: 표 셀 안 문단 정렬(가운데/오른쪽) — DEC-040이 문단에
+          # 반영한 것과 대칭으로 표 셀에도 반영되는지.
+          Set-Content -Encoding utf8 cell-aligned-blocks.json '{"blocks":[{"type":"table","rows":[[{"runs":[{"text":"가운데"}],"colSpan":1,"rowSpan":1,"align":"center"},{"runs":[{"text":"오른쪽"}],"colSpan":1,"rowSpan":1,"align":"right"}]]}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwp cell-aligned-blocks.json cell-aligned.hwp
+          if (-not (Test-Path cell-aligned.hwp)) {
+            Write-Error "HWP engine smoke failed: JsonToHwp가 셀 정렬 있는 표를 생성하지 못함(DEC-053)"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpToJson cell-aligned.hwp cell-aligned.json
+          $cellAlignedJson = Get-Content cell-aligned.json -Encoding utf8 -Raw
+          if (-not ($cellAlignedJson | Select-String -Pattern '"text":"가운데".*?"align":"center"' -Quiet)) {
+            Write-Error "HWP engine smoke failed: 표 셀 가운데 정렬이 왕복 후 재확인되지 않음(DEC-053 회귀)"; exit 1
+          }
+          if (-not ($cellAlignedJson | Select-String -Pattern '"text":"오른쪽".*?"align":"right"' -Quiet)) {
+            Write-Error "HWP engine smoke failed: 표 셀 오른쪽 정렬이 왕복 후 재확인되지 않음(DEC-053 회귀)"; exit 1
           }
           # DEC-038: DOCX→HWP 문자 서식(굵게/기울임/밑줄/크기/색상) 반영 —
           # JsonToHwp가 run별 서식을 CharShape으로 만들어 ParaCharShape에
@@ -307,7 +322,7 @@ jobs:
             hwpxlib-src/testFile/tool/textextractor/Table.hwpx hwpx_table.json
           $hwpxTableJson = Get-Content hwpx_table.json -Encoding utf8 -Raw
           # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다.
-          $tableExpected = '"type":"table","rows":[[{"runs":[{"text":"이름","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1},{"runs":[{"text":"국어","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1},{"runs":[{"text":"영어","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1},{"runs":[{"text":"수학","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1}]'
+          $tableExpected = '"type":"table","rows":[[{"runs":[{"text":"이름","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"center"},{"runs":[{"text":"국어","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"center"},{"runs":[{"text":"영어","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"center"},{"runs":[{"text":"수학","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"center"}]'
           if (-not ($hwpxTableJson | Select-String -Pattern $tableExpected -SimpleMatch -Quiet)) {
             Write-Error "HWPX engine smoke failed: 표 구조 불일치"; exit 1
           }
@@ -348,7 +363,7 @@ jobs:
           & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpxToJson hwpx-merged.hwpx hwpx-merged.json
           $hwpxMergedJson = Get-Content hwpx-merged.json -Encoding utf8 -Raw
           # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다.
-          if (-not ($hwpxMergedJson | Select-String -Pattern '"type":"table","rows":\[\[\{"runs":\[\{"text":"병합","bold":false,"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":2,"rowSpan":1\}\],\[\{"runs":\[\{"text":"10","bold":false,"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1\},\{"runs":\[\{"text":"11","bold":false,"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1\}\]\]' -Quiet)) {
+          if (-not ($hwpxMergedJson | Select-String -Pattern '"type":"table","rows":\[\[\{"runs":\[\{"text":"병합","bold":false,"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":2,"rowSpan":1,"align":"justify"\}\],\[\{"runs":\[\{"text":"10","bold":false,"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1,"align":"justify"\},\{"runs":\[\{"text":"11","bold":false,"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1,"align":"justify"\}\]\]' -Quiet)) {
             Write-Error "HWPX write engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-049 회귀)"; exit 1
           }
           # DEC-051: 표 셀 안 문자 서식(굵게/기울임/밑줄/크기/색상) — HWP
@@ -366,6 +381,21 @@ jobs:
           if (-not ($hwpxCellFormattedJson | Select-String -Pattern '"text":"일반 ","bold":false,"italic":false,"underline":false' -Quiet)) {
             Write-Error "HWPX write engine smoke failed: 표 셀 안 서식 없는 run이 잘못된 서식으로 나옴(DEC-051 회귀)"; exit 1
           }
+          # DEC-053: 표 셀 안 문단 정렬(가운데/오른쪽) — HWP 쪽과 대칭으로
+          # 표 셀에도 반영되는지.
+          Set-Content -Encoding utf8 hwpx-cell-aligned-blocks.json '{"blocks":[{"type":"table","rows":[[{"runs":[{"text":"가운데"}],"colSpan":1,"rowSpan":1,"align":"center"},{"runs":[{"text":"오른쪽"}],"colSpan":1,"rowSpan":1,"align":"right"}]]}]}'
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp JsonToHwpx hwpx-cell-aligned-blocks.json hwpx-cell-aligned.hwpx
+          if (-not (Test-Path hwpx-cell-aligned.hwpx)) {
+            Write-Error "HWPX write engine smoke failed: JsonToHwpx가 셀 정렬 있는 표를 생성하지 못함(DEC-053)"; exit 1
+          }
+          & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpxToJson hwpx-cell-aligned.hwpx hwpx-cell-aligned.json
+          $hwpxCellAlignedJson = Get-Content hwpx-cell-aligned.json -Encoding utf8 -Raw
+          if (-not ($hwpxCellAlignedJson | Select-String -Pattern '"text":"가운데".*?"align":"center"' -Quiet)) {
+            Write-Error "HWPX write engine smoke failed: 표 셀 가운데 정렬이 왕복 후 재확인되지 않음(DEC-053 회귀)"; exit 1
+          }
+          if (-not ($hwpxCellAlignedJson | Select-String -Pattern '"text":"오른쪽".*?"align":"right"' -Quiet)) {
+            Write-Error "HWPX write engine smoke failed: 표 셀 오른쪽 정렬이 왕복 후 재확인되지 않음(DEC-053 회귀)"; exit 1
+          }
           # DEC-049 머지 전 자동 리뷰 지적(재현 확인 후 수정): parseTableSpec이
           # 셀을 항상 Map으로 캐스팅해, HwpxToJson이 병합 없는 셀을 평문
           # 문자열로 내보내는 것(하위 호환, DEC-035와 동일 원칙)과 왕복이
@@ -378,7 +408,7 @@ jobs:
           & engine-build/jre/bin/java.exe -cp engine-build/hwp HwpxToJson hwpx-string-cell.hwpx hwpx-string-cell.json
           $hwpxStringCellJson = Get-Content hwpx-string-cell.json -Encoding utf8 -Raw
           # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다.
-          $stringCellExpected = '"type":"table","rows":[[{"runs":[{"text":"a","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1},{"runs":[{"text":"b","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1}],[{"runs":[{"text":"c","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1},{"runs":[{"text":"d","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1}]]'
+          $stringCellExpected = '"type":"table","rows":[[{"runs":[{"text":"a","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"justify"},{"runs":[{"text":"b","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"justify"}],[{"runs":[{"text":"c","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"justify"},{"runs":[{"text":"d","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"justify"}]]'
           if (-not ($hwpxStringCellJson | Select-String -Pattern $stringCellExpected -SimpleMatch -Quiet)) {
             Write-Error "HWPX write engine smoke failed: 평문 문자열 셀 표가 왕복 후 유지되지 않음(DEC-049 회귀)"; exit 1
           }
@@ -811,7 +841,7 @@ jobs:
           text = open("created.json", encoding="utf-8").read()
           # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다.
           def cell(t):
-              return '{"runs":[{"text":"' + t + '","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1}'
+              return '{"runs":[{"text":"' + t + '","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"justify"}'
           expected = '"type":"table","rows":[[' + cell("이름") + "," + cell("부서") + "],[" + cell("김철수") + "," + cell("영업1팀") + "]]"
           if expected not in text:
               print("::error::HWP engine smoke failed: JsonToHwp가 만든 표가 실제 표 구조(2행x2열)로 재확인되지 않음(DEC-028 회귀)")
@@ -838,10 +868,10 @@ jobs:
           # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다
           # (문단 블록과 같은 표현, 표 셀 안 서식 보존).
           pattern = (r'"type":"table","rows":\[\[\{"runs":\[\{"text":"병합","bold":false,"italic":false,'
-                     r'"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":2,"rowSpan":1\}\],'
+                     r'"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":2,"rowSpan":1,"align":"justify"\}\],'
                      r'\[\{"runs":\[\{"text":"10","bold":false,"italic":false,"underline":false,"size":10\.0,'
-                     r'"color":"000000"\}\],"colSpan":1,"rowSpan":1\},\{"runs":\[\{"text":"11","bold":false,'
-                     r'"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1\}\]\]')
+                     r'"color":"000000"\}\],"colSpan":1,"rowSpan":1,"align":"justify"\},\{"runs":\[\{"text":"11","bold":false,'
+                     r'"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1,"align":"justify"\}\]\]')
           if not re.search(pattern, text):
               print("::error::HWP engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-035 회귀)")
               sys.exit(1)
@@ -859,6 +889,27 @@ jobs:
             || { echo "::error::HWP engine smoke failed: 표 셀 안 굵게·색상 서식이 왕복 후 재확인되지 않음(DEC-051 회귀)"; exit 1; }
           grep -qF '"text":"일반 ","bold":false,"italic":false,"underline":false' cell-formatted.json \
             || { echo "::error::HWP engine smoke failed: 표 셀 안 서식 없는 run이 잘못된 서식으로 나옴(DEC-051 회귀)"; exit 1; }
+
+          # DEC-053: 표 셀 안 문단 정렬(가운데/오른쪽) — DEC-040이 문단에
+          # 반영한 것과 대칭으로 표 셀에도 반영되는지.
+          cat > cell-aligned-blocks.json <<'JSON'
+          {"blocks":[{"type":"table","rows":[[{"runs":[{"text":"가운데"}],"colSpan":1,"rowSpan":1,"align":"center"},{"runs":[{"text":"오른쪽"}],"colSpan":1,"rowSpan":1,"align":"right"}]]}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp cell-aligned-blocks.json cell-aligned.hwp
+          [ -f cell-aligned.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 셀 정렬 있는 표를 생성하지 못함(DEC-053)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson cell-aligned.hwp cell-aligned.json
+          python3 <<'PY'
+          import re, sys
+          text = open("cell-aligned.json", encoding="utf-8").read()
+          checks = [
+              (r'"text":"가운데".*?"align":"center"', "표 셀 가운데 정렬이 왕복 후 재확인되지 않음"),
+              (r'"text":"오른쪽".*?"align":"right"', "표 셀 오른쪽 정렬이 왕복 후 재확인되지 않음"),
+          ]
+          for pattern, message in checks:
+              if not re.search(pattern, text):
+                  print(f"::error::HWP engine smoke failed: {message}(DEC-053 회귀)")
+                  sys.exit(1)
+          PY
 
           # DEC-038: DOCX→HWP 문자 서식(굵게/기울임/밑줄/크기/색상) 반영 —
           # JsonToHwp가 run별 서식을 CharShape으로 만들어 ParaCharShape에
@@ -1041,7 +1092,7 @@ jobs:
           text = open("hwpx_table.json", encoding="utf-8").read()
           # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다.
           def cell(t):
-              return '{"runs":[{"text":"' + t + '","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1}'
+              return '{"runs":[{"text":"' + t + '","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"center"}'
           expected = '"type":"table","rows":[[' + ",".join(cell(t) for t in ["이름", "국어", "영어", "수학"]) + "]"
           if expected not in text:
               print("::error::HWPX engine smoke failed: 표 구조 불일치")
@@ -1078,10 +1129,10 @@ jobs:
           text = open("hwpx-merged.json", encoding="utf-8").read()
           # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다.
           pattern = (r'"type":"table","rows":\[\[\{"runs":\[\{"text":"병합","bold":false,"italic":false,'
-                     r'"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":2,"rowSpan":1\}\],'
+                     r'"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":2,"rowSpan":1,"align":"justify"\}\],'
                      r'\[\{"runs":\[\{"text":"10","bold":false,"italic":false,"underline":false,"size":10\.0,'
-                     r'"color":"000000"\}\],"colSpan":1,"rowSpan":1\},\{"runs":\[\{"text":"11","bold":false,'
-                     r'"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1\}\]\]')
+                     r'"color":"000000"\}\],"colSpan":1,"rowSpan":1,"align":"justify"\},\{"runs":\[\{"text":"11","bold":false,'
+                     r'"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1,"align":"justify"\}\]\]')
           if not re.search(pattern, text):
               print("::error::HWPX write engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-049 회귀)")
               sys.exit(1)
@@ -1098,6 +1149,26 @@ jobs:
             || { echo "::error::HWPX write engine smoke failed: 표 셀 안 굵게·색상 서식이 왕복 후 재확인되지 않음(DEC-051 회귀)"; exit 1; }
           grep -qF '"text":"일반 ","bold":false,"italic":false,"underline":false' hwpx-cell-formatted.json \
             || { echo "::error::HWPX write engine smoke failed: 표 셀 안 서식 없는 run이 잘못된 서식으로 나옴(DEC-051 회귀)"; exit 1; }
+          # DEC-053: 표 셀 안 문단 정렬(가운데/오른쪽) — HWP 쪽과 대칭으로
+          # 표 셀에도 반영되는지.
+          cat > hwpx-cell-aligned-blocks.json <<'JSON'
+          {"blocks":[{"type":"table","rows":[[{"runs":[{"text":"가운데"}],"colSpan":1,"rowSpan":1,"align":"center"},{"runs":[{"text":"오른쪽"}],"colSpan":1,"rowSpan":1,"align":"right"}]]}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwpx hwpx-cell-aligned-blocks.json hwpx-cell-aligned.hwpx
+          [ -f hwpx-cell-aligned.hwpx ] || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 셀 정렬 있는 표를 생성하지 못함(DEC-053)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson hwpx-cell-aligned.hwpx hwpx-cell-aligned.json
+          python3 <<'PY'
+          import re, sys
+          text = open("hwpx-cell-aligned.json", encoding="utf-8").read()
+          checks = [
+              (r'"text":"가운데".*?"align":"center"', "표 셀 가운데 정렬이 왕복 후 재확인되지 않음"),
+              (r'"text":"오른쪽".*?"align":"right"', "표 셀 오른쪽 정렬이 왕복 후 재확인되지 않음"),
+          ]
+          for pattern, message in checks:
+              if not re.search(pattern, text):
+                  print(f"::error::HWPX write engine smoke failed: {message}(DEC-053 회귀)")
+                  sys.exit(1)
+          PY
           # DEC-049 머지 전 자동 리뷰 지적(재현 확인 후 수정): parseTableSpec이
           # 셀을 항상 Map으로 캐스팅해, HwpxToJson이 병합 없는 셀을 평문
           # 문자열로 내보내는 것(하위 호환, DEC-035와 동일 원칙)과 왕복이
@@ -1113,7 +1184,7 @@ jobs:
           text = open("hwpx-string-cell.json", encoding="utf-8").read()
           # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다.
           def cell(t):
-              return '{"runs":[{"text":"' + t + '","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1}'
+              return '{"runs":[{"text":"' + t + '","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"justify"}'
           expected = '"type":"table","rows":[[' + cell("a") + "," + cell("b") + "],[" + cell("c") + "," + cell("d") + "]]"
           if expected not in text:
               print("::error::HWPX write engine smoke failed: 평문 문자열 셀 표가 왕복 후 유지되지 않음(DEC-049 회귀)")
