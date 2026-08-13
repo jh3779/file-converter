@@ -12,7 +12,7 @@
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
-전체 200개 중 7개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
+전체 204개 중 7개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
 CI(`test` job, `.github/workflows/build.yml`)는 매 push/PR마다 이 명령을
 그대로 실행한다 — Java/LibreOffice/FFmpeg가 없는 가벼운 러너라 사이드카
 필요 테스트는 CI에서도 스킵되고, 그 부분은 `build-windows`/`build-macos`
@@ -38,7 +38,7 @@ REQ-F ID·DEC는 `docs/01_requirements.md`·`docs/06_open_questions.md` 참고.
 | CSV↔XLSX | REQ-F-006 | `test_converters.py::TestCsvXlsx` | 항상 |
 | CSV↔JSON | REQ-F-006 | `test_converters.py::TestCsvJson` | 항상 |
 | PDF→TXT | REQ-F-004 | `test_pipeline.py::TestPdf` | 항상 |
-| PDF→DOCX(절대 위치 레이아웃) | REQ-F-004, DEC-010·DEC-037 | `test_pipeline.py::TestPdf`, `test_pdf_to_docx_layout.py::TestPdfToDocxLayout`, `test_format_fidelity.py::TestPdfToDocxFormatting/TestPdfToDocxAlignment` | 항상 |
+| PDF→DOCX(절대 위치 레이아웃, 이미지·표 테두리) | REQ-F-004, DEC-010·DEC-037·DEC-054 | `test_pipeline.py::TestPdf`, `test_pdf_to_docx_layout.py::TestPdfToDocxLayout`, `test_pdf_to_docx_visuals.py`, `test_format_fidelity.py::TestPdfToDocxFormatting/TestPdfToDocxAlignment` | 항상 |
 | PDF→HWP | REQ-F-005, DEC-023·DEC-039·DEC-040 | `test_pipeline.py::TestHwp`(`test_pdf_to_hwp_*`), `test_converters.py::TestPdfToHwpPageBreaks` | JDK+hwplib(왕복 검증 부분) |
 | PDF→HWPX | DEC-049 | `test_hwpx.py::TestHwpxWrite`(`test_pdf_to_hwpx_preserves_page_breaks`) | JDK+hwpxlib |
 | PDF→PNG/JPG | REQ-F-016, DEC-026·DEC-043 | `test_pdf_images.py::TestPdfToImages` | 항상 |
