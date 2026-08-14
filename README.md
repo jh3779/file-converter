@@ -2,14 +2,14 @@
 
 비개발자를 위한 **완전 오프라인** 데스크톱 파일 포맷 변환기. 파일이 PC 밖으로 절대 나가지 않습니다.
 
-> Windows·macOS 배포 (v0.3.10 프리릴리스) · 사이드 프로젝트 · MVP 완성
+> Windows·macOS 배포 (v0.3.11 프리릴리스) · 사이드 프로젝트 · MVP 완성
 
 ## 다운로드
 
 | 플랫폼 | 방법 |
 |---|---|
-| 🪟 **Windows** | **[v0.3.10 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.10/FileConverter-Setup-latest.exe)** — 인스톨러 실행 중 "설치 모드 선택" 화면이 뜨면 **기본값("나만 사용하도록 설치")을 그대로 두고 진행**하세요 — 그러면 관리자 권한이 필요 없습니다(v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
-| 🍎 **macOS** (Apple Silicon) | **[v0.3.10 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.10/FileConverter-latest-mac-arm64.dmg)** — dmg를 열어 Applications로 드래그(DEC-029). **미서명 배포**라 처음 실행 시 Gatekeeper가 막습니다 — 아래 안내 참고. Intel Mac은 아직 미지원, **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
+| 🪟 **Windows** | **[v0.3.11 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.11/FileConverter-Setup-latest.exe)** — 인스톨러 실행 중 "설치 모드 선택" 화면이 뜨면 **기본값("나만 사용하도록 설치")을 그대로 두고 진행**하세요 — 그러면 관리자 권한이 필요 없습니다(v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
+| 🍎 **macOS** (Apple Silicon) | **[v0.3.11 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.11/FileConverter-latest-mac-arm64.dmg)** — dmg를 열어 Applications로 드래그(DEC-029). **미서명 배포**라 처음 실행 시 Gatekeeper가 막습니다 — 아래 안내 참고. Intel Mac은 아직 미지원, **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
 | 🐧 Linux | 지원 계획 없음 |
 
 > ⚠️ 설치 파일을 브라우저로 받아 실행하면 Windows SmartScreen이 **빨간 "Windows의 PC
@@ -122,6 +122,7 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] **PDF→DOCX 밑줄 감지**(DEC-055, 변환 품질 개선 5순위) — 폰트 이름 휴리스틱으로는 원천적으로 판별 불가능한 밑줄을, 텍스트 바로 아래의 벡터 선(DEC-054가 이미 뽑아둔 도형 추출 재사용) 위치로 추정. 밑줄로 쓰인 선은 표 테두리 도형으로 중복 렌더링되지 않도록 제외
 - [x] **PDF→DOCX 텍스트 프레임 클리핑 결함 수정**(DEC-057, DEC-055 검증 중 발견한 잔여 리스크 해소) — `pdf_to_docx`(DEC-037)의 절대 위치 프레임이 원본 PDF 폰트 기준 높이 그대로였는데, 실제 렌더링은 항상 Noto Sans KR로 대체돼(DEC-015) 그 폰트의 더 큰 실제 줄 높이가 프레임 밖으로 잘려 글자 대부분(특히 g/p/q/y 디센더)이 안 보이던 결함. fontTools로 번들 폰트의 실제 메트릭을 측정해 정확한 배율(1.448배)을 구해 반영 — `soffice`+`pdftoppm`로 실제 렌더링을 반복 비교해 클리핑도 겹침도 없는 값을 확정
 - [x] v0.3.10 — **v0.3.9 이후 밀려 있던 태그 릴리스 반영**(PDF→PPTX·HWPX 읽기/쓰기·3D 모델 변환 등 위 DEC-030~052 항목 전부, v0.3.9는 2026-08-06 발행 이후 태그 없이 6일간 변경분만 누적됨). 그 외 3D 모델 포맷 파일 행에 미지원(🚫) 아이콘이 잘못 표시되던 문제, 영문 로케일에서 최소 창 너비를 넘기던 레이아웃 문제도 함께 수정
+- [x] v0.3.11 — **전체 변환 품질 개선 작업 마무리**(위 DEC-053~057 항목 전부: 표 셀 정렬·PDF→DOCX 이미지/표 테두리/밑줄 반영·텍스트 프레임 클리핑 결함 수정). 수동 테스트 체크리스트도 낡은 문구(머리말/꼬리말이 "범위 밖"이라던 것 — DEC-032/052로 이미 해소됨)를 정정하고 새 항목 반영
 
 ## 라이선스 고지
 - HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)
