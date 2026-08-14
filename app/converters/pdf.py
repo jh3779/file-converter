@@ -14,6 +14,7 @@ def pdf_to_txt(src: Path, tmpdir: Path) -> Path:
         raise ConversionError("err.password")
     except (PSException, ValueError, OSError) as e:
         raise ConversionError("err.corrupted", str(e))
+    text = _fix_symbol_font_pua(text)
     out = tmpdir / (src.stem + ".txt")
     out.write_text(text, encoding="utf-8")
     return out
@@ -836,6 +837,26 @@ def _char_is_underlined(ch, segments: list[dict]) -> bool:
     return False
 
 
+# LibreOffice/Word가 목록 기호를 Symbol 글꼴로 그려 PDF에 구울 때, 임베드된
+# 서브셋 폰트가 (3,0) "Microsoft Symbol" cmap 관례에 따라 문자 코드를 그대로
+# 0xF000+코드로 인코딩하는 경우가 흔하다(실사용 문서 재현: LibreOffice가 Word
+# "List Bullet" 스타일을 구울 때 JAAAAA+SymbolMT 서브셋 폰트의 0xB7을 U+F0B7로
+# 내보냄). pdfminer는 이 사설 영역(PUA) 코드를 있는 그대로 넘겨줘서, 원본 글꼴이
+# 없는 뷰어(Word/Google Docs 등)에서는 빈 칸(tofu)으로 보인다. Adobe Symbol
+# 인코딩은 어느 OS·오피스 버전에서도 동일한 고정 표준이라(PDF를 만든 환경에
+# 따라 달라지지 않음) 알려진 코드만 안전하게 원래 유니코드 기호로 되돌린다.
+_SYMBOL_FONT_PUA_MAP = {
+    "": "•",  # Symbol 글꼴 0xB7 "bullet" — MS Office "List Bullet" 스타일 기본 기호
+}
+
+
+def _fix_symbol_font_pua(text: str) -> str:
+    for pua, real in _SYMBOL_FONT_PUA_MAP.items():
+        if pua in text:
+            text = text.replace(pua, real)
+    return text
+
+
 def _iter_chars(container):
     """컨테이너 안의 LTChar/LTAnno를 순서대로 낸다. LTTextContainer(문단)
     안의 LTTextLine(줄) 한 겹, 또는 LTFigure처럼 줄로 안 묶이고 글자를
@@ -898,7 +919,7 @@ def _container_to_runs(container, underline_segments: list[dict] | None = None) 
                          if underline_segments else False)
             style = ("bold" in fontname, "italic" in fontname or "oblique" in fontname,
                      round(ch.size, 1), underline)
-            text = ch.get_text()
+            text = _fix_symbol_font_pua(ch.get_text())
         else:
             # LTAnno(가상 문자 — 줄바꿈·자간 보정 등, 폰트 정보 없음): 현재
             # run에 그대로 이어붙이고 서식 전환은 트리거하지 않는다. PDF의

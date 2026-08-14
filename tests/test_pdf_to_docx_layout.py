@@ -232,5 +232,63 @@ class TestPdfToDocxLayout(unittest.TestCase):
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
 
+class TestSymbolFontPuaFix(unittest.TestCase):
+    """Windows 실기기 테스트로 재현된 문제: LibreOffice가 Word "List Bullet"
+    스타일을 PDF로 구우면 불릿 글자가 Symbol 서브셋 글꼴의 사설 영역(PUA)
+    코드(U+F0B7)로 나오는데, pdfminer가 이를 그대로 넘겨줘 Word/Google
+    Docs 등 원본 글꼴이 없는 뷰어에서 빈 칸(tofu)으로 보였다. Adobe Symbol
+    인코딩은 OS·오피스 버전에 관계없이 고정된 표준이라 이 매핑은 어느
+    환경에서 만들어진 PDF든 안전하게 적용된다."""
+
+    def test_symbol_bullet_pua_mapped_to_unicode_bullet(self):
+        from app.converters.pdf import _fix_symbol_font_pua
+        self.assertEqual(_fix_symbol_font_pua(" 출장 경비"), "• 출장 경비")
+
+    def test_text_without_pua_unaffected(self):
+        from app.converters.pdf import _fix_symbol_font_pua
+        self.assertEqual(_fix_symbol_font_pua("평범한 텍스트"), "평범한 텍스트")
+
+
+def _find_soffice():
+    from app.converters import office
+    return office.find_soffice()
+
+
+@unittest.skipUnless(_find_soffice(), "LibreOffice(soffice) 없음 — 로컬/Windows CI에서만 실행")
+class TestSymbolFontBulletEndToEnd(unittest.TestCase):
+    """실제 LibreOffice로 DOCX의 "List Bullet" 스타일을 PDF로 구운 뒤
+    PDF→DOCX/TXT로 되돌려, 불릿이 U+F0B7 사설 영역이 아니라 진짜
+    유니코드 불릿(U+2022)으로 나오는지 끝까지 검증한다."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _make_bullet_docx(self):
+        doc = Document()
+        doc.add_paragraph("출장 경비는 별도 정산", style="List Bullet")
+        src = self.tmp / "bullet.docx"
+        doc.save(src)
+        return src
+
+    def test_bullet_survives_pdf_round_trip_to_docx(self):
+        docx_src = self._make_bullet_docx()
+        pdf = converters.convert(docx_src, "pdf", self.tmp)
+        out = converters.convert(pdf, "docx", self.tmp)
+        texts = [p.text for p in Document(out).paragraphs]
+        self.assertTrue(any("" in t for t in texts) is False)
+        self.assertTrue(any("출장 경비는 별도 정산" in t and "•" in t for t in texts))
+
+    def test_bullet_survives_pdf_round_trip_to_txt(self):
+        docx_src = self._make_bullet_docx()
+        pdf = converters.convert(docx_src, "pdf", self.tmp)
+        out = converters.convert(pdf, "txt", self.tmp)
+        text = out.read_text(encoding="utf-8")
+        self.assertNotIn("", text)
+        self.assertIn("•", text)
+
+
 if __name__ == "__main__":
     unittest.main()
