@@ -7,7 +7,7 @@ from functools import partial
 from pathlib import Path
 
 from .base import ConversionError
-from . import data, pdf, office, hwp, hwpx, video, image, model3d
+from . import data, pdf, pdf_docx, pdf_pptx, office, hwp, hwpx, video, image, model3d
 
 TARGETS: dict[str, list[str]] = {
     "docx": ["pdf", "hwp", "hwpx"],  # DEC-017/DEC-028 — 표는 실제 HWP/HWPX 표로 생성됨(셀 안 서식 제외). hwpx: DEC-049
@@ -60,11 +60,11 @@ _DISPATCH = {
     ("csv", "json"): data.csv_to_json,
     ("json", "csv"): data.json_to_csv,
     ("pdf", "txt"): pdf.pdf_to_txt,
-    ("pdf", "docx"): pdf.pdf_to_docx,      # 텍스트 기반 (DEC-010 고지)
+    ("pdf", "docx"): pdf_docx.pdf_to_docx,  # 텍스트 기반 (DEC-010 고지)
     ("pdf", "hwp"): hwp.pdf_to_hwp,        # 텍스트 기반 (DEC-023, DEC-010과 같은 원칙)
     ("pdf", "png"): partial(pdf.pdf_to_images, ext="png"),  # 페이지별 이미지, 폴더 결과물 (DEC-026)
     ("pdf", "jpg"): partial(pdf.pdf_to_images, ext="jpg"),  # 위와 동일, JPG(DEC-043)
-    ("pdf", "pptx"): pdf.pdf_to_pptx,      # 줄 단위 위치 재구성 (DEC-030)
+    ("pdf", "pptx"): pdf_pptx.pdf_to_pptx,  # 줄 단위 위치 재구성 (DEC-030)
     ("docx", "pdf"): office.office_to_pdf,
     ("pptx", "pdf"): office.office_to_pdf,  # DEC-016 — 동일 LibreOffice 경로 재사용
     ("docx", "hwp"): hwp.docx_to_hwp,      # DEC-017/DEC-028 — 문단+표(실제 표로 신규 생성)
