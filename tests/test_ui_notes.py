@@ -155,6 +155,23 @@ class TestFormatNote(unittest.TestCase):
         visible, text = self._note_for("obj", "glb")
         self.assertFalse(visible)
 
+    def test_md_to_txt_shows_table_loss_note(self):
+        """DEC-061: MD→TXT는 표가 셀마다 줄바꿈으로 풀려 열 정렬이 사라지는
+        정적 제약이라, 파일 내용과 무관하게 항상 고지한다(STL과 같은 원칙)."""
+        visible, text = self._note_for("md", "txt")
+        self.assertTrue(visible)
+        self.assertIn("표", text)
+
+    def test_md_to_html_shows_no_note(self):
+        """MD→HTML은 표를 실제 <table>로 렌더링해 손실이 없으므로 고지 없음."""
+        visible, text = self._note_for("md", "html")
+        self.assertFalse(visible)
+
+    def test_txt_to_md_shows_no_note(self):
+        """TXT→MD는 이스케이프만 하고 별다른 손실이 없으므로 고지 없음."""
+        visible, text = self._note_for("txt", "md")
+        self.assertFalse(visible)
+
 
 if __name__ == "__main__":
     unittest.main()
