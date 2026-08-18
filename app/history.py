@@ -1,4 +1,4 @@
-"""최근 기록 — ENT-003 · REQ-F-010. 로컬 SQLite, 최대 50건 (OQ-004 잠정)."""
+"""최근 기록 — ENT-003 · REQ-F-010. 로컬 SQLite, 최대 50건 (DEC-059로 확정)."""
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
