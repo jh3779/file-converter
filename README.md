@@ -2,14 +2,14 @@
 
 비개발자를 위한 **완전 오프라인** 데스크톱 파일 포맷 변환기. 파일이 PC 밖으로 절대 나가지 않습니다.
 
-> Windows·macOS 배포 (v0.3.12 프리릴리스) · 사이드 프로젝트 · MVP 완성
+> Windows·macOS 배포 (v0.3.13 프리릴리스) · 사이드 프로젝트 · MVP 완성
 
 ## 다운로드
 
 | 플랫폼 | 방법 |
 |---|---|
-| 🪟 **Windows** | **[v0.3.12 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.12/FileConverter-Setup-latest.exe)** — 인스톨러 실행 중 "설치 모드 선택" 화면이 뜨면 **기본값("나만 사용하도록 설치")을 그대로 두고 진행**하세요 — 그러면 관리자 권한이 필요 없습니다(v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
-| 🍎 **macOS** (Apple Silicon) | **[v0.3.12 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.12/FileConverter-latest-mac-arm64.dmg)** — dmg를 열어 Applications로 드래그(DEC-029). **미서명 배포**라 처음 실행 시 Gatekeeper가 막습니다 — 아래 안내 참고. Intel Mac은 아직 미지원, **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
+| 🪟 **Windows** | **[v0.3.13 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.13/FileConverter-Setup-latest.exe)** — 인스톨러 실행 중 "설치 모드 선택" 화면이 뜨면 **기본값("나만 사용하도록 설치")을 그대로 두고 진행**하세요 — 그러면 관리자 권한이 필요 없습니다(v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
+| 🍎 **macOS** (Apple Silicon) | **[v0.3.13 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.13/FileConverter-latest-mac-arm64.dmg)** — dmg를 열어 Applications로 드래그(DEC-029). **미서명 배포**라 처음 실행 시 Gatekeeper가 막습니다 — 아래 안내 참고. Intel Mac은 아직 미지원, **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
 | 🐧 Linux | 지원 계획 없음 |
 
 > ⚠️ 설치 파일을 브라우저로 받아 실행하면 Windows SmartScreen이 **빨간 "Windows의 PC
@@ -127,6 +127,7 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] v0.3.12 — **PDF→DOCX/TXT 심볼 글꼴 불릿 깨짐 수정**(Windows 실기기 수동 테스트로 발견 — LibreOffice가 Word "List Bullet" 스타일을 PDF로 구울 때 불릿이 Symbol 글꼴 사설영역(PUA) 코드로 인코딩되던 문제, 원본 글꼴이 없는 뷰어에서 빈 칸으로 보이던 것을 고침). **`pdf.py` 구조 분리**(DEC-058, 사용자 요청 구조 감사 후속 조치) — 986줄 한 파일에 섞여 있던 PDF 추출 공유 로직·DOCX 작성·PPTX 작성을 세 파일로 나눔(사용자 체감 변화 없는 내부 리팩터)
 - [x] **영상 코덱 재인코딩 확장**(DEC-060) — H.264/HEVC가 아닌 영상도 이제 변환 가능. DEC-024가 "Mac 개발 환경에서 검증할 방법이 없다"며 미뤄뒀던 Windows Media Foundation 인코더(h264_mf)를 CI(Windows 러너)로 실제 인코딩·화질까지 검증(VMAF로 DEC-024가 기각했던 libopenh264와 비교해 뚜렷이 우세함을 확인)한 뒤 채택. h264_mf가 없는 환경(비Windows 등)이나 재인코딩 자체가 실패하면 기존과 동일하게 명확한 오류로 거부
 - [x] **TXT/MD/HTML 상호 변환 신규 지원**(DEC-061, "Could" 잔여 항목 마지막 하나) — 6방향 전부 지원. MD↔HTML은 순수 Python 라이브러리(Markdown, markdownify — 둘 다 허용적 라이선스, GPL인 html2text는 배제)로 표·코드블록 등 GFM 핵심 문법까지 반영. 검증 중 HTML `<title>` 텍스트가 본문에 새던 문제, 인라인 태그가 텍스트 줄을 갈라놓던 문제 등 실제 버그 2건을 발견해 수정
+- [x] v0.3.13 — **"Could" 잔여 항목 완료**(위 DEC-060·061 항목 전부: 영상 코덱 재인코딩 확장·TXT/MD/HTML 상호 변환) 및 요구사항 문서 정확성 정리(DEC-059)
 
 ## 라이선스 고지
 - HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)
