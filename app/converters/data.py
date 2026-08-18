@@ -5,24 +5,11 @@ import io
 import json
 from pathlib import Path
 
-from .base import ConversionError
-
-_ENCODINGS = ("utf-8-sig", "cp949", "utf-8")
-
-
-def _read_text(path: Path) -> str:
-    for enc in _ENCODINGS:
-        try:
-            return path.read_text(encoding=enc)
-        except UnicodeDecodeError:
-            continue
-        except OSError:
-            raise ConversionError("err.corrupted")
-    raise ConversionError("err.encoding")
+from .base import ConversionError, read_text_auto_encoding
 
 
 def _read_csv_rows(path: Path) -> list[list[str]]:
-    text = _read_text(path)
+    text = read_text_auto_encoding(path)
     # 구분자(콤마/세미콜론/탭)만 자동 감지한다. 셀 안의 줄바꿈·이스케이프된
     # 큰따옴표(")까지 함께 있는 실제 데이터에서 csv.Sniffer가 quotechar나
     # doublequote까지 함께 추측하면 오탐이 잦아 값이 중간에서 잘리는 문제가
@@ -132,7 +119,7 @@ def csv_to_json(src: Path, tmpdir: Path) -> Path:
 
 def json_to_csv(src: Path, tmpdir: Path) -> Path:
     try:
-        payload = json.loads(_read_text(src))
+        payload = json.loads(read_text_auto_encoding(src))
     except json.JSONDecodeError as e:
         raise ConversionError("err.corrupted", str(e))
     if not isinstance(payload, list):

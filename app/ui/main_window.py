@@ -159,6 +159,12 @@ class FileRow(QFrame):
             # 재현 확인 — 빨간 정육면체가 STL로 나가면 회색이 됨) 다른
             # 3D 포맷에서 STL로 갈 때만 고지한다(형태 자체는 항상 보존됨).
             note_key = "note.stl_no_color"
+        elif self.item.target_fmt == "txt" and self.item.source_fmt == "md":
+            # MD → TXT는 이미 검증된 MD→HTML→TXT 파이프라인을 재사용하는데
+            # (markup.py, DEC-061), 표는 TXT 자체가 표현할 수단이 없어 셀마다
+            # 줄바꿈으로 풀린다 — 3-4번 STL 고지와 같은 원칙(항상 적용되는
+            # 정적 제약이라 파일 내용을 미리 안 훑어봐도 고지)
+            note_key = "note.md_to_txt_table"
         else:
             note_key = None
         if note_key:

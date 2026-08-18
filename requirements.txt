@@ -6,3 +6,5 @@ Pillow>=10
 pypdfium2>=4
 python-pptx>=1.0
 trimesh>=4.0
+Markdown>=3.10
+markdownify>=1.2

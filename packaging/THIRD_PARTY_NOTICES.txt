@@ -54,7 +54,8 @@ THIRD-PARTY NOTICES — File Converter (파일 변환기)
 6. Python 런타임 및 라이브러리 (PySide6/Qt는 LGPLv3, openpyxl MIT,
    pdfminer.six MIT, python-docx MIT, Pillow HPND, pypdfium2
    BSD-3-Clause/Apache-2.0 — PDFium 엔진 자체도 BSD-3-Clause/Apache-2.0,
-   trimesh MIT, numpy BSD-3-Clause)
+   trimesh MIT, numpy BSD-3-Clause, Markdown BSD-3-Clause, markdownify MIT,
+   beautifulsoup4 MIT, soupsieve MIT, six MIT, typing-extensions PSF)
    - PyInstaller 번들 내 포함. PySide6(Qt) LGPLv3 고지:
      https://www.qt.io/licensing — 동적 링크 사용.
 

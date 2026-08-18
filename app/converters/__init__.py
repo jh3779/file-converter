@@ -7,7 +7,7 @@ from functools import partial
 from pathlib import Path
 
 from .base import ConversionError
-from . import data, pdf, pdf_docx, pdf_pptx, office, hwp, hwpx, video, image, model3d
+from . import data, pdf, pdf_docx, pdf_pptx, office, hwp, hwpx, video, image, model3d, markup
 
 TARGETS: dict[str, list[str]] = {
     "docx": ["pdf", "hwp", "hwpx"],  # DEC-017/DEC-028 — 표는 실제 HWP/HWPX 표로 생성됨(셀 안 서식 제외). hwpx: DEC-049
@@ -54,6 +54,13 @@ for _src in _MODEL3D_EXTS:
     TARGETS[_src] = [t for t in _MODEL3D_EXTS if t != _src]
 del _src
 
+# TXT/MD/HTML 상호 변환(DEC-061) — 이미지·3D 모델과 같은 "포맷 집합 내
+# 전원이 서로 변환 가능" 패턴. 자기 자신으로의 "변환"은 노출하지 않는다.
+_MARKUP_EXTS = ("txt", "md", "html")
+for _src in _MARKUP_EXTS:
+    TARGETS[_src] = [t for t in _MARKUP_EXTS if t != _src]
+del _src
+
 _DISPATCH = {
     ("csv", "xlsx"): data.csv_to_xlsx,
     ("xlsx", "csv"): data.xlsx_to_csv,
@@ -81,6 +88,12 @@ _DISPATCH = {
        for src in _IMAGE_SRC_EXTS for tgt in TARGETS[src]},
     **{(src, tgt): partial(model3d.convert_3d, target_ext=tgt)
        for src in _MODEL3D_EXTS for tgt in TARGETS[src]},
+    ("txt", "html"): markup.txt_to_html,  # DEC-061
+    ("txt", "md"): markup.txt_to_md,
+    ("md", "html"): markup.md_to_html,
+    ("md", "txt"): markup.md_to_txt,
+    ("html", "txt"): markup.html_to_txt,
+    ("html", "md"): markup.html_to_md,
 }
 
 

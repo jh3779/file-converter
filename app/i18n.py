@@ -135,6 +135,11 @@ _S = {
                           "못해서 원본에 색이 있어도 사라져요",
                           "Shape is kept as-is — STL can't store color or materials, "
                           "so any color in the original will be lost"),
+    "note.md_to_txt_table": ("표가 있으면 셀 내용은 유지되지만 줄바꿈으로 풀려 "
+                             "열 정렬은 사라져요 — TXT는 표를 표현할 수 없어요",
+                             "If there's a table, cell contents are kept but "
+                             "unwrapped into separate lines — column alignment "
+                             "is lost since TXT can't represent tables"),
     "err.notyet": ("이 변환은 다음 버전에서 지원될 예정입니다.",
                    "This conversion is coming in a future update."),
 }
