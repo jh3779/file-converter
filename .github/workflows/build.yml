@@ -567,6 +567,10 @@ jobs:
           $licenseSrc = Get-ChildItem -Path ffmpeg-extract -Recurse -Filter "LICENSE.txt" | Select-Object -First 1
           New-Item -ItemType Directory -Force engine-build/licenses/ffmpeg | Out-Null
           Copy-Item $licenseSrc.FullName engine-build/licenses/ffmpeg/LICENSE.txt
+      - name: "[SPIKE 임시 진단] 인코더 목록 확인 — 병합하지 않음"
+        shell: pwsh
+        run: |
+          & engine-build/ffmpeg/ffmpeg.exe -hide_banner -encoders 2>&1 | Select-String -Pattern "264|265|hevc|mf|nvenc|amf|qsv"
       - name: 영상 엔진 스모크 (번들된 실제 경로에서 실행 검증)
         shell: pwsh
         run: |
