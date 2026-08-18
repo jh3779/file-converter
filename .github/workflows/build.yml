@@ -588,6 +588,26 @@ jobs:
           } else {
             Write-Host "출력 파일 없음 — h264_mf 인코딩 실패"
           }
+      - name: "[SPIKE 임시 진단] h264_mf vs libopenh264 VMAF 화질 비교 — 병합하지 않음"
+        shell: pwsh
+        run: |
+          # DEC-024가 이미 "OpenH264 화질이 x264보다 뚜렷이 나쁨"을 Cisco 자체
+          # 이슈로 확인하고 기각한 전례가 있다 — h264_mf도 같은 잣대(VMAF)로
+          # 비교해야 신뢰할 수 있다. 무손실 huffyuv 참조본을 만들고, 그 참조본을
+          # h264_mf·libopenh264 각각으로 같은 비트레이트로 인코딩한 뒤 libvmaf로
+          # 원본 대비 점수를 측정한다. mandelbrot 소스는 세밀한 프랙탈 패턴+
+          # 확대 모션이 있어 testsrc보다 인코더 화질 차이를 더 잘 드러낸다.
+          & engine-build/ffmpeg/ffmpeg.exe -y -f lavfi -i "mandelbrot=size=640x480:rate=25" -t 3 `
+            -pix_fmt yuv420p -c:v huffyuv reference.avi
+          & engine-build/ffmpeg/ffmpeg.exe -y -i reference.avi -c:v h264_mf -b:v 1M out_mf.mp4
+          & engine-build/ffmpeg/ffmpeg.exe -y -i reference.avi -c:v libopenh264 -b:v 1M out_openh264.mp4
+          Write-Host "=== h264_mf VMAF ==="
+          & engine-build/ffmpeg/ffmpeg.exe -i out_mf.mp4 -i reference.avi -lavfi "[0:v]scale=640:480[dist];[dist][1:v]libvmaf" -f null - 2>&1 | Select-String -Pattern "VMAF"
+          Write-Host "=== libopenh264 VMAF ==="
+          & engine-build/ffmpeg/ffmpeg.exe -i out_openh264.mp4 -i reference.avi -lavfi "[0:v]scale=640:480[dist];[dist][1:v]libvmaf" -f null - 2>&1 | Select-String -Pattern "VMAF"
+          Write-Host "=== 파일 크기 비교(같은 목표 비트레이트) ==="
+          Write-Host "h264_mf: $((Get-Item out_mf.mp4).Length) bytes"
+          Write-Host "libopenh264: $((Get-Item out_openh264.mp4).Length) bytes"
       - name: 영상 엔진 스모크 (번들된 실제 경로에서 실행 검증)
         shell: pwsh
         run: |
