@@ -583,6 +583,31 @@ jobs:
           if ($srcMd5 -ne $outMd5) {
             Write-Error "FFmpeg 엔진 스모크 실패: 스트림 카피가 무손실이 아님(재인코딩된 것으로 보임)"; exit 1
           }
+      - name: 영상 코덱 재인코딩 폴백 스모크 (h264_mf — DEC-060)
+        shell: pwsh
+        env:
+          FILECONV_FFMPEG: engine-build\ffmpeg\ffmpeg.exe
+          FILECONV_FFPROBE: engine-build\ffmpeg\ffprobe.exe
+          PYTHONIOENCODING: utf-8
+        run: |
+          # H.264/HEVC가 아닌 코덱(mpeg2video — ffmpeg 내장 인코더라 GPL
+          # 라이브러리 불요, libx264 없어도 항상 만들 수 있음)을 실제
+          # video_to_mp4()에 태워 h264_mf 재인코딩 폴백이 진짜로 동작하는지
+          # 확인한다(DEC-024가 무조건 거부하던 경로 — DEC-060으로 바뀜).
+          & engine-build/ffmpeg/ffmpeg.exe -y -f lavfi -i "testsrc=duration=1:size=320x240:rate=10" `
+            -c:v mpeg2video fallback-src.mkv
+          python -c "
+          from pathlib import Path
+          from app.converters.video import video_to_mp4
+          out = video_to_mp4(Path('fallback-src.mkv'), Path('.'))
+          print('output:', out, out.exists())
+          assert out.exists(), 'h264_mf 재인코딩 결과 파일 없음'
+          "
+          if ($LASTEXITCODE -ne 0) { Write-Error "영상 코덱 재인코딩 폴백 스모크 실패"; exit 1 }
+          $codec = & engine-build/ffmpeg/ffprobe.exe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 fallback-src.mp4
+          if ($codec.Trim() -ne "h264") {
+            Write-Error "영상 코덱 재인코딩 폴백 스모크 실패: 출력 코덱이 h264가 아님(실제: $codec)"; exit 1
+          }
       - name: LibreOffice + HWP→PDF 파이프라인 스모크 (사전 빌드 경로)
         shell: pwsh
         env:
