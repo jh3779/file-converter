@@ -34,6 +34,26 @@ def _detect_test_fixture_support() -> bool:
 _HAS_FFMPEG = _detect_test_fixture_support()
 
 
+def _detect_h264_mf_support() -> bool:
+    """DEC-060: 앱이 실제로 쓸 ffmpeg(video.find_ffmpeg() — 번들 엔진 우선,
+    없으면 시스템)에 h264_mf(Windows Media Foundation)가 있는지 — 테스트
+    픽스처용 시스템 ffmpeg(_HAS_FFMPEG)와는 별개 질문이다. Windows에서만
+    존재하고, 그 중에서도 Media Foundation 컴포넌트가 있는 빌드·환경에서만
+    보인다."""
+    ffmpeg = video.find_ffmpeg()
+    if ffmpeg is None:
+        return False
+    try:
+        proc = subprocess.run([ffmpeg, "-hide_banner", "-encoders"],
+                               capture_output=True, timeout=10, text=True)
+    except Exception:
+        return False
+    return "h264_mf" in proc.stdout
+
+
+_HAS_H264_MF = _detect_h264_mf_support()
+
+
 def _make_clip(path: Path, video_codec: str, audio_codec: str | None = None, duration: int = 1):
     cmd = ["ffmpeg", "-hide_banner", "-y", "-f", "lavfi",
            "-i", f"testsrc=duration={duration}:size=160x120:rate=10"]
@@ -128,14 +148,27 @@ class TestVideoToMp4(unittest.TestCase):
         self.assertEqual(len(streams), 1)
         self.assertEqual(streams[0]["codec_type"], "video")
 
-    def test_unsupported_video_codec_rejected(self):
-        """DEC-024: H.264/HEVC 외 코덱은 v1 범위 밖 — 명시적으로 거부해야 한다.
-        (ffmpeg 자체는 exit 0으로 "성공"할 수 있어 exit code만으로 판단하면 안 됨)"""
+    @unittest.skipIf(_HAS_H264_MF, "h264_mf 있음 — 재인코딩 성공 경로는 아래 별도 테스트로 검증")
+    def test_unsupported_video_codec_rejected_without_fallback_encoder(self):
+        """DEC-024: h264_mf(DEC-060 재인코딩 폴백)가 없는 환경(비Windows 등)
+        에서는 H.264/HEVC 외 코덱을 명시적으로 거부해야 한다(ffmpeg 자체는
+        exit 0으로 "성공"할 수 있어 exit code만으로 판단하면 안 됨)."""
         src = self.tmp / "clip.mkv"  # 컨테이너는 지원 목록에 있어야 video_to_mp4 로직까지 도달함
         _make_clip(src, "mpeg2video", audio_codec=None)
         with self.assertRaises(ConversionError) as ctx:
             converters.convert(src, "mp4", self.tmp)
         self.assertEqual(ctx.exception.key, "err.video_codec_unsupported")
+
+    @unittest.skipUnless(_HAS_H264_MF, "h264_mf 없음 — Windows(+Media Foundation)에서만 실행")
+    def test_unsupported_video_codec_reencoded_via_fallback(self):
+        """DEC-060: h264_mf가 있는 환경(Windows)에서는 H.264/HEVC 외 코덱도
+        거부하지 않고 h264_mf로 재인코딩해 성공해야 한다."""
+        src = self.tmp / "clip.mkv"
+        _make_clip(src, "mpeg2video", audio_codec=None)
+        out = converters.convert(src, "mp4", self.tmp)
+        self.assertTrue(out.exists())
+        streams = self._probe(out)
+        self.assertEqual(next(s["codec_name"] for s in streams if s["codec_type"] == "video"), "h264")
 
     def test_cover_art_before_video_stream_not_selected(self):
         """커버 아트(첨부 이미지)가 실제 영상보다 앞선 스트림이어도 영상은
