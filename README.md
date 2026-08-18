@@ -34,6 +34,7 @@
 - **영상**: AVI/MOV/MKV/WMV/FLV/M4V→MP4 (H.264/HEVC 스트림은 재인코딩 없이 무손실 복사 — DEC-024. 그 외 코덱은 Windows에서 h264_mf로 재인코딩, 실패하거나 macOS(FFmpeg 미번들 — DEC-029)면 명확한 오류로 거부 — DEC-060)
 - **이미지**: JPG/JPEG/PNG/BMP/GIF/WEBP/TIFF 상호 변환 (EXIF 회전 반영, 투명 배경은 무알파 포맷 저장 시 흰 배경 합성, 애니메이션은 첫 프레임만 — DEC-025)
 - **3D 모델**: OBJ/STL/PLY/GLB/GLTF 상호 변환 (형태·정점 색상 보존, STL은 포맷 자체에 색상·재질이 없어 STL로 변환 시 색이 사라짐 — DEC-050)
+- **TXT/MD/HTML**: 상호 변환 6방향 (MD↔HTML은 표·코드블록·굵게/기울임 등 GFM 핵심 문법 반영, TXT는 마크업 문법이 없어 TXT→MD/HTML은 특수문자를 이스케이프해 원본 그대로 보이게 처리, MD→TXT는 표가 셀별 줄바꿈으로 풀려 열 정렬은 사라짐 — DEC-061)
 - **일괄 변환**: 여러 파일을 드래그앤드롭 → 포맷 선택 → 변환, 3클릭 완결
 - **원본 절대 보호**: 원본 폴더에 새 파일로 저장, 이름 충돌 시 자동 리네임 — 덮어쓰기 경로 없음
 - **한글 글꼴 번들**: PDF/HWP→DOCX로 생성하는 문서는 Noto Sans KR을 항상 명시 지정 —
@@ -125,6 +126,7 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] v0.3.11 — **전체 변환 품질 개선 작업 마무리**(위 DEC-053~057 항목 전부: 표 셀 정렬·PDF→DOCX 이미지/표 테두리/밑줄 반영·텍스트 프레임 클리핑 결함 수정). 수동 테스트 체크리스트도 낡은 문구(머리말/꼬리말이 "범위 밖"이라던 것 — DEC-032/052로 이미 해소됨)를 정정하고 새 항목 반영
 - [x] v0.3.12 — **PDF→DOCX/TXT 심볼 글꼴 불릿 깨짐 수정**(Windows 실기기 수동 테스트로 발견 — LibreOffice가 Word "List Bullet" 스타일을 PDF로 구울 때 불릿이 Symbol 글꼴 사설영역(PUA) 코드로 인코딩되던 문제, 원본 글꼴이 없는 뷰어에서 빈 칸으로 보이던 것을 고침). **`pdf.py` 구조 분리**(DEC-058, 사용자 요청 구조 감사 후속 조치) — 986줄 한 파일에 섞여 있던 PDF 추출 공유 로직·DOCX 작성·PPTX 작성을 세 파일로 나눔(사용자 체감 변화 없는 내부 리팩터)
 - [x] **영상 코덱 재인코딩 확장**(DEC-060) — H.264/HEVC가 아닌 영상도 이제 변환 가능. DEC-024가 "Mac 개발 환경에서 검증할 방법이 없다"며 미뤄뒀던 Windows Media Foundation 인코더(h264_mf)를 CI(Windows 러너)로 실제 인코딩·화질까지 검증(VMAF로 DEC-024가 기각했던 libopenh264와 비교해 뚜렷이 우세함을 확인)한 뒤 채택. h264_mf가 없는 환경(비Windows 등)이나 재인코딩 자체가 실패하면 기존과 동일하게 명확한 오류로 거부
+- [x] **TXT/MD/HTML 상호 변환 신규 지원**(DEC-061, "Could" 잔여 항목 마지막 하나) — 6방향 전부 지원. MD↔HTML은 순수 Python 라이브러리(Markdown, markdownify — 둘 다 허용적 라이선스, GPL인 html2text는 배제)로 표·코드블록 등 GFM 핵심 문법까지 반영. 검증 중 HTML `<title>` 텍스트가 본문에 새던 문제, 인라인 태그가 텍스트 줄을 갈라놓던 문제 등 실제 버그 2건을 발견해 수정
 
 ## 라이선스 고지
 - HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)

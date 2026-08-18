@@ -7,7 +7,7 @@
 |------|------|------|
 | **Must** | DOCX→PDF, PPTX→PDF, PDF→TXT/DOCX, HWP→PDF/TXT/DOCX(읽기 전용), CSV↔XLSX, CSV↔JSON, 일괄 변환, 드래그앤드롭, 원본 보호 | REQ-F-001~008·012 |
 | Should | 인코딩 자동 감지(EUC-KR/UTF-8, 한글 깨짐 방지), 최근 변환 기록, 업데이트 확인(옵트인), 영상→MP4(H.264/HEVC만), 이미지 포맷 상호 변환(JPG/PNG/BMP/GIF/WEBP/TIFF), PDF→이미지(페이지별 폴더) | REQ-F-009~010·013~016 |
-| Could | TXT/MD/HTML 상호 변환 | — |
+| Could | (완료 — REQ-F-018 참고) | — |
 | **Won't (MVP 제외)** | OCR(스캔 PDF 문자 인식), 파일 미리보기/편집, 클라우드·계정 기능 | 범위 통제 |
 
 ## 기능 요구사항 (REQ-F-*)

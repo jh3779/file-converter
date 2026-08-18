@@ -12,7 +12,7 @@
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
-전체 215개 중 8개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
+전체 232개 중 8개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
 CI(`test` job, `.github/workflows/build.yml`)는 매 push/PR마다 이 명령을
 그대로 실행한다 — Java/LibreOffice/FFmpeg가 없는 가벼운 러너라 사이드카
 필요 테스트는 CI에서도 스킵되고, 그 부분은 `build-windows`/`build-macos`
@@ -52,12 +52,13 @@ REQ-F ID·DEC는 `docs/01_requirements.md`·`docs/06_open_questions.md` 참고.
 | 영상→MP4(H.264/HEVC 스트림 카피 + 그 외 코덱은 h264_mf 재인코딩) | REQ-F-014, DEC-024·DEC-060 | `test_video.py` | ffmpeg(재인코딩 폴백 검증은 h264_mf 있는 환경 — 사실상 Windows 전용) |
 | 이미지↔이미지 | REQ-F-015, DEC-025 | `test_image.py::TestImageConversion` | 항상(Pillow) |
 | 3D 모델↔3D 모델(OBJ/STL/PLY/GLB/GLTF) | DEC-050 | `test_model3d.py::TestModel3DConversion` | 항상(trimesh) |
+| TXT/MD/HTML 상호 변환(6방향) | REQ-F-018, DEC-061 | `test_markup.py::TestMarkupConversion` | 항상(순수 Python) |
 
 ## UI·플랫폼·부가 기능 커버리지
 
 | 영역 | 관련 REQ/DEC | 테스트 파일 |
 |------|--------------|-------------|
-| 변환 전 단순화 고지 문구 | DEC-010·017·023·028·037·049·050 | `test_ui_notes.py::TestFormatNote`(17건, 모든 고지 키 조합) |
+| 변환 전 단순화 고지 문구 | DEC-010·017·023·028·037·049·050·061 | `test_ui_notes.py::TestFormatNote`(20건, 모든 고지 키 조합) |
 | 파일 목록 행(FileRow) — 미지원 형식 제거 버튼 | — | `test_ui_filerow.py` |
 | 결과 오버레이 — 저장 위치 안내 | REQ-F-008, DEC-042 | `test_ui_result_location.py` |
 | 결과 오버레이 — 저해상도 스크롤 | REQ-NF-008, DEC-045 | `test_ui_result_scroll.py` |
