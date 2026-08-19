@@ -636,6 +636,18 @@ jobs:
           # 읽는다(OQ-002 업데이트 확인 기능 — DEC-022). packaging/VERSION이
           # 유일한 정본이라 값을 복제하지 않고 그대로 복사만 한다.
           Copy-Item packaging/VERSION dist/FileConverter/VERSION
+          # DEC-062: 엔진(JRE·LibreOffice·FFmpeg 등) 구성요소 버전 핀을 전부
+          # 이어붙여 해시화 — 이 핀들 중 하나라도 바뀌면 해시가 바뀐다. 앱은
+          # 이 값을 "지금 설치된 엔진이 정확히 뭔지"의 지문으로 쓰고, 업데이트
+          # 설치 파일 이름에도 같은 값을 실어 보내(아래 "Build installer" 참고)
+          # 엔진 재다운로드 없이 앱만 교체해도 되는지 판단한다.
+          $fingerprint = "$env:HWPLIB_REV|$env:HWPXLIB_REV|$env:LO_VERSION|$env:LO_SHA256|$env:NOTOKR_RELEASE_TAG|$env:NOTOKR_SHA256|$env:FFMPEG_URL|$env:FFMPEG_SHA256"
+          $sha256 = [System.Security.Cryptography.SHA256]::Create()
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($fingerprint)
+          $hashBytes = $sha256.ComputeHash($bytes)
+          $engineHash = ([System.BitConverter]::ToString($hashBytes) -replace '-', '').ToLower().Substring(0, 12)
+          Set-Content -NoNewline -Path dist/FileConverter/engine/ENGINE_VERSION -Value $engineHash
+          Add-Content -Path $env:GITHUB_ENV -Value "ENGINE_HASH=$engineHash"
       - name: Verify bundled artifact (엔진 실행·라이선스·JRE legal)
         shell: pwsh
         env:
@@ -664,6 +676,10 @@ jobs:
           }
           if (-not (Test-Path dist/FileConverter/engine/ffmpeg/ffmpeg.exe)) {
             Write-Error "FFmpeg 엔진이 아티팩트에 없습니다 (DEC-024)"; exit 1
+          }
+          $engineVersion = (Get-Content dist/FileConverter/engine/ENGINE_VERSION -Raw -ErrorAction SilentlyContinue)
+          if ($engineVersion -notmatch '^[0-9a-f]{12}$') {
+            Write-Error "engine/ENGINE_VERSION이 없거나 형식이 잘못됐습니다(12자리 16진수 기대) — DEC-062: '$engineVersion'"; exit 1
           }
           if (-not (Get-ChildItem -Recurse -Path dist/FileConverter -Filter "PIL" -Directory -ErrorAction SilentlyContinue)) {
             Write-Error "Pillow(PIL) 패키지가 패키징된 아티팩트에 없습니다 (DEC-025) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
@@ -712,12 +728,22 @@ jobs:
         run: |
           $version = (Get-Content packaging/VERSION -Raw).Trim()
           $distAbs = (Resolve-Path dist/FileConverter).Path
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\installer.iss `
-            "/DMyAppVersion=$version" "/DDistDir=$distAbs"
-          if ($LASTEXITCODE -ne 0) { Write-Error "인스톨러 컴파일 실패"; exit 1 }
-          $exe = Get-ChildItem packaging/installer-out -Filter *.exe | Select-Object -First 1
-          if (-not $exe) { Write-Error "인스톨러 산출물을 찾을 수 없습니다"; exit 1 }
-          Write-Host "빌드됨: $($exe.FullName) ($([math]::Round($exe.Length/1MB)) MB)"
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc packaging\installer.iss "/DMyAppVersion=$version" "/DDistDir=$distAbs"
+          if ($LASTEXITCODE -ne 0) { Write-Error "인스톨러(전체) 컴파일 실패"; exit 1 }
+          # DEC-062: 엔진 폴더를 뺀 "업데이트" 설치 파일도 같은 빌드에서 함께
+          # 만든다 — 파일명에 엔진 해시를 실어 보내(앱이 이 이름을 그대로
+          # GitHub Releases API로 받아 정규식 매칭), 로컬에 설치된 엔진과
+          # 같은지 앱이 별도 요청 없이 스스로 판단할 수 있게 한다.
+          & $iscc packaging\installer.iss "/DMyAppVersion=$version" "/DDistDir=$distAbs" `
+            "/DAppOnly=1" "/DEngineHash=$env:ENGINE_HASH"
+          if ($LASTEXITCODE -ne 0) { Write-Error "인스톨러(업데이트 전용) 컴파일 실패"; exit 1 }
+          $fullExe = Get-ChildItem packaging/installer-out -Filter "FileConverter-Setup-*.exe" | Select-Object -First 1
+          $updateExe = Get-ChildItem packaging/installer-out -Filter "FileConverter-Update-*.exe" | Select-Object -First 1
+          if (-not $fullExe) { Write-Error "전체 인스톨러 산출물을 찾을 수 없습니다"; exit 1 }
+          if (-not $updateExe) { Write-Error "업데이트 전용 인스톨러 산출물을 찾을 수 없습니다"; exit 1 }
+          Write-Host "빌드됨: $($fullExe.FullName) ($([math]::Round($fullExe.Length/1MB)) MB)"
+          Write-Host "빌드됨: $($updateExe.FullName) ($([math]::Round($updateExe.Length/1MB)) MB)"
           # 번들이 전량 64비트인데 이 지시자가 없으면 "모든 사용자용으로 설치" 선택 시
           # {autopf}가 32비트 전용 Program Files (x86)로 잘못 풀린다(실사용 QA #48).
           # UAC 승격이 필요해 무인 CI로 실제 설치 경로까지 매번 검증하기는 어려워(승격
@@ -734,7 +760,9 @@ jobs:
       - name: Installer smoke (무설치 폴더에 실치→실행→제거 전 과정 검증)
         shell: pwsh
         run: |
-          $exe = Get-ChildItem packaging/installer-out -Filter *.exe | Select-Object -First 1
+          # DEC-062 이후 installer-out에 exe가 2개(전체·업데이트 전용) 있으므로
+          # 이름을 명시해 찾는다 — 와일드카드만 쓰면 어느 쪽이 걸릴지 알 수 없다.
+          $exe = Get-ChildItem packaging/installer-out -Filter "FileConverter-Setup-*.exe" | Select-Object -First 1
           $installDir = "$PWD\installer-smoke-target"
 
           # 무인 설치 — PrivilegesRequired=lowest가 기본이라 사용자 폴더 설치에
@@ -770,6 +798,55 @@ jobs:
             Write-Error "제거 후에도 FileConverter.exe가 남아 있습니다"; exit 1
           }
           Write-Host "제거 확인 완료"
+      - name: Update installer smoke (DEC-062 — 전체 설치 위에 앱만 설치 후 제거까지)
+        shell: pwsh
+        run: |
+          # 이 시퀀스가 실제로 잡는 회귀: engine\을 포함한 전체 설치 뒤 엔진
+          # 없는 "업데이트" 설치 파일을 얹으면, 언인스톨러가 마지막 설치 실행이
+          # 기록한 로그만 지우므로 [UninstallDelete] 없이는 engine\이 고아로
+          # 남는다(REQ-NF-003 위반) — installer.iss의 [UninstallDelete]가
+          # 정확히 이걸 막는지 여기서 실제로 확인한다.
+          $fullExe = Get-ChildItem packaging/installer-out -Filter "FileConverter-Setup-*.exe" | Select-Object -First 1
+          $updateExe = Get-ChildItem packaging/installer-out -Filter "FileConverter-Update-*.exe" | Select-Object -First 1
+          $installDir = "$PWD\update-smoke-target"
+
+          Start-Process -FilePath $fullExe.FullName -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$installDir"
+          ) -Wait
+          $engineVersionPath = "$installDir\engine\ENGINE_VERSION"
+          if (-not (Test-Path $engineVersionPath)) {
+            Write-Error "전체 설치 후 engine\ENGINE_VERSION이 없습니다"; exit 1
+          }
+          $engineVersionBefore = Get-Content $engineVersionPath -Raw
+
+          Start-Process -FilePath $updateExe.FullName -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$installDir"
+          ) -Wait
+          $engineVersionAfter = Get-Content $engineVersionPath -Raw
+          if ($engineVersionAfter -ne $engineVersionBefore) {
+            Write-Error "업데이트 전용 설치가 engine\ENGINE_VERSION을 건드렸습니다(엔진을 다시 안 건드려야 함) — before='$engineVersionBefore' after='$engineVersionAfter'"; exit 1
+          }
+          if (-not (Test-Path "$installDir\engine\libreoffice\program\soffice.exe")) {
+            Write-Error "업데이트 전용 설치 후 기존 엔진이 사라졌습니다"; exit 1
+          }
+
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $p = Start-Process -FilePath "$installDir\FileConverter.exe" -PassThru
+          Start-Sleep -Seconds 8
+          if ($p.HasExited) { Write-Error "업데이트 전용 설치 후 exe 실행 실패 (code $($p.ExitCode))"; exit 1 }
+          Stop-Process -Id $p.Id -Force
+
+          # 혼합 설치 이력(전체→업데이트 전용) 뒤 제거 — engine\까지 완전히
+          # 지워지는지가 이 시퀀스의 핵심 확인 지점.
+          $uninstaller = Get-ChildItem $installDir -Filter "unins*.exe" | Select-Object -First 1
+          Start-Process -FilePath $uninstaller.FullName -ArgumentList @(
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          ) -Wait
+          Start-Sleep -Seconds 2
+          if (Test-Path $installDir) {
+            Write-Error "혼합 설치 이력 제거 후에도 설치 폴더가 남아 있습니다(engine\ 고아 회귀, DEC-062): $installDir"; exit 1
+          }
+          Write-Host "업데이트 전용 설치 스모크 완료 — engine\ 보존·제거 둘 다 확인"
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'
         with:
@@ -1519,7 +1596,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          win_exe=$(find windows-installer -name '*.exe' | head -n1)
+          # DEC-062 이후 windows-installer/에 exe가 2개(전체·업데이트 전용)
+          # 있으므로 이름을 명시해 각각 찾는다 — '*.exe'만 쓰면 어느 쪽이
+          # 걸릴지 알 수 없다.
+          win_exe=$(find windows-installer -name 'FileConverter-Setup-*.exe' | head -n1)
+          win_update_exe=$(find windows-installer -name 'FileConverter-Update-*.exe' | head -n1)
           mac_dmg=$(find macos-dmg -name '*.dmg' | head -n1)
           # 파일명이 고정된 사본도 함께 올린다(README 등에서 참조하기 쉽도록).
           # 주의: GitHub의 releases/latest/download/... 단축 URL은 pre-release를
@@ -1530,7 +1611,18 @@ jobs:
           cp "$win_exe" "$win_latest"
           mac_latest="macos-dmg/FileConverter-latest-mac-arm64.dmg"
           cp "$mac_dmg" "$mac_latest"
-          gh release create "${{ github.ref_name }}" "$win_exe" "$win_latest" "$mac_dmg" "$mac_latest" \
+          assets=("$win_exe" "$win_latest" "$mac_dmg" "$mac_latest")
+          # DEC-062: 업데이트 전용 exe는 파일명에 엔진 해시가 박혀 있어(예:
+          # FileConverter-Update-0.3.14-engine-abc123.exe) 고정 이름 사본에는
+          # 해시를 넣지 않는다 — 앱은 이 고정 이름으로 접근하지 않고 GitHub
+          # Releases API의 assets[].name을 직접 정규식 매칭해서 찾으므로,
+          # 고정 이름은 사람이 참고하는 용도일 뿐이다.
+          if [ -n "$win_update_exe" ]; then
+            win_update_latest="windows-installer/FileConverter-Update-latest.exe"
+            cp "$win_update_exe" "$win_update_latest"
+            assets+=("$win_update_exe" "$win_update_latest")
+          fi
+          gh release create "${{ github.ref_name }}" "${assets[@]}" \
             --repo "${{ github.repository }}" \
             --title "File Converter ${{ github.ref_name }}" \
             --notes "Windows 인스톨러(관리자 권한 불요) · macOS(Apple Silicon 전용, 미서명 — 실행 시 control+클릭 → 열기 필요, 영상 변환 미지원). 자세한 내용: README.md · docs/06_open_questions.md" \
