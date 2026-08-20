@@ -8,10 +8,11 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QAction, QActionGroup, QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QMainWindow, QMenu, QProgressBar, QPushButton, QScrollArea,
+    QListWidgetItem, QMainWindow, QMenu, QProgressBar, QPushButton,
     QVBoxLayout, QWidget,
 )
 
+from . import history_panel, result_panel
 from .. import converters, i18n, update_check
 from ..history import History
 from ..i18n import tr
@@ -302,36 +303,7 @@ class MainWindow(QMainWindow):
         main_col.addWidget(self.list, 3)
 
         # 기록 패널 (S-05)
-        self.history_panel = QFrame()
-        self.history_panel.setObjectName("historyPanel")
-        self.history_panel.setFixedWidth(260)
-        hp = QVBoxLayout(self.history_panel)
-        hp.setContentsMargins(12, 10, 12, 10)
-        hp.setSpacing(6)
-        hp_head = QHBoxLayout()
-        self.hist_title = QLabel()
-        self.hist_title.setStyleSheet("font-weight:700;font-size:13px;")
-        hp_head.addWidget(self.hist_title, 1)
-        self.hist_clear = QPushButton()
-        self.hist_clear.setProperty("variant", "error")
-        self.hist_clear.clicked.connect(self._confirm_clear_history)
-        hp_head.addWidget(self.hist_clear)
-        hp.addLayout(hp_head)
-        self.hist_local = QLabel()
-        self.hist_local.setObjectName("shield")
-        self.hist_local.setWordWrap(True)
-        hp.addWidget(self.hist_local)
-        self.hist_list = QVBoxLayout()
-        self.hist_list.setSpacing(4)
-        hist_scroll_inner = QWidget()
-        hist_scroll_inner.setLayout(self.hist_list)
-        self.hist_scroll = QScrollArea()
-        self.hist_scroll.setWidgetResizable(True)
-        self.hist_scroll.setFrameShape(QFrame.NoFrame)
-        self.hist_scroll.setWidget(hist_scroll_inner)
-        hp.addWidget(self.hist_scroll, 1)
-        self.history_panel.hide()
-        body.addWidget(self.history_panel)
+        history_panel.build(self, body)
 
         # 푸터 (P-05 상시 고지 + 변환하기 / converting: 진행+취소)
         footer = QFrame()
@@ -381,79 +353,11 @@ class MainWindow(QMainWindow):
         root.addWidget(footer)
 
         # 결과 오버레이 (DEC-008 · S-04)
-        self.overlay = QFrame(central)
-        self.overlay.setObjectName("overlay")
-        self.overlay.setStyleSheet("QFrame#overlay{background:rgba(0,0,0,0.35);}")
-        ov = QVBoxLayout(self.overlay)
-        ov.setAlignment(Qt.AlignCenter)
-        self.result_card = QFrame()
-        self.result_card.setObjectName("resultCard")
-        self.result_card.setStyleSheet(
-            f"QFrame#resultCard{{background:{t['surfaceContainerLow']};border-radius:16px;}}"
-            "QFrame#resultCard QLabel{background:transparent;}")
-        self.result_card.setFixedWidth(360)
-        rc = QVBoxLayout(self.result_card)
-        rc.setContentsMargins(18, 16, 18, 14)
-        rc.setSpacing(8)
-
-        # 내용(제목~저장 위치)만 스크롤 가능하게 감싸고 버튼 행은 스크롤 밖에
-        # 고정한다 — 실패 목록·저장 위치가 늘어나 카드 전체 높이가 저해상도
-        # 창보다 커지면, 스크롤 없이는 "확인"/"폴더 열기" 버튼까지 화면 밖으로
-        # 밀려나 결과 창을 닫을 방법이 없어지는 문제가 있었다(QA(e), 재현
-        # 확인 후 수정).
-        self.result_scroll = QScrollArea()
-        self.result_scroll.setWidgetResizable(True)
-        self.result_scroll.setFrameShape(QFrame.NoFrame)
-        self.result_scroll.setStyleSheet("background:transparent;")
-        result_content = QWidget()
-        result_content.setStyleSheet("background:transparent;")
-        rcc = QVBoxLayout(result_content)
-        rcc.setContentsMargins(0, 0, 0, 0)
-        rcc.setSpacing(8)
-        self.result_title = QLabel()
-        self.result_title.setStyleSheet("font-weight:700;font-size:14px;")
-        self.result_counts = QLabel()
-        self.result_counts.setStyleSheet('font-family:"Menlo","Consolas",monospace;font-size:12px;')
-        self.result_fails = QVBoxLayout()
-        self.result_note = QLabel()
-        self.result_note.setObjectName("muted")
-        self.result_note.setWordWrap(True)
-        self.result_locations = QVBoxLayout()  # 저장 위치 안내(외부 QA 피드백)
-        self.result_locations.setSpacing(2)
-        rcc.addWidget(self.result_title)
-        rcc.addWidget(self.result_counts)
-        rcc.addLayout(self.result_fails)
-        rcc.addWidget(self.result_note)
-        rcc.addLayout(self.result_locations)
-        self.result_scroll.setWidget(result_content)
-        rc.addWidget(self.result_scroll)
-
-        btns = QHBoxLayout()
-        btns.addStretch(1)
-        self.open_folder_btn = QPushButton()
-        self.open_folder_btn.setProperty("variant", "text")
-        self.open_folder_btn.clicked.connect(self._open_result_folder)
-        self.result_ok_btn = QPushButton()
-        self.result_ok_btn.setProperty("variant", "filled")
-        self.result_ok_btn.clicked.connect(self._dismiss_result)
-        btns.addWidget(self.open_folder_btn)
-        btns.addWidget(self.result_ok_btn)
-        rc.addLayout(btns)
-        ov.addWidget(self.result_card)
-        self.overlay.hide()
+        result_panel.build(self, central)
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        self.overlay.setGeometry(self.centralWidget().rect())
-        # 결과 카드 안 스크롤 영역의 최대 높이를 창 크기에 맞춰 다시 계산한다
-        # — 카드 자체는 고정 높이가 아니라 내용에 맞춰 커지므로, 이 상한이
-        # 없으면 저해상도 창에서 카드가 창보다 커져 버튼이 잘릴 수 있다.
-        # 160은 카드 여백(rc 상하 margin 30)·제목·개수 라벨·버튼 행 높이를
-        # 실측으로 감안한 여유값 — 정확한 각 위젯 높이를 매번 합산하는
-        # 대신 저해상도(1280x720급)에서도 버튼이 항상 보이는지 실제로
-        # 확인한 값을 씀.
-        reserve = 160
-        self.result_scroll.setMaximumHeight(max(120, self.centralWidget().height() - reserve))
+        result_panel.resize(self)
 
     # ---------- i18n (DEC-009) ----------
     def retranslate(self):
@@ -672,188 +576,28 @@ class MainWindow(QMainWindow):
         self._show_result()
         self._refresh_state()
 
-    # ---------- 결과 오버레이 (SCR-002 · DEC-008) ----------
+    # ---------- 결과 오버레이 (SCR-002 · DEC-008, 구성·렌더링은 result_panel.py) ----------
     def _show_result(self):
-        done = [it for it in self.items if it.state == ItemState.DONE]
-        failed = [it for it in self.items if it.state == ItemState.FAILED]
-        t = self.tokens
-        if not failed:
-            self.result_title.setText("✅ " + tr("result.allsuccess"))
-        elif done:
-            self.result_title.setText("⚠️ " + tr("result.partial"))
-        else:
-            self.result_title.setText("❌ " + tr("result.allfail"))
-        ok_color = t["tertiary"] if done else t["onSurfaceVariant"]
-        self.result_counts.setText(tr("result.counts", ok=len(done), fail=len(failed)))
-        self.result_counts.setStyleSheet(
-            f'font-family:"Menlo","Consolas",monospace;font-size:12px;color:{ok_color};')
-
-        while self.result_fails.count():
-            w = self.result_fails.takeAt(0).widget()
-            if w:
-                w.deleteLater()
-        for it in failed[:5]:
-            lbl = QLabel(f"⚠ {it.name} → {(it.target_fmt or '').upper()}\n{tr(it.error_key or 'err.engine')}")
-            lbl.setWordWrap(True)
-            lbl.setStyleSheet(
-                f"background:{t['errorContainer']};color:{t['onErrorContainer']};"
-                "border-radius:8px;padding:8px;font-size:11px;")
-            self.result_fails.addWidget(lbl)
-
-        renamed = [it for it in done if it.renamed]
-        notes = []
-        if done:
-            notes.append(tr("result.saved_n", n=len(done)))
-        if renamed:
-            notes.append(tr("result.renamed", name=renamed[0].output.name))
-        self.result_note.setText("\n".join(notes))
-        self.result_note.setVisible(bool(notes))
-        self.open_folder_btn.setVisible(bool(done))
-
-        # 저장 위치 안내(외부 QA 피드백) — 최근 기록 창을 따로 열어야만
-        # 저장 경로를 알 수 있던 문제. 결과가 폴더 자체(PDF→이미지, DEC-025)면
-        # 그 폴더를, 파일이면 부모 폴더를 "위치"로 본다(open_folder_btn과
-        # 같은 원칙) — 중복 없이 등장 순서대로, 너무 길어지지 않게 최대
-        # 3곳까지만 보여주고 나머지는 개수로 요약한다.
-        while self.result_locations.count():
-            w = self.result_locations.takeAt(0).widget()
-            if w:
-                w.deleteLater()
-        # 대소문자만 다른 경로는 같은 폴더로 본다 — Windows(NTFS)·macOS
-        # 기본(APFS)은 대소문자를 구분하지 않는 파일시스템이라, 단순 문자열
-        # 비교로 중복을 제거하면 같은 폴더가 서로 다른 항목으로 두 번 표시될
-        # 수 있다(외부 QA 피드백 리뷰로 발견).
-        locations = []
-        seen_lower = set()
-        for it in done:
-            loc = str(it.output if it.output.is_dir() else it.output.parent)
-            key = loc.casefold()
-            if key not in seen_lower:
-                seen_lower.add(key)
-                locations.append(loc)
-        for loc in locations[:3]:
-            lbl = QLabel(f"📂 {loc}")
-            lbl.setWordWrap(True)
-            lbl.setStyleSheet(
-                f'font-family:"Menlo","Consolas",monospace;font-size:10px;color:{t["onSurfaceVariant"]};')
-            self.result_locations.addWidget(lbl)
-        if len(locations) > 3:
-            more = QLabel(tr("result.location_more", n=len(locations) - 3))
-            more.setObjectName("muted")
-            self.result_locations.addWidget(more)
-        self.overlay.setGeometry(self.centralWidget().rect())
-        self.overlay.show()
-        self.overlay.raise_()
-        self.result_ok_btn.setFocus()
+        result_panel.show_result(self)
 
     def _open_result_folder(self):
-        done = next((it for it in self.items if it.state == ItemState.DONE and it.output), None)
-        if done:
-            # PDF→이미지(DEC-025)처럼 결과물 자체가 폴더면 그 폴더를 직접 연다 —
-            # 그 외(파일 결과물)는 지금까지처럼 부모 폴더를 연다.
-            target = done.output if done.output.is_dir() else done.output.parent
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
+        result_panel.open_result_folder(self)
 
     def _dismiss_result(self):
-        """확인: 전체 성공 → 목록 비움 / 실패 존재 → 실패 파일만 남김 (재시도, INV-03)."""
-        self.overlay.hide()
-        failed_ids = {it.id for it in self.items if it.state == ItemState.FAILED}
-        for it in list(self.items):
-            if it.id not in failed_ids:
-                self._remove_item(it.id)
-        for it in self.items:
-            it.state = ItemState.QUEUED
-            row = self.rows[it.id]
-            row.set_locked(False)
-            row.badge.hide()
-            row.reason.hide()
-        self._refresh_state()
+        result_panel.dismiss_result(self)
 
-    # ---------- 기록 패널 (SCR-003) ----------
+    # ---------- 기록 패널 (SCR-003, 구성·렌더링은 history_panel.py) ----------
     def _toggle_history(self):
-        vis = not self.history_panel.isVisible()
-        self.history_panel.setVisible(vis)
-        if vis:
-            self._reload_history()
-            self._ensure_width_for_history_panel()
+        history_panel.toggle(self)
 
     def _ensure_width_for_history_panel(self):
-        """기록 패널(고정폭 260px)을 열면 본문(파일 목록)에 남는 폭이
-        줄어든다 — 창이 이미 최소 크기 근처면 FileRow의 콤보박스·제거
-        버튼이 QListWidget 뷰포트 밖으로 밀려나 가로 스크롤 없이는 안
-        보이거나 안 눌릴 수 있다(QA(e), 실측 확인: 640px 창에서 제거
-        버튼이 뷰포트를 21px 넘어감). QListWidget은 아이템이 넘쳐도
-        자신의 minimumSizeHint를 늘리지 않아(스크롤로 대신 처리하는 Qt
-        기본 동작) 레이아웃 시스템이 이 부족분을 자동으로 감지해 창을
-        넓혀주지 않는다 — 패널을 여는 시점에 지금 목록에 있는 항목들의
-        실제 필요 폭을 직접 계산해 부족하면 그만큼만 넓힌다(사용자가
-        이미 그보다 넓게 열어뒀으면 줄이지 않는다). 파일이 많아 목록에
-        세로 스크롤바가 뜨면 그만큼 뷰포트가 더 좁아지는데(자동 리뷰로
-        발견, 파일 15개로 재현 확인), 항상 스크롤바 폭만큼 여유를 둬서
-        나중에 파일이 더 늘어나 스크롤바가 새로 나타나도 안전하다."""
-        if not self.rows:
-            return
-        max_row_width = max(row.minimumSizeHint().width() for row in self.rows.values())
-        scrollbar_width = self.list.verticalScrollBar().sizeHint().width()
-        needed = self.history_panel.width() + max_row_width + scrollbar_width + 32
-        if self.width() < needed:
-            self.resize(needed, self.height())
+        history_panel.ensure_width(self)
 
     def _reload_history(self):
-        while self.hist_list.count():
-            w = self.hist_list.takeAt(0).widget()
-            if w:
-                w.deleteLater()
-        entries = self.history.list()
-        t = self.tokens
-        if not entries:
-            empty = QLabel(tr("history.empty"))
-            empty.setObjectName("muted")
-            self.hist_list.addWidget(empty)
-        for e in entries:
-            row = QFrame()
-            row.setObjectName("fileRow")
-            rl = QHBoxLayout(row)
-            rl.setContentsMargins(8, 5, 8, 5)
-            rl.setSpacing(6)
-            mark = QLabel("✓" if e.success else "⚠")
-            mark.setStyleSheet(f"color:{t['tertiary'] if e.success else t['error']};font-weight:700;")
-            rl.addWidget(mark)
-            col = QVBoxLayout()
-            col.setSpacing(0)
-            name = QLabel(f"{e.source_name} → {e.target_fmt.upper()}")
-            name.setStyleSheet("font-weight:600;font-size:11px;")
-            meta_text = e.converted_at + ("" if e.success else " · " + tr("history.failed"))
-            if e.success and not Path(e.output_path).exists():
-                meta_text = tr("history.notfound")
-            meta = QLabel(meta_text)
-            meta.setStyleSheet(
-                f'font-family:"Menlo","Consolas",monospace;font-size:9px;color:{t["onSurfaceVariant"]};')
-            col.addWidget(name)
-            col.addWidget(meta)
-            rl.addLayout(col, 1)
-            if e.success and Path(e.output_path).exists():
-                open_btn = QPushButton("📂")
-                open_btn.setProperty("variant", "icon")
-                open_btn.setAccessibleName("open location")
-                # PDF→이미지(DEC-025)처럼 결과물이 폴더면 그 폴더를 직접 연다.
-                open_btn.clicked.connect(
-                    lambda _, p=e.output_path: QDesktopServices.openUrl(
-                        QUrl.fromLocalFile(str(Path(p) if Path(p).is_dir() else Path(p).parent))))
-                rl.addWidget(open_btn)
-            del_btn = QPushButton("🗑")
-            del_btn.setProperty("variant", "icon")
-            del_btn.setAccessibleName("delete entry")
-            del_btn.clicked.connect(lambda _, i=e.id: (self.history.delete(i), self._reload_history()))
-            rl.addWidget(del_btn)
-            self.hist_list.addWidget(row)
-        self.hist_list.addStretch(1)
+        history_panel.reload(self)
 
     def _confirm_clear_history(self):
-        if self._safe_dialog(tr("dlg.clear.title"), tr("dlg.clear.body"),
-                             tr("cancel"), tr("dlg.clear.confirm")):
-            self.history.clear()
-            self._reload_history()
+        history_panel.confirm_clear(self)
 
     # ---------- 다이얼로그 (C-08: 기본 포커스=안전 행동) ----------
     def _safe_dialog(self, title: str, body: str, safe: str, danger: str) -> bool:
