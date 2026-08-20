@@ -3,7 +3,9 @@
 모든 사용자 노출 문자열은 이 모듈의 키를 경유한다. 하드코딩 금지.
 오류 문안은 docs/design-system/patterns.html P-04 표가 정본.
 """
-from PySide6.QtCore import QLocale, QSettings
+from PySide6.QtCore import QLocale
+
+from .settings import store as _store
 
 LANGS = ("ko", "en")
 
@@ -144,15 +146,7 @@ _S = {
                    "This conversion is coming in a future update."),
 }
 
-_settings = None
 _lang = None
-
-
-def _store() -> QSettings:
-    global _settings
-    if _settings is None:
-        _settings = QSettings("file-converter", "app")
-    return _settings
 
 
 def system_lang() -> str:

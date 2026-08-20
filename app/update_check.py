@@ -13,22 +13,14 @@ import threading
 import urllib.error
 import urllib.request
 
-from PySide6.QtCore import QObject, QSettings, Signal
+from PySide6.QtCore import QObject, Signal
 
+from .settings import store as _store
 from .version import current_version
 
 REPO = "jh3779/file-converter"
 _API_URL = f"https://api.github.com/repos/{REPO}/releases"
 _TIMEOUT = 5
-
-_settings = None
-
-
-def _store() -> QSettings:
-    global _settings
-    if _settings is None:
-        _settings = QSettings("file-converter", "app")
-    return _settings
 
 
 def is_enabled() -> bool:
