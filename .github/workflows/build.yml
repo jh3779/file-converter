@@ -859,19 +859,39 @@ jobs:
           path: packaging/installer-out/*.exe
 
   build-macos:
-    # macOS 배포 (Apple Silicon/arm64 전용, 미서명 — 서명 없이 배포하기로 결정,
-    # docs/06_open_questions.md 참고). 영상→MP4는 v1에서 미지원(DEC-029 —
-    # 검증된 사전 빌드 LGPL macOS FFmpeg 바이너리가 없어 FFmpeg 단계 자체를
-    # 생략함). 나머지 파이프라인(HWP·LibreOffice)은 Windows 잡과 동일 리비전·
-    # 버전을 재사용해 산출물 간 동작 차이가 없도록 한다.
+    # macOS 배포 — Apple Silicon(arm64) + Intel(x86_64) 매트릭스, 미서명(DEC-029·
+    # DEC-063 참고). x86_64는 GitHub Actions의 유일한 남은 Intel macOS 러너인
+    # macos-15-intel(2027-08 종료 예정, DEC-063)에서 네이티브로 빌드한다 —
+    # universal2 fat binary가 아니라 아키텍처별 완전히 분리된 빌드(PySide6는
+    # universal2 wheel을 배포하지만 나머지 의존성은 아키텍처별 wheel이라 서로
+    # 무관). 영상→MP4는 두 아키텍처 모두 v1에서 미지원(DEC-029 — 검증된 사전
+    # 빌드 LGPL macOS FFmpeg 바이너리 자체가 없어 아키텍처와 무관하게 FFmpeg
+    # 단계 자체를 생략함). 나머지 파이프라인(HWP·LibreOffice)은 Windows 잡과
+    # 동일 리비전·버전을 재사용해 산출물 간 동작 차이가 없도록 한다.
     needs: test
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-latest
+            dmg_arch: mac-arm64
+            lo_dir_arch: aarch64
+            lo_file_arch: aarch64
+            # 공식 배포 서버에서 curl로 직접 확인한 SHA256 (mac/aarch64).
+            lo_sha256: c99fb4fe574437fc4cb820a4ca15271bca325920861f7139858b36d7f9df78ad
+          - arch: x86_64
+            runner: macos-15-intel
+            dmg_arch: mac-x86_64
+            lo_dir_arch: x86_64
+            lo_file_arch: x86-64
+            # 공식 배포 서버에서 curl로 직접 확인한 SHA256 (mac/x86_64, DEC-063).
+            lo_sha256: e26180298685274b54aa7fe6e1101c65465a372f457a6748ebd642720811db36
+    runs-on: ${{ matrix.runner }}
     env:
       HWPLIB_REV: d9e073d6899d947f8f583492e00a5e1062381d7e
       HWPXLIB_REV: 473d9d6aa82d8896f4f464b52d801e5691dc7cf3
       LO_VERSION: "26.2.5"
-      # 공식 배포 서버에서 curl로 직접 확인한 SHA256 (mac/aarch64).
-      LO_MAC_SHA256: c99fb4fe574437fc4cb820a4ca15271bca325920861f7139858b36d7f9df78ad
       NOTOKR_RELEASE_TAG: "Sans2.004"
       NOTOKR_SHA256: ac7eeb4e2b0d41de8ff31b2d6e1e2a41caf253fd5cefb380bfa1f40f1747b612
     steps:
@@ -1348,13 +1368,15 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: lo-installer
-          key: libreoffice-installer-${{ env.LO_VERSION }}-${{ env.LO_MAC_SHA256 }}-mac-aarch64
+          key: libreoffice-installer-${{ env.LO_VERSION }}-${{ matrix.lo_sha256 }}-${{ matrix.dmg_arch }}
       - name: Download + verify LibreOffice installer (고정 버전·SHA256)
+        env:
+          LO_MAC_SHA256: ${{ matrix.lo_sha256 }}
         run: |
           mkdir -p lo-installer
           dmg="lo-installer/LibreOffice.dmg"
           if [ ! -f "$dmg" ]; then
-            url="https://download.documentfoundation.org/libreoffice/stable/${LO_VERSION}/mac/aarch64/LibreOffice_${LO_VERSION}_MacOS_aarch64.dmg"
+            url="https://download.documentfoundation.org/libreoffice/stable/${LO_VERSION}/mac/${{ matrix.lo_dir_arch }}/LibreOffice_${LO_VERSION}_MacOS_${{ matrix.lo_file_arch }}.dmg"
             curl -fsSL -o "$dmg" "$url"
           fi
           hash=$(shasum -a 256 "$dmg" | awk '{print $1}')
@@ -1520,7 +1542,7 @@ jobs:
           cp -R dist/FileConverter.app "$staging/FileConverter.app"
           ln -s /Applications "$staging/Applications"
           mkdir -p packaging/installer-out
-          out="packaging/installer-out/FileConverter-${version}-mac-arm64.dmg"
+          out="packaging/installer-out/FileConverter-${version}-${{ matrix.dmg_arch }}.dmg"
           hdiutil create -volname "FileConverter ${version}" -srcfolder "$staging" -ov -format UDZO "$out"
           if [ ! -f "$out" ]; then
             echo "::error::dmg 생성 실패: $out 없음"; exit 1
@@ -1529,7 +1551,7 @@ jobs:
       - name: dmg 설치 스모크 (마운트→설치(복사)→실행→삭제(제거) 전 과정 검증)
         run: |
           version=$(cat packaging/VERSION | tr -d '[:space:]')
-          dmg="packaging/installer-out/FileConverter-${version}-mac-arm64.dmg"
+          dmg="packaging/installer-out/FileConverter-${version}-${{ matrix.dmg_arch }}.dmg"
           mountpoint="$PWD/dmg-smoke-mount"
           mkdir -p "$mountpoint"
           hdiutil attach "$dmg" -nobrowse -mountpoint "$mountpoint"
@@ -1564,12 +1586,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'
         with:
-          name: FileConverter-macos-app
+          name: FileConverter-macos-app-${{ matrix.arch }}
           path: dist/FileConverter.app
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'
         with:
-          name: FileConverter-macos-dmg
+          name: FileConverter-macos-dmg-${{ matrix.arch }}
           path: packaging/installer-out/*.dmg
 
   publish-release:
@@ -1589,8 +1611,12 @@ jobs:
           path: windows-installer
       - uses: actions/download-artifact@v4
         with:
-          name: FileConverter-macos-dmg
-          path: macos-dmg
+          name: FileConverter-macos-dmg-arm64
+          path: macos-dmg-arm64
+      - uses: actions/download-artifact@v4
+        with:
+          name: FileConverter-macos-dmg-x86_64
+          path: macos-dmg-x86_64
       - name: Publish GitHub Release (태그 push에서만 — v*.exe/v*.dmg README 다운로드 링크의 실제 소스)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1601,7 +1627,9 @@ jobs:
           # 걸릴지 알 수 없다.
           win_exe=$(find windows-installer -name 'FileConverter-Setup-*.exe' | head -n1)
           win_update_exe=$(find windows-installer -name 'FileConverter-Update-*.exe' | head -n1)
-          mac_dmg=$(find macos-dmg -name '*.dmg' | head -n1)
+          # DEC-063: macOS는 arm64·x86_64 두 dmg를 각각 다른 아티팩트로 받는다.
+          mac_dmg_arm64=$(find macos-dmg-arm64 -name '*.dmg' | head -n1)
+          mac_dmg_x86_64=$(find macos-dmg-x86_64 -name '*.dmg' | head -n1)
           # 파일명이 고정된 사본도 함께 올린다(README 등에서 참조하기 쉽도록).
           # 주의: GitHub의 releases/latest/download/... 단축 URL은 pre-release를
           # "latest"로 인정하지 않는다 — 0.x라 --prerelease로 발행하는 한 이 단축
@@ -1609,9 +1637,11 @@ jobs:
           # 함께 갱신한다.
           win_latest="windows-installer/FileConverter-Setup-latest.exe"
           cp "$win_exe" "$win_latest"
-          mac_latest="macos-dmg/FileConverter-latest-mac-arm64.dmg"
-          cp "$mac_dmg" "$mac_latest"
-          assets=("$win_exe" "$win_latest" "$mac_dmg" "$mac_latest")
+          mac_latest_arm64="macos-dmg-arm64/FileConverter-latest-mac-arm64.dmg"
+          cp "$mac_dmg_arm64" "$mac_latest_arm64"
+          mac_latest_x86_64="macos-dmg-x86_64/FileConverter-latest-mac-x86_64.dmg"
+          cp "$mac_dmg_x86_64" "$mac_latest_x86_64"
+          assets=("$win_exe" "$win_latest" "$mac_dmg_arm64" "$mac_latest_arm64" "$mac_dmg_x86_64" "$mac_latest_x86_64")
           # DEC-062: 업데이트 전용 exe는 파일명에 엔진 해시가 박혀 있어(예:
           # FileConverter-Update-0.3.14-engine-abc123.exe) 고정 이름 사본에는
           # 해시를 넣지 않는다 — 앱은 이 고정 이름으로 접근하지 않고 GitHub
@@ -1625,5 +1655,5 @@ jobs:
           gh release create "${{ github.ref_name }}" "${assets[@]}" \
             --repo "${{ github.repository }}" \
             --title "File Converter ${{ github.ref_name }}" \
-            --notes "Windows 인스톨러(관리자 권한 불요) · macOS(Apple Silicon 전용, 미서명 — 실행 시 control+클릭 → 열기 필요, 영상 변환 미지원). 자세한 내용: README.md · docs/06_open_questions.md" \
+            --notes "Windows 인스톨러(관리자 권한 불요) · macOS(Apple Silicon·Intel 모두 지원, 미서명 — 실행 시 control+클릭 → 열기 필요, 영상 변환 미지원). 자세한 내용: README.md · docs/06_open_questions.md" \
             --prerelease
