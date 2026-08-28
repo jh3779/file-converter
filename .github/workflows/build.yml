@@ -2222,15 +2222,27 @@ jobs:
           bin_dir=$(find . -maxdepth 1 -type d -name "ffmpeg-*" | head -n1)
           mkdir -p engine-build/ffmpeg
           # ffplay(대화형 플레이어, 앱에서 안 씀)는 제외. bin/의 실행 파일과
-          # lib/의 .so를 한 디렉터리로 평평하게 합친다 — 빌드 자체가
-          # -rpath=\$ORIGIN로 컴파일돼(같은 디렉터리에서 .so를 찾음, 실측
-          # 확인) Windows가 exe 옆에 DLL을 두는 것과 같은 레이아웃으로
-          # 동작한다.
+          # lib/의 .so를 한 디렉터리로 평평하게 합친다(Windows가 exe 옆에
+          # DLL을 두는 것과 같은 레이아웃) — 다만 이 빌드의 실제 RPATH는
+          # $ORIGIN이 아니어서(최초 시도에서 "libavdevice.so.63을 찾을 수
+          # 없음"으로 재현 확인, configure 로그의 -rpath 플래그 문자열만
+          # 보고 실제 ELF dynamic section 확인 없이 판단했던 착오) patchelf로
+          # RPATH를 $ORIGIN으로 직접 고정한다 — 앱 코드(video.py)를 건드리지
+          # 않고 CI 패키징 단계에서만 해결.
+          sudo apt-get install -y patchelf
           find "$bin_dir/bin" -type f -not -name "ffplay" -exec cp {} engine-build/ffmpeg/ \;
           cp "$bin_dir"/lib/*.so* engine-build/ffmpeg/
           if [ ! -f engine-build/ffmpeg/ffmpeg ]; then
             echo "::error::FFmpeg 번들 실패: engine-build/ffmpeg/ffmpeg 없음"; exit 1
           fi
+          # --force-rpath로 예전 방식 DT_RPATH를 쓴다 — 기본값인 DT_RUNPATH는
+          # 그 파일 자신의 직접 의존성에만 적용되고 전이적(transitive)이지
+          # 않아서, libavformat.so가 다시 libavutil.so를 찾는 것 같은 사슬
+          # 단계에서는 실행 파일의 RPATH가 적용되지 않는다 — DT_RPATH는
+          # 프로세스 전체에 전이적으로 적용돼 이런 다단계 의존성 사슬도 덮는다.
+          for f in engine-build/ffmpeg/ffmpeg engine-build/ffmpeg/ffprobe engine-build/ffmpeg/*.so*; do
+            [ -f "$f" ] && patchelf --force-rpath --set-rpath '$ORIGIN' "$f"
+          done
           chmod +x engine-build/ffmpeg/ffmpeg engine-build/ffmpeg/ffprobe
           mkdir -p engine-build/licenses/ffmpeg
           cp "$bin_dir/LICENSE.txt" engine-build/licenses/ffmpeg/LICENSE.txt
