@@ -1657,7 +1657,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - name: Install system libs for Qt (headless — 빌드/스모크 검증용, 배포 산출물엔 포함 안 됨)
+      - name: Install system libs for Qt (headless)
         # xvfb: AppImage 최종 스모크가 QT_QPA_PLATFORM=offscreen 대신 실제
         # xcb 플랫폼 플러그인 경로를 태우도록(자동 코드 리뷰 지적) — 가상
         # X 서버라 실제 데스크톱 세션의 GUI 로딩 경로를 더 가깝게 재현한다.
@@ -1666,7 +1666,18 @@ jobs:
         # 관례)만으로는 실제 최종 사용자가 "다운받아 실행 권한만 주고 더블
         # 클릭"하는 일반 실행 경로를 검증하지 못한다는 지적(자동 코드 리뷰)에
         # 따라 FUSE 자체도 준비해 일반 실행 경로를 별도로 스모크한다.
-        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 xvfb libfuse2
+        # libegl1·libgl1은 빌드/스모크 검증용일 뿐 배포 산출물엔 안 담기지만
+        # (어떤 리눅스 데스크톱이든 사실상 항상 있는 기본 그래픽 스택 —
+        # DEC-064), libxcb-cursor0 등 XCB 계열은 다르다 — PyInstaller가
+        # PySide6의 xcb 플랫폼 플러그인(libqxcb.so)이 dlopen 시점에 필요로
+        # 하는 이 라이브러리들을 자동으로 못 챙겨서(잘 알려진 PyInstaller+Qt
+        # 리눅스 문제, ldd 검사로 실제 재현 확인) AppDir에 직접 번들해야
+        # 한다 — 그러려면 먼저 이 러너에도 설치해 파일을 확보해야 한다.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 xvfb libfuse2 \
+            libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-render-util0 libxcb-util1
       - run: pip install -r requirements.txt pyinstaller
       - name: Build HWP engine (hwplib + hwpxlib + sidecar + jlink JRE)
         run: |
@@ -2294,6 +2305,42 @@ jobs:
         run: >
           pyinstaller --noconfirm --clean --windowed --name FileConverter
           --collect-submodules app run.py
+      - name: Qt xcb 플랫폼 플러그인 의존성 보완 (PyInstaller가 dlopen 시점 의존성을 놓침)
+        run: |
+          # ldd로 실제 확인된 문제(누락돼도 PyInstaller가 자동으로 안 알려줌):
+          # libqxcb.so는 libxcb-cursor·libxcb-icccm·libxcb-image·libxcb-util·
+          # libxkbcommon-x11 등을 실행 시점에 필요로 하는데, 이 라이브러리들은
+          # PySide6 wheel에도 안 담겨 있고 PyInstaller의 정적 분석으로도 못
+          # 찾는다(Qt가 dlopen으로 늦게 로드) — 시스템에 설치된 실제 파일을
+          # PyInstaller가 이미 만들어둔 _internal/(다른 PySide6 .so들과 같은
+          # 디렉터리, 같은 RPATH 규칙 적용)로 복사해 넣는다. 정확히 어떤
+          # SONAME이 빠졌는지는 매번 다시 물어(ldd 자체 결과 기준) 반복
+          # 해소한다 — 미리 추측한 목록에만 의존하면 전이적 의존성 사슬을
+          # 놓칠 수 있다.
+          target_dir="dist/FileConverter/_internal"
+          xcb_plugin="$target_dir/PySide6/Qt/plugins/platforms/libqxcb.so"
+          if [ ! -f "$xcb_plugin" ]; then
+            echo "::error::$xcb_plugin 없음 — PySide6 xcb 플러그인이 패키징 안 됨"; exit 1
+          fi
+          for round in 1 2 3 4 5; do
+            missing_names=$(ldd "$xcb_plugin" 2>&1 | awk '/not found/ {print $1}')
+            if [ -z "$missing_names" ]; then
+              echo "라운드 $round: 누락된 의존성 없음"
+              break
+            fi
+            echo "라운드 $round: $missing_names"
+            for name in $missing_names; do
+              src=$(ldconfig -p | awk -v n="$name" '$1==n {print $NF; exit}')
+              if [ -z "$src" ]; then
+                echo "::error::$name 을(를) 시스템에서 찾을 수 없습니다(패키지 설치 목록 확인 필요)"; exit 1
+              fi
+              cp -L "$src" "$target_dir/$name"
+            done
+          done
+          remaining=$(ldd "$xcb_plugin" 2>&1 | grep "not found" || true)
+          if [ -n "$remaining" ]; then
+            echo "::error::반복 보완 후에도 남은 누락 의존성:"; echo "$remaining"; exit 1
+          fi
       - name: Bundle engine into dist (+ 제3자 라이선스 고지)
         run: |
           # app/bundle.py의 engine_dir()는 sys.executable(=dist/FileConverter/
