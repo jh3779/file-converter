@@ -51,8 +51,13 @@ jobs:
       # 있다 — SHA256 불일치로 CI가 실패하면 최신 값을 다시 계산해 갱신할 것.
       # 2026-08-28: n7.1 빌드가 "latest" 릴리스 자산 목록에서 아예 빠져 URL이
       # 404로 실패(SHA256 불일치가 아니라 파일 자체가 없어짐) — n9.0으로 갱신.
-      FFMPEG_URL: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-lgpl-shared-9.0.zip"
-      FFMPEG_SHA256: 787dc4a4403d36002e209eb9f88124f4556142c2121043426befccb8e3350dbb
+      # "latest" 태그는 BtbN이 주기적으로 자산을 갈아치워(2026-08-28 n7.1
+      # 자산이 통째로 사라져 URL 404로 CI가 실패한 전례, PR #102) 재현
+      # 불가능하다 — 날짜가 박힌 불변 autobuild-* 태그로 고정한다(DEC-064
+      # Linux 작업 중 자동 코드 리뷰 지적으로 함께 정정, 같은 문제가 Linux
+      # FFmpeg에도 있었음). 갱신 시 이 태그 자체를 최신 autobuild-*로 바꿀 것.
+      FFMPEG_URL: "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-27-16-45/ffmpeg-n9.0.1-9-gfa97c9f046-win64-lgpl-shared-9.0.zip"
+      FFMPEG_SHA256: bc1036c74bb1f059a4cb5d08436783df32ddcf854cb11e36b9c1d7f2c3b097e0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -1609,12 +1614,933 @@ jobs:
           name: FileConverter-macos-dmg-${{ matrix.arch }}
           path: packaging/installer-out/*.dmg
 
+  build-linux:
+    # Linux 배포 — x86_64 AppImage(DEC-064). Windows onedir과 같은 평평한
+    # engine/ 레이아웃을 그대로 쓴다(앱 코드 변경 불요) — app/bundle.py의
+    # engine_dir()·app/converters/office.py의 find_soffice()·video.py의
+    # find_ffmpeg()가 이미 "exe/바이너리 옆 engine/", 확장자 없는 일반
+    # soffice·ffmpeg 경로를 검사하는 분기를 갖고 있어(원래 Windows/미래
+    # 대비용으로 있던 코드) 그대로 들어맞았다. HWP 엔진(hwplib·hwpxlib·JRE)
+    # 빌드·스모크는 순수 JVM 로직이라 Windows/macOS 잡과 완전히 동일 — 그대로
+    # 재사용한다. ubuntu-latest(계속 최신 버전으로 옮겨감, floating 대상)가
+    # 아니라 ubuntu-22.04(glibc 2.35)로 고정 — PySide6 최신 wheel이 요구하는
+    # 최저 glibc(manylinux_2_34, DEC-064)를 실제로 만족하는 가장 오래된
+    # 지원 배포판 기준으로 빌드해야, 이보다 새 배포판에서의 호환은 자동
+    # 보장되고 "최소 지원 배포판이 어디냐"는 질문에 실제로 답이 된다
+    # (자동 코드 리뷰 지적).
+    needs: test
+    runs-on: ubuntu-22.04
+    env:
+      HWPLIB_REV: d9e073d6899d947f8f583492e00a5e1062381d7e
+      HWPXLIB_REV: 473d9d6aa82d8896f4f464b52d801e5691dc7cf3
+      LO_VERSION: "26.2.5"
+      # 공식 배포 서버에서 curl로 직접 확인한 SHA256 (deb/x86_64, DEC-064).
+      LO_LINUX_SHA256: 2f03bfb2ac9f33ea7c77331b4b7a23300fb0ed7443566046bf8b5bc51c1bed1e
+      NOTOKR_RELEASE_TAG: "Sans2.004"
+      NOTOKR_SHA256: ac7eeb4e2b0d41de8ff31b2d6e1e2a41caf253fd5cefb380bfa1f40f1747b612
+      # FFmpeg LGPL 빌드(BtbN/FFmpeg-Builds, Windows·DEC-024와 같은 소스·같은
+      # n9.0 버전) — 로컬에서 직접 다운로드해 확인한 tar.xz SHA256.
+      # "latest" 태그는 BtbN이 주기적으로 자산을 갈아치워 재현 불가능하다
+      # (Windows 잡과 같은 이유로 여기도 불변 autobuild-* 태그 고정 — 자동
+      # 코드 리뷰 지적, DEC-064). 갱신 시 이 태그 자체를 최신 autobuild-*로
+      # 바꿀 것.
+      FFMPEG_URL: "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-27-16-45/ffmpeg-n9.0.1-9-gfa97c9f046-linux64-lgpl-shared-9.0.tar.xz"
+      FFMPEG_SHA256: fe2db54e282b084d2865d7c2b4d15dee61730632d98efc58204c586367f4ee39
+      # appimagetool(MIT) — 로컬에서 직접 다운로드해 확인한 SHA256.
+      APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Install system libs for Qt (headless)
+        # xvfb: AppImage 최종 스모크가 QT_QPA_PLATFORM=offscreen 대신 실제
+        # xcb 플랫폼 플러그인 경로를 태우도록(자동 코드 리뷰 지적) — 가상
+        # X 서버라 실제 데스크톱 세션의 GUI 로딩 경로를 더 가깝게 재현한다.
+        # libfuse2: appimagetool·완성된 AppImage 둘 다 기본적으로는 FUSE로
+        # 마운트해 실행한다 — --appimage-extract-and-run(FUSE 우회, CI 표준
+        # 관례)만으로는 실제 최종 사용자가 "다운받아 실행 권한만 주고 더블
+        # 클릭"하는 일반 실행 경로를 검증하지 못한다는 지적(자동 코드 리뷰)에
+        # 따라 FUSE 자체도 준비해 일반 실행 경로를 별도로 스모크한다.
+        # libegl1·libgl1은 빌드/스모크 검증용일 뿐 배포 산출물엔 안 담기지만
+        # (어떤 리눅스 데스크톱이든 사실상 항상 있는 기본 그래픽 스택 —
+        # DEC-064), libxcb-cursor0 등 XCB 계열은 다르다 — PyInstaller가
+        # PySide6의 xcb 플랫폼 플러그인(libqxcb.so)이 dlopen 시점에 필요로
+        # 하는 이 라이브러리들을 자동으로 못 챙겨서(잘 알려진 PyInstaller+Qt
+        # 리눅스 문제, ldd 검사로 실제 재현 확인) AppDir에 직접 번들해야
+        # 한다 — 그러려면 먼저 이 러너에도 설치해 파일을 확보해야 한다.
+        run: |
+          sudo apt-get update
+          # XCB 계열은 Qt 공식 문서(Deploying Qt for Linux/X11 apps)가 xcb
+          # 플랫폼 플러그인 배포에 필요하다고 명시한 전체 목록 — 처음엔
+          # ldd가 알려준 것만 넣었다가 libxcb-cursor0의 전이 의존성
+          # (libxcb-shape0)을 또 한 라운드 놓쳐서(round-trip 낭비), 이번엔
+          # Qt가 문서화한 목록 전체를 한 번에 반영한다.
+          sudo apt-get install -y libegl1 libgl1 xvfb libfuse2 \
+            libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-render0 \
+            libxcb-shape0 libxcb-shm0 libxcb-sync1 libxcb-xfixes0 \
+            libxcb-xinerama0 libxcb-xkb1 libxcb-util1
+      - run: pip install -r requirements.txt pyinstaller
+      - name: Build HWP engine (hwplib + hwpxlib + sidecar + jlink JRE)
+        run: |
+          git clone https://github.com/neolord0/hwplib.git hwplib-src
+          git -C hwplib-src checkout "$HWPLIB_REV"
+          python3 scripts/patch_hwplib.py hwplib-src
+          find hwplib-src/src/main/java -name '*.java' > sources.txt
+          javac -encoding UTF-8 -nowarn @sources.txt -d engine-build/hwp
+          # hwpxlib(QA(h) Phase 1) — 패키지명이 겹치지 않아 같은 engine-build/hwp에
+          # 같이 넣는다. 순수 JDK 소스라 패치 불요(spike/hwpxlib/RESULT.md).
+          git clone https://github.com/neolord0/hwpxlib.git hwpxlib-src
+          git -C hwpxlib-src checkout "$HWPXLIB_REV"
+          find hwpxlib-src/src/main/java -name '*.java' > sources-hwpx.txt
+          javac -encoding UTF-8 -nowarn @sources-hwpx.txt -d engine-build/hwp
+          javac -encoding UTF-8 -cp engine-build/hwp -d engine-build/hwp \
+            sidecar/hwp/HwpToText.java sidecar/hwp/HwpToJson.java sidecar/hwp/JsonToHwp.java \
+            sidecar/hwp/HwpxToText.java sidecar/hwp/HwpxToJson.java sidecar/hwp/JsonToHwpx.java
+          jlink --add-modules java.base,java.desktop,java.xml,java.logging \
+            --strip-debug --no-header-files --no-man-pages --output engine-build/jre
+      - name: HWP engine smoke (bundled JRE + 한글 텍스트 샘플)
+        run: |
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToText \
+            hwplib-src/sample_hwp/big_file.hwp out.txt
+          grep -qF "테스트" out.txt || { echo "::error::HWP engine smoke failed: 한글 텍스트 추출 불일치"; exit 1; }
+
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToText \
+            hwplib-src/sample_hwp/merging-cell.hwp out2.txt
+          grep -qF "0,0" out2.txt || { echo "::error::HWP engine smoke failed: 표 추출 불일치"; exit 1; }
+
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson \
+            hwplib-src/sample_hwp/merging-cell.hwp out.json
+          grep -qF '"type":"table"' out.json || { echo "::error::HWP engine smoke failed: HwpToJson 표 구조 불일치"; exit 1; }
+
+          # DEC-017/DEC-028: DOCX→HWP 사이드카(JsonToHwp) — 구조 JSON → HWP 생성 → 재읽기 왕복 검증.
+          # DEC-028부터 표는 더 이상 텍스트로 단순화되지 않고 실제 HWP 표
+          # 컨트롤로 생성된다(spike/hwplib/SpikeTable.java에서 검증한 패턴).
+          python3 <<'PY'
+          import json
+          def cell(text):
+              return {"text": text, "colSpan": 1, "rowSpan": 1}
+          blocks = {"blocks": [
+              {"type": "p", "text": "뷁 밟 닳 넋 한글 생성 테스트"},
+              {"type": "table", "rows": [[cell("이름"), cell("부서")], [cell("김철수"), cell("영업1팀")]]},
+          ]}
+          open("blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          PY
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp blocks.json created.hwp
+          [ -f created.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 HWP 파일을 생성하지 못함"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToText created.hwp created.txt
+          grep -qF "뷁 밟 닳 넋 한글 생성 테스트" created.txt || { echo "::error::HWP engine smoke failed: JsonToHwp 생성 문서 재읽기 텍스트 불일치"; exit 1; }
+          grep -qF "김철수" created.txt || { echo "::error::HWP engine smoke failed: JsonToHwp 표 내용 불일치"; exit 1; }
+
+          # DEC-028: 표가 진짜 표 구조(행/열)로 만들어졌는지 HwpToJson으로 재확인 —
+          # 위 HwpToText 체크는 내용만 보고 구조는 못 걸러낸다.
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson created.hwp created.json
+          python3 <<'PY'
+          import re, sys
+          text = open("created.json", encoding="utf-8").read()
+          # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다.
+          def cell(t):
+              return '{"runs":[{"text":"' + t + '","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"justify"}'
+          expected = '"type":"table","rows":[[' + cell("이름") + "," + cell("부서") + "],[" + cell("김철수") + "," + cell("영업1팀") + "]]"
+          if expected not in text:
+              print("::error::HWP engine smoke failed: JsonToHwp가 만든 표가 실제 표 구조(2행x2열)로 재확인되지 않음(DEC-028 회귀)")
+              sys.exit(1)
+          PY
+
+          # DEC-035: 셀 병합(colSpan/rowSpan) — JsonToHwp가 TableCellMerger로
+          # 실제 병합을 적용하고, HwpToJson이 그 구조(병합 안 된 셀은 평문,
+          # 병합된 셀은 colSpan/rowSpan 객체)를 그대로 재확인해야 한다.
+          python3 -c '
+          import json
+          blocks = {"blocks": [{"type": "table", "rows": [
+              [{"text": "병합", "colSpan": 2, "rowSpan": 1}],
+              [{"text": "10", "colSpan": 1, "rowSpan": 1}, {"text": "11", "colSpan": 1, "rowSpan": 1}],
+          ], "colWidthsMm": [30.0, 30.0]}]}
+          open("merge-blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          '
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp merge-blocks.json merged.hwp
+          [ -f merged.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 병합 표를 생성하지 못함(DEC-035)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson merged.hwp merged.json
+          python3 <<'PY'
+          import re, sys
+          text = open("merged.json", encoding="utf-8").read()
+          # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다
+          # (문단 블록과 같은 표현, 표 셀 안 서식 보존).
+          pattern = (r'"type":"table","rows":\[\[\{"runs":\[\{"text":"병합","bold":false,"italic":false,'
+                     r'"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":2,"rowSpan":1,"align":"justify"\}\],'
+                     r'\[\{"runs":\[\{"text":"10","bold":false,"italic":false,"underline":false,"size":10\.0,'
+                     r'"color":"000000"\}\],"colSpan":1,"rowSpan":1,"align":"justify"\},\{"runs":\[\{"text":"11","bold":false,'
+                     r'"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1,"align":"justify"\}\]\]')
+          if not re.search(pattern, text):
+              print("::error::HWP engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-035 회귀)")
+              sys.exit(1)
+          PY
+
+          # DEC-051: 표 셀 안 문자 서식(굵게/기울임/밑줄/크기/색상) — DEC-038이
+          # 문단에 반영한 것과 대칭으로 표 셀 run에도 반영되는지.
+          cat > cell-formatted-blocks.json <<'JSON'
+          {"blocks":[{"type":"table","rows":[[{"runs":[{"text":"일반 "},{"text":"굵고빨강","bold":true,"color":"FF0000"}],"colSpan":1,"rowSpan":1},{"runs":[{"text":"plain"}],"colSpan":1,"rowSpan":1}]]}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp cell-formatted-blocks.json cell-formatted.hwp
+          [ -f cell-formatted.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 셀 서식 있는 표를 생성하지 못함(DEC-051)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson cell-formatted.hwp cell-formatted.json
+          grep -qF '"text":"굵고빨강","bold":true,"italic":false,"underline":false,"size":10.0,"color":"FF0000"' cell-formatted.json \
+            || { echo "::error::HWP engine smoke failed: 표 셀 안 굵게·색상 서식이 왕복 후 재확인되지 않음(DEC-051 회귀)"; exit 1; }
+          grep -qF '"text":"일반 ","bold":false,"italic":false,"underline":false' cell-formatted.json \
+            || { echo "::error::HWP engine smoke failed: 표 셀 안 서식 없는 run이 잘못된 서식으로 나옴(DEC-051 회귀)"; exit 1; }
+
+          # DEC-053: 표 셀 안 문단 정렬(가운데/오른쪽) — DEC-040이 문단에
+          # 반영한 것과 대칭으로 표 셀에도 반영되는지.
+          cat > cell-aligned-blocks.json <<'JSON'
+          {"blocks":[{"type":"table","rows":[[{"runs":[{"text":"가운데"}],"colSpan":1,"rowSpan":1,"align":"center"},{"runs":[{"text":"오른쪽"}],"colSpan":1,"rowSpan":1,"align":"right"}]]}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp cell-aligned-blocks.json cell-aligned.hwp
+          [ -f cell-aligned.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 셀 정렬 있는 표를 생성하지 못함(DEC-053)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson cell-aligned.hwp cell-aligned.json
+          python3 <<'PY'
+          import re, sys
+          text = open("cell-aligned.json", encoding="utf-8").read()
+          checks = [
+              (r'"text":"가운데".*?"align":"center"', "표 셀 가운데 정렬이 왕복 후 재확인되지 않음"),
+              (r'"text":"오른쪽".*?"align":"right"', "표 셀 오른쪽 정렬이 왕복 후 재확인되지 않음"),
+          ]
+          for pattern, message in checks:
+              if not re.search(pattern, text):
+                  print(f"::error::HWP engine smoke failed: {message}(DEC-053 회귀)")
+                  sys.exit(1)
+          PY
+
+          # DEC-038: DOCX→HWP 문자 서식(굵게/기울임/밑줄/크기/색상) 반영 —
+          # JsonToHwp가 run별 서식을 CharShape으로 만들어 ParaCharShape에
+          # 위치별로 연결하고, HwpToJson으로 재읽었을 때 run 경계·서식이
+          # 그대로 재확인되어야 한다(DEC-027은 읽기 방향만 검증했다 — 이건
+          # 쓰기 방향 왕복).
+          python3 -c '
+          import json
+          blocks = {"blocks": [{"type": "p", "runs": [
+              {"text": "굵은텍스트", "bold": True},
+              {"text": "일반텍스트"},
+              {"text": "기울임텍스트", "italic": True, "size": 18, "color": "FF0000"},
+          ]}]}
+          open("formatted-blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          '
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp formatted-blocks.json formatted-created.hwp
+          [ -f formatted-created.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 서식 있는 문서를 생성하지 못함(DEC-038)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson formatted-created.hwp formatted-created.json
+          python3 <<'PY'
+          import re, sys
+          text = open("formatted-created.json", encoding="utf-8").read()
+          if not re.search(r'"text":"굵은텍스트","bold":true,"italic":false,"underline":false', text):
+              print("::error::HWP engine smoke failed: JsonToHwp가 쓴 굵게 서식이 왕복 후 재확인되지 않음(DEC-038 회귀)")
+              sys.exit(1)
+          if not re.search(r'"text":"일반텍스트","bold":false,"italic":false,"underline":false', text):
+              print("::error::HWP engine smoke failed: JsonToHwp가 서식 없는 run을 잘못된 서식으로 씀(DEC-038 회귀)")
+              sys.exit(1)
+          if not re.search(r'"text":"기울임텍스트","bold":false,"italic":true,"underline":false,"size":18(\.0)?,"color":"FF0000"', text):
+              print("::error::HWP engine smoke failed: JsonToHwp가 쓴 기울임·크기·색상 서식이 같은 run 안에서 왕복 후 재확인되지 않음(DEC-038 회귀)")
+              sys.exit(1)
+          PY
+
+          # DEC-039: PDF→HWP 페이지 구분(pageBreakBefore) — JsonToHwp가 이
+          # 표시가 있는 문단에만 "문단 앞에서 항상 쪽 나눔" ParaShape을
+          # 걸어야 한다. HwpToText/HwpToJson 둘 다 이 속성을 안 보므로
+          # PageBreakDebug(테스트 전용, 배포용 engine-build/hwp가 아닌
+          # debug-tools에 컴파일)로 직접 확인한다.
+          mkdir -p debug-tools
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/PageBreakDebug.java
+          python3 -c '
+          import json
+          blocks = {"blocks": [
+              {"type": "p", "text": "1페이지 문단"},
+              {"type": "p", "text": "2페이지 문단", "pageBreakBefore": True},
+          ]}
+          open("pagebreak-blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          '
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp pagebreak-blocks.json pagebreak.hwp
+          [ -f pagebreak.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 페이지 구분 있는 문서를 생성하지 못함(DEC-039)"; exit 1; }
+          engine-build/jre/bin/java -cp "debug-tools:engine-build/hwp" PageBreakDebug pagebreak.hwp pagebreak-out.txt
+          grep -qF "$(printf '0\tfalse\t1페이지 문단')" pagebreak-out.txt || { echo "::error::HWP engine smoke failed: 1페이지 문단에 쪽 나눔이 잘못 붙음(DEC-039 회귀)"; exit 1; }
+          grep -qF "$(printf '1\ttrue\t2페이지 문단')" pagebreak-out.txt || { echo "::error::HWP engine smoke failed: 2페이지 문단에 쪽 나눔이 반영되지 않음(DEC-039 회귀)"; exit 1; }
+
+          # DEC-040: 문단 정렬(align) — "align"이 있는 블록은 JsonToHwp가
+          # 실제 ParaShape 정렬로 반영하고, "align"이 없는 블록은 HWP 문서
+          # 기본 정렬(양쪽 정렬)로 나와야 한다. HwpToJson으로 왕복 재확인.
+          python3 -c '
+          import json
+          blocks = {"blocks": [
+              {"type": "p", "text": "기본 정렬"},
+              {"type": "p", "text": "가운데 정렬", "align": "center"},
+              {"type": "p", "text": "오른쪽 정렬", "align": "right"},
+          ]}
+          open("align-blocks.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          '
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp align-blocks.json align.hwp
+          [ -f align.hwp ] || { echo "::error::HWP engine smoke failed: JsonToHwp가 정렬 있는 문서를 생성하지 못함(DEC-040)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson align.hwp align.json
+          python3 <<'PY'
+          import re, sys
+          text = open("align.json", encoding="utf-8").read()
+          checks = [
+              (r'"text":"기본 정렬".*?"align":"justify"', "정렬 미지정 문단이 HWP 기본 정렬(양쪽)로 나오지 않음"),
+              (r'"text":"가운데 정렬".*?"align":"center"', "가운데 정렬이 왕복 후 재확인되지 않음"),
+              (r'"text":"오른쪽 정렬".*?"align":"right"', "오른쪽 정렬이 왕복 후 재확인되지 않음"),
+          ]
+          for pattern, message in checks:
+              if not re.search(pattern, text):
+                  print(f"::error::HWP engine smoke failed: {message}(DEC-040 회귀)")
+                  sys.exit(1)
+          PY
+
+          # DEC-018: 긴 문단(여러 줄로 감싸질 정도)도 텍스트가 그대로 보존되는지 —
+          # LineSeg 줄바꿈 재계산이 텍스트 자체를 깨뜨리지 않는지 확인.
+          python3 <<'PY'
+          import json
+          long_text = ("긴 문단 테스트 " * 15).strip()
+          blocks = {"blocks": [{"type": "p", "text": long_text}, {"type": "p", "text": "짧은 다음 문단"}]}
+          open("blocks-long.json", "w", encoding="utf-8").write(json.dumps(blocks, ensure_ascii=False))
+          open("expected-long.txt", "w", encoding="utf-8").write(long_text + "\n짧은 다음 문단")
+          PY
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwp blocks-long.json created-long.hwp
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToText created-long.hwp created-long.txt
+          python3 <<'PY'
+          import sys
+          actual = open("created-long.txt", encoding="utf-8").read().strip()
+          expected = open("expected-long.txt", encoding="utf-8").read().strip()
+          if actual != expected:
+              print("::error::HWP engine smoke failed: 긴 문단(줄바꿈 재계산) 재읽기 텍스트 불일치")
+              sys.exit(1)
+          PY
+
+          # DEC-018 구조 검증: 텍스트 왕복만으로는 LineSeg가 문단 길이와 무관하게
+          # 항상 1개·세로 위치가 모든 문단에서 0으로 고정되는 회귀를 못 잡는다 —
+          # hwplib로 직접 열어 레이아웃 캐시 구조까지 확인한다. LineSegDebug는
+          # 테스트 전용 도구라 배포용 engine-build/hwp가 아닌 별도 디렉터리에 컴파일한다.
+          mkdir -p debug-tools
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/LineSegDebug.java
+          engine-build/jre/bin/java -cp "debug-tools:engine-build/hwp" LineSegDebug created-long.hwp \
+            > lineseg-debug.txt
+          python3 <<'PY'
+          import sys
+          lines = open("lineseg-debug.txt", encoding="utf-8").read().splitlines()
+          p0 = lines[0].split("\t")
+          line_align_count0 = int(p0[1])
+          if line_align_count0 <= 1:
+              print(f"::error::HWP engine smoke failed: 긴 문단의 lineAlignCount={line_align_count0} — 줄바꿈 재계산이 안 됨(DEC-018 회귀)")
+              sys.exit(1)
+          vpos0 = [int(item.split(":")[1]) for item in p0[3].split(",")]
+          if len(set(vpos0)) != line_align_count0:
+              print("::error::HWP engine smoke failed: 줄마다 세로 위치가 달라야 하는데 일부가 겹침(DEC-018 회귀)")
+              sys.exit(1)
+          p1 = lines[1].split("\t")
+          vpos1_first = int(p1[3].split(",")[0].split(":")[1])
+          if vpos1_first <= vpos0[-1]:
+              print("::error::HWP engine smoke failed: 다음 문단이 이전 문단 아래에서 이어지지 않음(모두 0으로 겹치는 DEC-018 회귀)")
+              sys.exit(1)
+          PY
+
+          # DEC-027: HwpToJson의 문자 서식(굵게/기울임/크기/색상) 추출 검증.
+          # MakeFormattedHwp도 LineSegDebug와 같은 테스트 전용 도구 —
+          # 배포용 engine-build/hwp가 아닌 debug-tools에 컴파일한다.
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/MakeFormattedHwp.java
+          engine-build/jre/bin/java -cp "debug-tools:engine-build/hwp" MakeFormattedHwp formatted.hwp
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson formatted.hwp formatted.json
+          python3 <<'PY'
+          import re, sys
+          text = open("formatted.json", encoding="utf-8").read()
+          if not re.search(r'"text":"굵은텍스트","bold":true', text):
+              print("::error::HWP engine smoke failed: 굵게 서식이 추출되지 않음(DEC-027 회귀)")
+              sys.exit(1)
+          if not re.search(r'"text":"일반텍스트","bold":false', text):
+              print("::error::HWP engine smoke failed: 같은 문단 안 일반 run이 굵게로 잘못 표시됨(DEC-027 회귀)")
+              sys.exit(1)
+          # [^}]*로 같은 run 객체({...} 하나) 안에서만 매치되도록 제한 — .*는 run
+          # 경계를 넘어 서로 다른 run의 속성을 잘못 엮어 맞출 수 있다(코드 리뷰 지적).
+          if not re.search(r'"italic":true[^}]*"size":18(\.0)?[^}]*"color":"FF0000"', text):
+              print("::error::HWP engine smoke failed: 기울임·크기·색상 서식이 같은 run 안에서 함께 추출되지 않음(DEC-027 회귀)")
+              sys.exit(1)
+          PY
+          # 외부 QA 이슈 #43: 표가 아닌 컨트롤(머리말·글상자) 안의 텍스트가
+          # 조용히 사라지던 회귀 — 실사용 공공기관 문서(mois-hwpplan.hwp·
+          # unikorea-contract.hwp)에서 실제로 확인된 두 중첩 패턴(머리말
+          # 안의 표, 묶음 개체 안의 글상자 2개)을 합성 픽스처로 재현한다.
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/MakeNestedControlHwp.java
+          engine-build/jre/bin/java -cp "debug-tools:engine-build/hwp" MakeNestedControlHwp nested.hwp
+          engine-build/jre/bin/java -cp engine-build/hwp HwpToJson nested.hwp nested.json
+          python3 <<'PY'
+          import sys
+          text = open("nested.json", encoding="utf-8").read()
+          for expected in ('"text":"머리말텍스트"', '"셀A"', '"셀B"', '"text":"그룹A"', '"text":"그룹B"'):
+              if expected not in text:
+                  print(f"::error::HWP engine smoke failed: 표가 아닌 컨트롤(머리말·글상자) 텍스트 유실(#43 회귀) — {expected} 없음")
+                  sys.exit(1)
+          PY
+      - name: HWPX engine smoke (QA(h) Phase 1 — hwpxlib 실제 샘플)
+        run: |
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToText \
+            hwpxlib-src/testFile/tool/textextractor/multipara.hwpx hwpx_out.txt
+          grep -qF "김하성" hwpx_out.txt || { echo "::error::HWPX engine smoke failed: 한글 텍스트 추출 불일치"; exit 1; }
+
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson \
+            hwpxlib-src/testFile/tool/textextractor/multipara.hwpx hwpx_out.json
+          grep -qF '"bold":false' hwpx_out.json || { echo "::error::HWPX engine smoke failed: HwpxToJson 문단 서식 필드 누락"; exit 1; }
+
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson \
+            hwpxlib-src/testFile/tool/textextractor/Table.hwpx hwpx_table.json
+          python3 <<'PY'
+          import re, sys
+          text = open("hwpx_table.json", encoding="utf-8").read()
+          # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다.
+          def cell(t):
+              return '{"runs":[{"text":"' + t + '","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"center"}'
+          expected = '"type":"table","rows":[[' + ",".join(cell(t) for t in ["이름", "국어", "영어", "수학"]) + "]"
+          if expected not in text:
+              print("::error::HWPX engine smoke failed: 표 구조 불일치")
+              sys.exit(1)
+          PY
+      - name: HWPX header/footer/shape engine smoke (DEC-052)
+        run: |
+          # DEC-052: 머리말·꼬리말은 Ctrl(HeaderFooterCore) 안, 글상자는
+          # 도형 RunItem(DrawingObject/Container) 안에 있어 기존
+          # emitParagraph가 순회하지 않고 조용히 건너뛰었다(hwplib 쪽
+          # DEC-032와 대칭인 문제) — hwpxlib 자체 테스트 픽스처로 재귀
+          # 처리가 실제로 텍스트를 뽑아내는지 확인.
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson \
+            hwpxlib-src/testFile/reader_writer/HeaderFooter.hwpx hwpx_headerfooter.json
+          grep -qF '머리말 테스트' hwpx_headerfooter.json || { echo "::error::HWPX engine smoke failed: 머리말 텍스트 유실(DEC-052 회귀)"; exit 1; }
+          grep -qF '꼬리말' hwpx_headerfooter.json || { echo "::error::HWPX engine smoke failed: 꼬리말 텍스트 유실(DEC-052 회귀)"; exit 1; }
+
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson \
+            hwpxlib-src/testFile/tool/textextractor/RectInRect.hwpx hwpx_nestedshape.json
+          grep -qF '사각형' hwpx_nestedshape.json || { echo "::error::HWPX engine smoke failed: 중첩 글상자 텍스트 유실(DEC-052 회귀)"; exit 1; }
+      - name: HWPX write engine smoke (DOCX/PDF→HWPX 쓰기 — DEC-049)
+        run: |
+          # DEC-049(DEC-035 대칭): 셀 병합(colSpan/rowSpan) — JsonToHwpx가
+          # sparse 표현으로 곧바로 병합된 Tc를 쓰고(TableCellMerger 같은
+          # 별도 유틸 없이), HwpxToJson이 그 구조를 그대로 재확인해야 한다.
+          cat > hwpx-merge-blocks.json <<'JSON'
+          {"blocks":[{"type":"table","rows":[[{"text":"병합","colSpan":2,"rowSpan":1}],[{"text":"10","colSpan":1,"rowSpan":1},{"text":"11","colSpan":1,"rowSpan":1}]],"colWidthsMm":[30.0,30.0]}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwpx hwpx-merge-blocks.json hwpx-merged.hwpx
+          [ -f hwpx-merged.hwpx ] || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 병합 표를 생성하지 못함(DEC-049)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson hwpx-merged.hwpx hwpx-merged.json
+          python3 <<'PY'
+          import re, sys
+          text = open("hwpx-merged.json", encoding="utf-8").read()
+          # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다.
+          pattern = (r'"type":"table","rows":\[\[\{"runs":\[\{"text":"병합","bold":false,"italic":false,'
+                     r'"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":2,"rowSpan":1,"align":"justify"\}\],'
+                     r'\[\{"runs":\[\{"text":"10","bold":false,"italic":false,"underline":false,"size":10\.0,'
+                     r'"color":"000000"\}\],"colSpan":1,"rowSpan":1,"align":"justify"\},\{"runs":\[\{"text":"11","bold":false,'
+                     r'"italic":false,"underline":false,"size":10\.0,"color":"000000"\}\],"colSpan":1,"rowSpan":1,"align":"justify"\}\]\]')
+          if not re.search(pattern, text):
+              print("::error::HWPX write engine smoke failed: 셀 병합이 왕복 후 유지되지 않음(DEC-049 회귀)")
+              sys.exit(1)
+          PY
+          # DEC-051: 표 셀 안 문자 서식(굵게/기울임/밑줄/크기/색상) — HWP
+          # 쪽과 대칭으로 표 셀 run에도 반영되는지.
+          cat > hwpx-cell-formatted-blocks.json <<'JSON'
+          {"blocks":[{"type":"table","rows":[[{"runs":[{"text":"일반 "},{"text":"굵고빨강","bold":true,"color":"FF0000"}],"colSpan":1,"rowSpan":1},{"runs":[{"text":"plain"}],"colSpan":1,"rowSpan":1}]]}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwpx hwpx-cell-formatted-blocks.json hwpx-cell-formatted.hwpx
+          [ -f hwpx-cell-formatted.hwpx ] || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 셀 서식 있는 표를 생성하지 못함(DEC-051)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson hwpx-cell-formatted.hwpx hwpx-cell-formatted.json
+          grep -qF '"text":"굵고빨강","bold":true,"italic":false,"underline":false,"size":10.0,"color":"FF0000"' hwpx-cell-formatted.json \
+            || { echo "::error::HWPX write engine smoke failed: 표 셀 안 굵게·색상 서식이 왕복 후 재확인되지 않음(DEC-051 회귀)"; exit 1; }
+          grep -qF '"text":"일반 ","bold":false,"italic":false,"underline":false' hwpx-cell-formatted.json \
+            || { echo "::error::HWPX write engine smoke failed: 표 셀 안 서식 없는 run이 잘못된 서식으로 나옴(DEC-051 회귀)"; exit 1; }
+          # DEC-053: 표 셀 안 문단 정렬(가운데/오른쪽) — HWP 쪽과 대칭으로
+          # 표 셀에도 반영되는지.
+          cat > hwpx-cell-aligned-blocks.json <<'JSON'
+          {"blocks":[{"type":"table","rows":[[{"runs":[{"text":"가운데"}],"colSpan":1,"rowSpan":1,"align":"center"},{"runs":[{"text":"오른쪽"}],"colSpan":1,"rowSpan":1,"align":"right"}]]}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwpx hwpx-cell-aligned-blocks.json hwpx-cell-aligned.hwpx
+          [ -f hwpx-cell-aligned.hwpx ] || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 셀 정렬 있는 표를 생성하지 못함(DEC-053)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson hwpx-cell-aligned.hwpx hwpx-cell-aligned.json
+          python3 <<'PY'
+          import re, sys
+          text = open("hwpx-cell-aligned.json", encoding="utf-8").read()
+          checks = [
+              (r'"text":"가운데".*?"align":"center"', "표 셀 가운데 정렬이 왕복 후 재확인되지 않음"),
+              (r'"text":"오른쪽".*?"align":"right"', "표 셀 오른쪽 정렬이 왕복 후 재확인되지 않음"),
+          ]
+          for pattern, message in checks:
+              if not re.search(pattern, text):
+                  print(f"::error::HWPX write engine smoke failed: {message}(DEC-053 회귀)")
+                  sys.exit(1)
+          PY
+          # DEC-049 머지 전 자동 리뷰 지적(재현 확인 후 수정): parseTableSpec이
+          # 셀을 항상 Map으로 캐스팅해, HwpxToJson이 병합 없는 셀을 평문
+          # 문자열로 내보내는 것(하위 호환, DEC-035와 동일 원칙)과 왕복이
+          # 안 됐다(ClassCastException) — 문자열 셀도 받아들이는지 확인.
+          cat > hwpx-string-cell-blocks.json <<'JSON'
+          {"blocks":[{"type":"table","rows":[["a","b"],["c","d"]]}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwpx hwpx-string-cell-blocks.json hwpx-string-cell.hwpx
+          [ -f hwpx-string-cell.hwpx ] || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 평문 문자열 셀 표를 생성하지 못함(DEC-049 회귀)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson hwpx-string-cell.hwpx hwpx-string-cell.json
+          python3 <<'PY'
+          import re, sys
+          text = open("hwpx-string-cell.json", encoding="utf-8").read()
+          # DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다.
+          def cell(t):
+              return '{"runs":[{"text":"' + t + '","bold":false,"italic":false,"underline":false,"size":10.0,"color":"000000"}],"colSpan":1,"rowSpan":1,"align":"justify"}'
+          expected = '"type":"table","rows":[[' + cell("a") + "," + cell("b") + "],[" + cell("c") + "," + cell("d") + "]]"
+          if expected not in text:
+              print("::error::HWPX write engine smoke failed: 평문 문자열 셀 표가 왕복 후 유지되지 않음(DEC-049 회귀)")
+              sys.exit(1)
+          PY
+          # DEC-049(DEC-038 대칭): 문자 서식(굵게/기울임/크기/색상).
+          cat > hwpx-formatted-blocks.json <<'JSON'
+          {"blocks":[{"type":"p","runs":[{"text":"굵은텍스트","bold":true},{"text":"일반텍스트"},{"text":"기울임텍스트","italic":true,"size":18,"color":"FF0000"}]}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwpx hwpx-formatted-blocks.json hwpx-formatted.hwpx
+          [ -f hwpx-formatted.hwpx ] || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 서식 있는 문서를 생성하지 못함(DEC-049)"; exit 1; }
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson hwpx-formatted.hwpx hwpx-formatted.json
+          grep -qF '"text":"굵은텍스트","bold":true,"italic":false,"underline":false' hwpx-formatted.json \
+            || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 쓴 굵게 서식이 왕복 후 재확인되지 않음(DEC-049 회귀)"; exit 1; }
+          grep -qF '"text":"일반텍스트","bold":false,"italic":false,"underline":false' hwpx-formatted.json \
+            || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 서식 없는 run을 잘못된 서식으로 씀(DEC-049 회귀)"; exit 1; }
+          python3 <<'PY'
+          import re, sys
+          text = open("hwpx-formatted.json", encoding="utf-8").read()
+          if not re.search(r'"italic":true[^}]*"size":18(\.0)?[^}]*"color":"FF0000"', text):
+              print("::error::HWPX write engine smoke failed: 기울임·크기·색상 서식이 같은 run 안에서 왕복 후 재확인되지 않음(DEC-049 회귀)")
+              sys.exit(1)
+          PY
+          # DEC-049(DEC-040 대칭): 문단 정렬.
+          cat > hwpx-align-blocks.json <<'JSON'
+          {"blocks":[{"type":"p","text":"기본 정렬"},{"type":"p","text":"가운데 정렬","align":"center"},{"type":"p","text":"오른쪽 정렬","align":"right"}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwpx hwpx-align-blocks.json hwpx-align.hwpx
+          engine-build/jre/bin/java -cp engine-build/hwp HwpxToJson hwpx-align.hwpx hwpx-align.json
+          python3 <<'PY'
+          import re, sys
+          text = open("hwpx-align.json", encoding="utf-8").read()
+          checks = [
+              (r'"text":"기본 정렬".*?"align":"justify"', "정렬 미지정 문단이 기본 정렬(양쪽)로 나오지 않음"),
+              (r'"text":"가운데 정렬".*?"align":"center"', "가운데 정렬이 왕복 후 재확인되지 않음"),
+              (r'"text":"오른쪽 정렬".*?"align":"right"', "오른쪽 정렬이 왕복 후 재확인되지 않음"),
+          ]
+          for pattern, msg in checks:
+              if not re.search(pattern, text):
+                  print(f"::error::HWPX write engine smoke failed: {msg}(DEC-049 회귀)")
+                  sys.exit(1)
+          PY
+          # DEC-049(DEC-039 대칭): 쪽 나눔(pageBreakBefore) — HwpxToJson 정식
+          # 스키마는 이 값을 안 보므로(HWP와 동일한 이유) PageBreakDebugHwpx
+          # (테스트 전용, 배포용 engine-build/hwp가 아닌 debug-tools에 컴파일)로
+          # 직접 확인한다.
+          mkdir -p debug-tools
+          javac -encoding UTF-8 -cp engine-build/hwp -d debug-tools sidecar/hwp/PageBreakDebugHwpx.java
+          cat > hwpx-pagebreak-blocks.json <<'JSON'
+          {"blocks":[{"type":"p","text":"1페이지 문단"},{"type":"p","text":"2페이지 문단","pageBreakBefore":true}]}
+          JSON
+          engine-build/jre/bin/java -cp engine-build/hwp JsonToHwpx hwpx-pagebreak-blocks.json hwpx-pagebreak.hwpx
+          [ -f hwpx-pagebreak.hwpx ] || { echo "::error::HWPX write engine smoke failed: JsonToHwpx가 페이지 구분 있는 문서를 생성하지 못함(DEC-049)"; exit 1; }
+          engine-build/jre/bin/java -cp "debug-tools:engine-build/hwp" PageBreakDebugHwpx hwpx-pagebreak.hwpx hwpx-pagebreak-out.txt
+          grep -qF "$(printf '0\tfalse\t1페이지 문단')" hwpx-pagebreak-out.txt || { echo "::error::HWPX write engine smoke failed: 1페이지 문단에 쪽 나눔이 잘못 붙음(DEC-049 회귀)"; exit 1; }
+          grep -qF "$(printf '1\ttrue\t2페이지 문단')" hwpx-pagebreak-out.txt || { echo "::error::HWPX write engine smoke failed: 2페이지 문단에 쪽 나눔이 반영되지 않음(DEC-049 회귀)"; exit 1; }
+      - name: Restore LibreOffice installer cache
+        id: lo-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: lo-installer
+          key: libreoffice-installer-${{ env.LO_VERSION }}-${{ env.LO_LINUX_SHA256 }}-linux-x86_64
+      - name: Download + verify LibreOffice installer (고정 버전·SHA256)
+        run: |
+          mkdir -p lo-installer
+          tgz="lo-installer/LibreOffice.tar.gz"
+          if [ ! -f "$tgz" ]; then
+            url="https://download.documentfoundation.org/libreoffice/stable/${LO_VERSION}/deb/x86_64/LibreOffice_${LO_VERSION}_Linux_x86-64_deb.tar.gz"
+            curl -fsSL -o "$tgz" "$url"
+          fi
+          hash=$(sha256sum "$tgz" | awk '{print $1}')
+          if [ "$hash" != "$LO_LINUX_SHA256" ]; then
+            echo "::error::LibreOffice 설치파일 체크섬 불일치: $hash (기대값 $LO_LINUX_SHA256)"
+            rm -f "$tgz"
+            exit 1
+          fi
+          echo "체크섬 확인 완료: $hash"
+      - name: Save LibreOffice installer cache
+        if: steps.lo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: lo-installer
+          key: ${{ steps.lo-cache.outputs.cache-primary-key }}
+      - name: Extract LibreOffice (DEBS/*.deb를 dpkg-deb로 풀어 한 트리로 합침, 시스템 설치 없이)
+        run: |
+          # Linux 공식 배포는 macOS dmg·Windows exe와 달리 "그냥 마운트/실행"할
+          # 단일 파일이 아니라 .deb 묶음(DEBS/)이다 — apt로 시스템에 설치하는
+          # 대신(다른 두 플랫폼과 같은 "실제 설치 없이 파일만 추출" 원칙),
+          # 각 deb를 dpkg-deb -x로 풀어 한 디렉터리에 합친다. 이 deb 묶음은
+          # Writer·Calc·Impress 등 전체 구성요소를 담고 있어(langpack·helppack은
+          # 별도 다운로드라 여기 없음), Windows administrative install·macOS
+          # .app 복사와 같은 "전체 설치, 기능 임의 선택 없음" 범위가 된다.
+          mkdir -p lo-extract lo-root
+          tar -xzf lo-installer/LibreOffice.tar.gz -C lo-extract
+          debs_dir=$(find lo-extract -type d -name DEBS | head -n1)
+          if [ -z "$debs_dir" ]; then
+            echo "::error::DEBS 디렉터리를 찾을 수 없습니다"; exit 1
+          fi
+          for deb in "$debs_dir"/*.deb; do
+            dpkg-deb -x "$deb" lo-root
+          done
+          lo_dir=$(find lo-root/opt -maxdepth 1 -type d -name "libreoffice*" | head -n1)
+          if [ -z "$lo_dir" ] || [ ! -f "$lo_dir/program/soffice" ]; then
+            echo "::error::정규화 경로($lo_dir/program/soffice)에 파일이 없습니다"; exit 1
+          fi
+          mkdir -p engine-build
+          cp -R "$lo_dir" engine-build/libreoffice
+          chmod +x engine-build/libreoffice/program/soffice engine-build/libreoffice/program/soffice.bin
+          mkdir -p engine-build/licenses/libreoffice
+          # LICENSE·LICENSE.html·NOTICE는 opt/libreofficeX.Y/ 바로 아래(deb
+          # 패키징에도 macOS .app·Windows 설치본과 같은 위치) — 그대로 복사.
+          for f in LICENSE LICENSE.html NOTICE; do
+            [ -f "engine-build/libreoffice/$f" ] && cp "engine-build/libreoffice/$f" engine-build/licenses/libreoffice/
+          done
+          if [ -z "$(ls -A engine-build/licenses/libreoffice 2>/dev/null)" ]; then
+            echo "::error::LibreOffice 라이선스 파일을 찾을 수 없습니다"; exit 1
+          fi
+      - name: Restore Noto Sans KR font cache
+        id: notokr-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: notokr.zip
+          key: notosanskr-${{ env.NOTOKR_RELEASE_TAG }}-${{ env.NOTOKR_SHA256 }}
+      - name: 한글 글꼴 번들 (Noto Sans KR — DEC-015)
+        run: |
+          if [ ! -f notokr.zip ]; then
+            url="https://github.com/notofonts/noto-cjk/releases/download/${NOTOKR_RELEASE_TAG}/17_NotoSansKR.zip"
+            curl -fsSL -o notokr.zip "$url"
+          fi
+          hash=$(sha256sum notokr.zip | awk '{print $1}')
+          if [ "$hash" != "$NOTOKR_SHA256" ]; then
+            echo "::error::Noto Sans KR 체크섬 불일치: $hash (기대값 $NOTOKR_SHA256)"
+            rm -f notokr.zip
+            exit 1
+          fi
+          font_dir="engine-build/libreoffice/share/fonts/truetype"
+          mkdir -p "$font_dir"
+          unzip -o notokr.zip -d notokr-extract
+          cp notokr-extract/NotoSansKR-Regular.otf "$font_dir/"
+          cp notokr-extract/NotoSansKR-Bold.otf "$font_dir/"
+          mkdir -p engine-build/licenses/notosanskr
+          cp notokr-extract/LICENSE engine-build/licenses/notosanskr/LICENSE.txt
+          if [ ! -f "$font_dir/NotoSansKR-Regular.otf" ]; then
+            echo "::error::글꼴 번들 실패: $font_dir/NotoSansKR-Regular.otf 없음"
+            exit 1
+          fi
+      - name: Save Noto Sans KR font cache
+        if: steps.notokr-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: notokr.zip
+          key: ${{ steps.notokr-cache.outputs.cache-primary-key }}
+      - name: Cache FFmpeg build
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ffmpeg.tar.xz
+          key: ffmpeg-${{ env.FFMPEG_SHA256 }}-linux64-lgpl-shared
+      - name: 영상 엔진 번들 (FFmpeg LGPL — DEC-024)
+        run: |
+          if [ ! -f ffmpeg.tar.xz ]; then
+            curl -fsSL -o ffmpeg.tar.xz "$FFMPEG_URL"
+          fi
+          hash=$(sha256sum ffmpeg.tar.xz | awk '{print $1}')
+          if [ "$hash" != "$FFMPEG_SHA256" ]; then
+            echo "::error::FFmpeg 체크섬 불일치: $hash (기대값 $FFMPEG_SHA256)"
+            rm -f ffmpeg.tar.xz
+            exit 1
+          fi
+          tar -xJf ffmpeg.tar.xz
+          bin_dir=$(find . -maxdepth 1 -type d -name "ffmpeg-*" | head -n1)
+          mkdir -p engine-build/ffmpeg
+          # ffplay(대화형 플레이어, 앱에서 안 씀)는 제외. bin/의 실행 파일과
+          # lib/의 .so를 한 디렉터리로 평평하게 합친다(Windows가 exe 옆에
+          # DLL을 두는 것과 같은 레이아웃) — 다만 이 빌드의 실제 RPATH는
+          # $ORIGIN이 아니어서(최초 시도에서 "libavdevice.so.63을 찾을 수
+          # 없음"으로 재현 확인, configure 로그의 -rpath 플래그 문자열만
+          # 보고 실제 ELF dynamic section 확인 없이 판단했던 착오) patchelf로
+          # RPATH를 $ORIGIN으로 직접 고정한다 — 앱 코드(video.py)를 건드리지
+          # 않고 CI 패키징 단계에서만 해결.
+          sudo apt-get install -y patchelf
+          find "$bin_dir/bin" -type f -not -name "ffplay" -exec cp {} engine-build/ffmpeg/ \;
+          cp "$bin_dir"/lib/*.so* engine-build/ffmpeg/
+          if [ ! -f engine-build/ffmpeg/ffmpeg ]; then
+            echo "::error::FFmpeg 번들 실패: engine-build/ffmpeg/ffmpeg 없음"; exit 1
+          fi
+          # --force-rpath로 예전 방식 DT_RPATH를 쓴다 — 기본값인 DT_RUNPATH는
+          # 그 파일 자신의 직접 의존성에만 적용되고 전이적(transitive)이지
+          # 않아서, libavformat.so가 다시 libavutil.so를 찾는 것 같은 사슬
+          # 단계에서는 실행 파일의 RPATH가 적용되지 않는다 — DT_RPATH는
+          # 프로세스 전체에 전이적으로 적용돼 이런 다단계 의존성 사슬도 덮는다.
+          for f in engine-build/ffmpeg/ffmpeg engine-build/ffmpeg/ffprobe engine-build/ffmpeg/*.so*; do
+            [ -f "$f" ] && patchelf --force-rpath --set-rpath '$ORIGIN' "$f"
+          done
+          chmod +x engine-build/ffmpeg/ffmpeg engine-build/ffmpeg/ffprobe
+          mkdir -p engine-build/licenses/ffmpeg
+          cp "$bin_dir/LICENSE.txt" engine-build/licenses/ffmpeg/LICENSE.txt
+      - name: Save FFmpeg cache
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ffmpeg.tar.xz
+          key: ${{ steps.ffmpeg-cache.outputs.cache-primary-key }}
+      - name: 영상 엔진 스모크 (번들된 실제 경로에서 실행 검증)
+        run: |
+          engine-build/ffmpeg/ffmpeg -y -i sidecar/ffmpeg/sample_h264_aac.mov \
+            -map 0:v:0 -map "0:a:0?" -c:v copy -c:a copy -sn engine-smoke-out.mp4
+          if [ ! -f engine-smoke-out.mp4 ]; then
+            echo "::error::영상 엔진 스모크 실패"; exit 1
+          fi
+      - name: LibreOffice + HWP→PDF 파이프라인 스모크 (사전 빌드 경로)
+        env:
+          FILECONV_SOFFICE: engine-build/libreoffice/program/soffice
+          FILECONV_JAVA: engine-build/jre/bin/java
+          FILECONV_HWP_CLASSPATH: engine-build/hwp
+          FILECONV_FFMPEG: engine-build/ffmpeg/ffmpeg
+          FILECONV_FFPROBE: engine-build/ffmpeg/ffprobe
+        run: |
+          python3 scripts/smoke_pdf_pipeline.py hwplib-src/sample_hwp/basic/표.hwp
+      - name: Build app
+        run: >
+          pyinstaller --noconfirm --clean --windowed --name FileConverter
+          --collect-submodules app run.py
+      - name: Qt xcb 플랫폼 플러그인 의존성 보완 (PyInstaller가 dlopen 시점 의존성을 놓침)
+        run: |
+          # ldd로 실제 확인된 문제(누락돼도 PyInstaller가 자동으로 안 알려줌):
+          # libqxcb.so는 libxcb-cursor·libxcb-icccm·libxcb-image·libxcb-util·
+          # libxkbcommon-x11 등을 실행 시점에 필요로 하는데, 이 라이브러리들은
+          # PySide6 wheel에도 안 담겨 있고 PyInstaller의 정적 분석으로도 못
+          # 찾는다(Qt가 dlopen으로 늦게 로드) — 시스템에 설치된 실제 파일을
+          # PyInstaller가 이미 만들어둔 _internal/(다른 PySide6 .so들과 같은
+          # 디렉터리, 같은 RPATH 규칙 적용)로 복사해 넣는다. 정확히 어떤
+          # SONAME이 빠졌는지는 매번 다시 물어(ldd 자체 결과 기준) 반복
+          # 해소한다 — 미리 추측한 목록에만 의존하면 전이적 의존성 사슬을
+          # 놓칠 수 있다.
+          target_dir="dist/FileConverter/_internal"
+          xcb_plugin="$target_dir/PySide6/Qt/plugins/platforms/libqxcb.so"
+          if [ ! -f "$xcb_plugin" ]; then
+            echo "::error::$xcb_plugin 없음 — PySide6 xcb 플러그인이 패키징 안 됨"; exit 1
+          fi
+          for round in 1 2 3 4 5; do
+            missing_names=$(ldd "$xcb_plugin" 2>&1 | awk '/not found/ {print $1}')
+            if [ -z "$missing_names" ]; then
+              echo "라운드 $round: 누락된 의존성 없음"
+              break
+            fi
+            echo "라운드 $round: $missing_names"
+            for name in $missing_names; do
+              src=$(ldconfig -p | awk -v n="$name" '$1==n {print $NF; exit}')
+              if [ -z "$src" ]; then
+                echo "::error::$name 을(를) 시스템에서 찾을 수 없습니다(패키지 설치 목록 확인 필요)"; exit 1
+              fi
+              cp -L "$src" "$target_dir/$name"
+            done
+          done
+          remaining=$(ldd "$xcb_plugin" 2>&1 | grep "not found" || true)
+          if [ -n "$remaining" ]; then
+            echo "::error::반복 보완 후에도 남은 누락 의존성:"; echo "$remaining"; exit 1
+          fi
+      - name: Bundle engine into dist (+ 제3자 라이선스 고지)
+        run: |
+          # app/bundle.py의 engine_dir()는 sys.executable(=dist/FileConverter/
+          # FileConverter) 옆의 engine/을 찾는다 — Windows onedir과 완전히
+          # 같은 평평한 레이아웃(macOS .app처럼 Contents/MacOS 한 단계 더
+          # 들어가지 않음).
+          target="dist/FileConverter"
+          cp -R engine-build "$target/engine"
+          mkdir -p "$target/engine/licenses"
+          cp hwplib-src/license.txt "$target/engine/licenses/hwplib-LICENSE.txt"
+          cp hwpxlib-src/license.txt "$target/engine/licenses/hwpxlib-LICENSE.txt"
+          cp packaging/THIRD_PARTY_NOTICES.txt "$target/THIRD_PARTY_NOTICES.txt"
+          cp packaging/VERSION "$target/VERSION"
+      - name: Verify bundled artifact (엔진 실행·라이선스 확인)
+        run: |
+          target="dist/FileConverter"
+          if [ ! -d "$target/engine/licenses/libreoffice" ]; then
+            echo "::error::LibreOffice 라이선스 파일이 아티팩트에 없습니다"; exit 1
+          fi
+          if [ ! -f "$target/engine/licenses/hwpxlib-LICENSE.txt" ]; then
+            echo "::error::hwpxlib 라이선스 파일이 아티팩트에 없습니다 (QA(h) Phase 1)"; exit 1
+          fi
+          if [ ! -f "$target/engine/libreoffice/share/fonts/truetype/NotoSansKR-Regular.otf" ]; then
+            echo "::error::Noto Sans KR 글꼴이 아티팩트에 없습니다 (DEC-015)"; exit 1
+          fi
+          if [ ! -f "$target/engine/licenses/notosanskr/LICENSE.txt" ]; then
+            echo "::error::Noto Sans KR 라이선스 파일이 아티팩트에 없습니다"; exit 1
+          fi
+          if [ ! -f "$target/engine/licenses/ffmpeg/LICENSE.txt" ]; then
+            echo "::error::FFmpeg 라이선스 파일이 아티팩트에 없습니다 (DEC-024)"; exit 1
+          fi
+          if [ ! -f "$target/engine/ffmpeg/ffmpeg" ]; then
+            echo "::error::FFmpeg 엔진이 아티팩트에 없습니다 (DEC-024)"; exit 1
+          fi
+          # 공유 라이브러리 누락 검사(ldd) — 주요 실행 파일·Qt xcb 플랫폼
+          # 플러그인이 실제로 모든 의존성을 찾는지 확인한다(자동 코드 리뷰
+          # 지적, DEC-064) — "not found"가 하나라도 있으면 실패 처리.
+          missing=""
+          for bin in "$target/FileConverter" \
+                     "$target/engine/libreoffice/program/soffice.bin" \
+                     "$target/engine/ffmpeg/ffmpeg" \
+                     "$target/engine/ffmpeg/ffprobe"; do
+            if [ -f "$bin" ]; then
+              out=$(ldd "$bin" 2>&1) || true
+              if echo "$out" | grep -q "not found"; then
+                echo "::error::$bin 에 누락된 공유 라이브러리가 있습니다:"
+                echo "$out" | grep "not found"
+                missing="1"
+              fi
+            fi
+          done
+          xcb_plugin=$(find "$target" -iname "libqxcb.so" | head -n1)
+          if [ -n "$xcb_plugin" ]; then
+            out=$(ldd "$xcb_plugin" 2>&1) || true
+            if echo "$out" | grep -q "not found"; then
+              echo "::error::$xcb_plugin(Qt xcb 플랫폼 플러그인)에 누락된 공유 라이브러리가 있습니다:"
+              echo "$out" | grep "not found"
+              missing="1"
+            fi
+          else
+            echo "::error::Qt xcb 플랫폼 플러그인(libqxcb.so)이 아티팩트에 없습니다"
+            missing="1"
+          fi
+          if [ -n "$missing" ]; then
+            exit 1
+          fi
+          if ! find "$target" -type d -name "PIL" | grep -q .; then
+            echo "::error::Pillow(PIL) 패키지가 패키징된 아티팩트에 없습니다 (DEC-025) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
+          fi
+          if ! find "$target" -iname "pypdfium2*" | grep -q .; then
+            echo "::error::pypdfium2 패키지가 패키징된 아티팩트에 없습니다 (DEC-025) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
+          fi
+          if ! find "$target" -type d -name "pptx" | grep -q .; then
+            echo "::error::python-pptx 패키지가 패키징된 아티팩트에 없습니다 (DEC-030) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
+          fi
+          bundled_version=$(cat "$target/VERSION")
+          repo_version=$(cat packaging/VERSION)
+          if [ "$bundled_version" != "$repo_version" ]; then
+            echo "::error::번들된 VERSION이 packaging/VERSION과 다릅니다(업데이트 확인 기능 오탐 위험) — 번들: '$bundled_version'"; exit 1
+          fi
+          # 패키징 후 실제 배포 경로에서 사이드카 실행 검증
+          "$target/engine/jre/bin/java" -cp "$target/engine/hwp" HwpToText \
+            hwplib-src/sample_hwp/merging-cell.hwp out3.txt
+          grep -qF "0,0" out3.txt || { echo "::error::패키징 경로 사이드카 스모크 실패"; exit 1; }
+          "$target/engine/ffmpeg/ffmpeg" -y -i sidecar/ffmpeg/sample_h264_aac.mov \
+            -map 0:v:0 -map "0:a:0?" -c:v copy -c:a copy -sn packaged-ffmpeg-out.mp4
+          if [ ! -f packaged-ffmpeg-out.mp4 ]; then
+            echo "::error::패키징 경로 FFmpeg 스모크 실패"; exit 1
+          fi
+          # 환경변수 없이 --frozen-exe로 실제 실행 시나리오를 흉내내
+          # engine_dir() 자동 탐색(app/bundle.py)이 진짜로 엔진을 찾는지 검증한다.
+          python3 scripts/smoke_pdf_pipeline.py hwplib-src/sample_hwp/basic/표.hwp \
+            --frozen-exe "$target/FileConverter"
+      - name: Smoke run (offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          dist/FileConverter/FileConverter &
+          pid=$!
+          sleep 8
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "::error::app exited early"; exit 1
+          fi
+          kill "$pid"
+          wait "$pid" 2>/dev/null || true
+      - name: AppDir 구성 (AppRun·데스크톱 항목·아이콘 — DEC-064)
+        run: |
+          appdir="AppDir"
+          mkdir -p "$appdir/usr/bin"
+          cp -R dist/FileConverter "$appdir/usr/bin/FileConverter"
+          cat > "$appdir/AppRun" <<'SH'
+          #!/bin/sh
+          HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+          exec "$HERE/usr/bin/FileConverter/FileConverter" "$@"
+          SH
+          chmod +x "$appdir/AppRun"
+          cat > "$appdir/FileConverter.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=File Converter
+          Exec=FileConverter
+          Icon=FileConverter
+          Categories=Office;
+          Terminal=false
+          DESKTOP
+          cp packaging/icon.png "$appdir/FileConverter.png"
+      - name: appimagetool 다운로드·검증 (고정 버전·SHA256)
+        run: |
+          curl -fsSL -o appimagetool "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
+          hash=$(sha256sum appimagetool | awk '{print $1}')
+          if [ "$hash" != "$APPIMAGETOOL_SHA256" ]; then
+            echo "::error::appimagetool 체크섬 불일치: $hash (기대값 $APPIMAGETOOL_SHA256)"; exit 1
+          fi
+          chmod +x appimagetool
+      - name: AppImage 빌드 (REQ-NF-006 — Windows 인스톨러·macOS dmg에 대응)
+        run: |
+          version=$(cat packaging/VERSION | tr -d '[:space:]')
+          mkdir -p packaging/installer-out
+          out="packaging/installer-out/FileConverter-${version}-x86_64.AppImage"
+          # appimagetool 자체가 AppImage라 FUSE가 필요한데, GitHub 러너에
+          # FUSE가 항상 준비돼 있지 않다 — --appimage-extract-and-run으로
+          # FUSE 없이 추출·실행한다(공식 CI 권장 방식).
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run AppDir "$out"
+          if [ ! -f "$out" ]; then
+            echo "::error::AppImage 생성 실패: $out 없음"; exit 1
+          fi
+          chmod +x "$out"
+          echo "빌드됨: $out ($(du -m "$out" | cut -f1) MB)"
+      - name: AppImage 실행 스모크 — extract-and-run (가상 X 서버, xcb 경로)
+        # QT_QPA_PLATFORM=offscreen(다른 두 플랫폼 스모크와 같은 방식)은
+        # xcb 플랫폼 플러그인 로딩 자체를 건너뛴다 — 실제 사용자가 데스크톱
+        # 세션에서 겪는 경로(플러그인 탐색·X11 연결)를 놓칠 수 있다는 지적
+        # (자동 코드 리뷰, DEC-064)에 따라 xvfb-run(가상 X 서버)으로 바꿔
+        # xcb 경로를 실제로 태운다.
+        run: |
+          version=$(cat packaging/VERSION | tr -d '[:space:]')
+          appimage="packaging/installer-out/FileConverter-${version}-x86_64.AppImage"
+          xvfb-run --auto-servernum "$appimage" --appimage-extract-and-run &
+          pid=$!
+          sleep 8
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "::error::AppImage 실행 실패 (extract-and-run)"; exit 1
+          fi
+          kill "$pid"
+          wait "$pid" 2>/dev/null || true
+      - name: AppImage 실행 스모크 — 일반 실행 (FUSE 마운트, 실제 사용자 "다운받아 실행" 경로)
+        # --appimage-extract-and-run은 CI 표준 우회법이지만 FUSE 마운트
+        # 자체를 건너뛴다 — 실제 최종 사용자가 실행 권한만 준 뒤 더블
+        # 클릭하는 일반 실행 경로는 별도로 검증해야 한다는 지적(자동 코드
+        # 리뷰, DEC-064)에 따라 옵션 없이(FUSE로) 한 번 더 부팅해 본다.
+        run: |
+          version=$(cat packaging/VERSION | tr -d '[:space:]')
+          appimage="packaging/installer-out/FileConverter-${version}-x86_64.AppImage"
+          xvfb-run --auto-servernum "$appimage" &
+          pid=$!
+          sleep 8
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "::error::AppImage 실행 실패 (FUSE 일반 실행)"; exit 1
+          fi
+          kill "$pid"
+          wait "$pid" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
+        with:
+          name: FileConverter-linux-appimage
+          path: packaging/installer-out/*.AppImage
+
   publish-release:
     # Windows/macOS 두 잡이 병렬로 빌드하되, 같은 GitHub Release에 자산을
     # 함께 올려야 하므로(태그당 릴리스 1개) 발행만 이 잡으로 분리해 두
     # 잡 모두를 기다린다 — 두 잡이 각자 gh release create를 부르면 경쟁
     # 상태로 하나가 "이미 존재함" 에러로 실패할 수 있어 이렇게 나눴다.
-    needs: [build-windows, build-macos]
+    needs: [build-windows, build-macos, build-linux]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -1632,6 +2558,10 @@ jobs:
         with:
           name: FileConverter-macos-dmg-x86_64
           path: macos-dmg-x86_64
+      - uses: actions/download-artifact@v4
+        with:
+          name: FileConverter-linux-appimage
+          path: linux-appimage
       - name: Publish GitHub Release (태그 push에서만 — v*.exe/v*.dmg README 다운로드 링크의 실제 소스)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1656,7 +2586,11 @@ jobs:
           cp "$mac_dmg_arm64" "$mac_latest_arm64"
           mac_latest_x86_64="macos-dmg-x86_64/FileConverter-latest-mac-x86_64.dmg"
           cp "$mac_dmg_x86_64" "$mac_latest_x86_64"
-          assets=("$win_exe" "$win_latest" "$mac_dmg_arm64" "$mac_latest_arm64" "$mac_dmg_x86_64" "$mac_latest_x86_64")
+          # DEC-064: Linux는 AppImage 하나(x86_64)만 첨부한다.
+          linux_appimage=$(find linux-appimage -name '*.AppImage' | head -n1)
+          linux_latest="linux-appimage/FileConverter-latest-x86_64.AppImage"
+          cp "$linux_appimage" "$linux_latest"
+          assets=("$win_exe" "$win_latest" "$mac_dmg_arm64" "$mac_latest_arm64" "$mac_dmg_x86_64" "$mac_latest_x86_64" "$linux_appimage" "$linux_latest")
           # DEC-062: 업데이트 전용 exe는 파일명에 엔진 해시가 박혀 있어(예:
           # FileConverter-Update-0.3.14-engine-abc123.exe) 고정 이름 사본에는
           # 해시를 넣지 않는다 — 앱은 이 고정 이름으로 접근하지 않고 GitHub
@@ -1670,5 +2604,5 @@ jobs:
           gh release create "${{ github.ref_name }}" "${assets[@]}" \
             --repo "${{ github.repository }}" \
             --title "File Converter ${{ github.ref_name }}" \
-            --notes "Windows 인스톨러(관리자 권한 불요) · macOS(Apple Silicon·Intel 모두 지원, 미서명 — 실행 시 control+클릭 → 열기 필요, 영상 변환 미지원). 자세한 내용: README.md · docs/06_open_questions.md" \
+            --notes "Windows 인스톨러(관리자 권한 불요) · macOS(Apple Silicon·Intel 모두 지원, 미서명 — 실행 시 control+클릭 → 열기 필요, 영상 변환 미지원) · Linux(x86_64 AppImage, 실행 권한만 부여하면 바로 실행). 자세한 내용: README.md · docs/06_open_questions.md" \
             --prerelease
