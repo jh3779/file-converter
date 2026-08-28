@@ -51,8 +51,13 @@ jobs:
       # 있다 — SHA256 불일치로 CI가 실패하면 최신 값을 다시 계산해 갱신할 것.
       # 2026-08-28: n7.1 빌드가 "latest" 릴리스 자산 목록에서 아예 빠져 URL이
       # 404로 실패(SHA256 불일치가 아니라 파일 자체가 없어짐) — n9.0으로 갱신.
-      FFMPEG_URL: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-lgpl-shared-9.0.zip"
-      FFMPEG_SHA256: 787dc4a4403d36002e209eb9f88124f4556142c2121043426befccb8e3350dbb
+      # "latest" 태그는 BtbN이 주기적으로 자산을 갈아치워(2026-08-28 n7.1
+      # 자산이 통째로 사라져 URL 404로 CI가 실패한 전례, PR #102) 재현
+      # 불가능하다 — 날짜가 박힌 불변 autobuild-* 태그로 고정한다(DEC-064
+      # Linux 작업 중 자동 코드 리뷰 지적으로 함께 정정, 같은 문제가 Linux
+      # FFmpeg에도 있었음). 갱신 시 이 태그 자체를 최신 autobuild-*로 바꿀 것.
+      FFMPEG_URL: "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-27-16-45/ffmpeg-n9.0.1-9-gfa97c9f046-win64-lgpl-shared-9.0.zip"
+      FFMPEG_SHA256: bc1036c74bb1f059a4cb5d08436783df32ddcf854cb11e36b9c1d7f2c3b097e0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -1630,8 +1635,12 @@ jobs:
       NOTOKR_SHA256: ac7eeb4e2b0d41de8ff31b2d6e1e2a41caf253fd5cefb380bfa1f40f1747b612
       # FFmpeg LGPL 빌드(BtbN/FFmpeg-Builds, Windows·DEC-024와 같은 소스·같은
       # n9.0 버전) — 로컬에서 직접 다운로드해 확인한 tar.xz SHA256.
-      FFMPEG_URL: "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-lgpl-shared-9.0.tar.xz"
-      FFMPEG_SHA256: 0391e42d94ea198e4acd8cabb012fd5ec78972c09485f7968001f4d883b852ba
+      # "latest" 태그는 BtbN이 주기적으로 자산을 갈아치워 재현 불가능하다
+      # (Windows 잡과 같은 이유로 여기도 불변 autobuild-* 태그 고정 — 자동
+      # 코드 리뷰 지적, DEC-064). 갱신 시 이 태그 자체를 최신 autobuild-*로
+      # 바꿀 것.
+      FFMPEG_URL: "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-08-27-16-45/ffmpeg-n9.0.1-9-gfa97c9f046-linux64-lgpl-shared-9.0.tar.xz"
+      FFMPEG_SHA256: fe2db54e282b084d2865d7c2b4d15dee61730632d98efc58204c586367f4ee39
       # appimagetool(MIT) — 로컬에서 직접 다운로드해 확인한 SHA256.
       APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
     steps:
@@ -1644,7 +1653,10 @@ jobs:
           distribution: temurin
           java-version: "21"
       - name: Install system libs for Qt (headless — 빌드/스모크 검증용, 배포 산출물엔 포함 안 됨)
-        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1
+        # xvfb: AppImage 최종 스모크가 QT_QPA_PLATFORM=offscreen 대신 실제
+        # xcb 플랫폼 플러그인 경로를 태우도록(자동 코드 리뷰 지적) — 가상
+        # X 서버라 실제 데스크톱 세션의 GUI 로딩 경로를 더 가깝게 재현한다.
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 xvfb
       - run: pip install -r requirements.txt pyinstaller
       - name: Build HWP engine (hwplib + hwpxlib + sidecar + jlink JRE)
         run: |
@@ -2388,13 +2400,16 @@ jobs:
           fi
           chmod +x "$out"
           echo "빌드됨: $out ($(du -m "$out" | cut -f1) MB)"
-      - name: AppImage 실행 스모크 (완성된 AppImage 자체를 오프스크린으로 부팅 확인)
-        env:
-          QT_QPA_PLATFORM: offscreen
+      - name: AppImage 실행 스모크 (완성된 AppImage 자체를 가상 X 서버에서 부팅 확인)
+        # QT_QPA_PLATFORM=offscreen(다른 두 플랫폼 스모크와 같은 방식)은
+        # xcb 플랫폼 플러그인 로딩 자체를 건너뛴다 — 실제 사용자가 데스크톱
+        # 세션에서 겪는 경로(플러그인 탐색·X11 연결)를 놓칠 수 있다는 지적
+        # (자동 코드 리뷰, DEC-064)에 따라 xvfb-run(가상 X 서버)으로 바꿔
+        # xcb 경로를 실제로 태운다.
         run: |
           version=$(cat packaging/VERSION | tr -d '[:space:]')
           appimage="packaging/installer-out/FileConverter-${version}-x86_64.AppImage"
-          "$appimage" --appimage-extract-and-run &
+          xvfb-run --auto-servernum "$appimage" --appimage-extract-and-run &
           pid=$!
           sleep 8
           if ! kill -0 "$pid" 2>/dev/null; then
