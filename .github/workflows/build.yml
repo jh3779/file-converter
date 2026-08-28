@@ -1622,9 +1622,14 @@ jobs:
     # soffice·ffmpeg 경로를 검사하는 분기를 갖고 있어(원래 Windows/미래
     # 대비용으로 있던 코드) 그대로 들어맞았다. HWP 엔진(hwplib·hwpxlib·JRE)
     # 빌드·스모크는 순수 JVM 로직이라 Windows/macOS 잡과 완전히 동일 — 그대로
-    # 재사용한다.
+    # 재사용한다. ubuntu-latest(계속 최신 버전으로 옮겨감, floating 대상)가
+    # 아니라 ubuntu-22.04(glibc 2.35)로 고정 — PySide6 최신 wheel이 요구하는
+    # 최저 glibc(manylinux_2_34, DEC-064)를 실제로 만족하는 가장 오래된
+    # 지원 배포판 기준으로 빌드해야, 이보다 새 배포판에서의 호환은 자동
+    # 보장되고 "최소 지원 배포판이 어디냐"는 질문에 실제로 답이 된다
+    # (자동 코드 리뷰 지적).
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     env:
       HWPLIB_REV: d9e073d6899d947f8f583492e00a5e1062381d7e
       HWPXLIB_REV: 473d9d6aa82d8896f4f464b52d801e5691dc7cf3
@@ -1656,7 +1661,12 @@ jobs:
         # xvfb: AppImage 최종 스모크가 QT_QPA_PLATFORM=offscreen 대신 실제
         # xcb 플랫폼 플러그인 경로를 태우도록(자동 코드 리뷰 지적) — 가상
         # X 서버라 실제 데스크톱 세션의 GUI 로딩 경로를 더 가깝게 재현한다.
-        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 xvfb
+        # libfuse2: appimagetool·완성된 AppImage 둘 다 기본적으로는 FUSE로
+        # 마운트해 실행한다 — --appimage-extract-and-run(FUSE 우회, CI 표준
+        # 관례)만으로는 실제 최종 사용자가 "다운받아 실행 권한만 주고 더블
+        # 클릭"하는 일반 실행 경로를 검증하지 못한다는 지적(자동 코드 리뷰)에
+        # 따라 FUSE 자체도 준비해 일반 실행 경로를 별도로 스모크한다.
+        run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1 xvfb libfuse2
       - run: pip install -r requirements.txt pyinstaller
       - name: Build HWP engine (hwplib + hwpxlib + sidecar + jlink JRE)
         run: |
@@ -2318,6 +2328,38 @@ jobs:
           if [ ! -f "$target/engine/ffmpeg/ffmpeg" ]; then
             echo "::error::FFmpeg 엔진이 아티팩트에 없습니다 (DEC-024)"; exit 1
           fi
+          # 공유 라이브러리 누락 검사(ldd) — 주요 실행 파일·Qt xcb 플랫폼
+          # 플러그인이 실제로 모든 의존성을 찾는지 확인한다(자동 코드 리뷰
+          # 지적, DEC-064) — "not found"가 하나라도 있으면 실패 처리.
+          missing=""
+          for bin in "$target/FileConverter" \
+                     "$target/engine/libreoffice/program/soffice.bin" \
+                     "$target/engine/ffmpeg/ffmpeg" \
+                     "$target/engine/ffmpeg/ffprobe"; do
+            if [ -f "$bin" ]; then
+              out=$(ldd "$bin" 2>&1) || true
+              if echo "$out" | grep -q "not found"; then
+                echo "::error::$bin 에 누락된 공유 라이브러리가 있습니다:"
+                echo "$out" | grep "not found"
+                missing="1"
+              fi
+            fi
+          done
+          xcb_plugin=$(find "$target" -iname "libqxcb.so" | head -n1)
+          if [ -n "$xcb_plugin" ]; then
+            out=$(ldd "$xcb_plugin" 2>&1) || true
+            if echo "$out" | grep -q "not found"; then
+              echo "::error::$xcb_plugin(Qt xcb 플랫폼 플러그인)에 누락된 공유 라이브러리가 있습니다:"
+              echo "$out" | grep "not found"
+              missing="1"
+            fi
+          else
+            echo "::error::Qt xcb 플랫폼 플러그인(libqxcb.so)이 아티팩트에 없습니다"
+            missing="1"
+          fi
+          if [ -n "$missing" ]; then
+            exit 1
+          fi
           if ! find "$target" -type d -name "PIL" | grep -q .; then
             echo "::error::Pillow(PIL) 패키지가 패키징된 아티팩트에 없습니다 (DEC-025) — PyInstaller가 lazy import를 놓쳤을 수 있음"; exit 1
           fi
@@ -2400,7 +2442,7 @@ jobs:
           fi
           chmod +x "$out"
           echo "빌드됨: $out ($(du -m "$out" | cut -f1) MB)"
-      - name: AppImage 실행 스모크 (완성된 AppImage 자체를 가상 X 서버에서 부팅 확인)
+      - name: AppImage 실행 스모크 — extract-and-run (가상 X 서버, xcb 경로)
         # QT_QPA_PLATFORM=offscreen(다른 두 플랫폼 스모크와 같은 방식)은
         # xcb 플랫폼 플러그인 로딩 자체를 건너뛴다 — 실제 사용자가 데스크톱
         # 세션에서 겪는 경로(플러그인 탐색·X11 연결)를 놓칠 수 있다는 지적
@@ -2413,7 +2455,23 @@ jobs:
           pid=$!
           sleep 8
           if ! kill -0 "$pid" 2>/dev/null; then
-            echo "::error::AppImage 실행 실패"; exit 1
+            echo "::error::AppImage 실행 실패 (extract-and-run)"; exit 1
+          fi
+          kill "$pid"
+          wait "$pid" 2>/dev/null || true
+      - name: AppImage 실행 스모크 — 일반 실행 (FUSE 마운트, 실제 사용자 "다운받아 실행" 경로)
+        # --appimage-extract-and-run은 CI 표준 우회법이지만 FUSE 마운트
+        # 자체를 건너뛴다 — 실제 최종 사용자가 실행 권한만 준 뒤 더블
+        # 클릭하는 일반 실행 경로는 별도로 검증해야 한다는 지적(자동 코드
+        # 리뷰, DEC-064)에 따라 옵션 없이(FUSE로) 한 번 더 부팅해 본다.
+        run: |
+          version=$(cat packaging/VERSION | tr -d '[:space:]')
+          appimage="packaging/installer-out/FileConverter-${version}-x86_64.AppImage"
+          xvfb-run --auto-servernum "$appimage" &
+          pid=$!
+          sleep 8
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "::error::AppImage 실행 실패 (FUSE 일반 실행)"; exit 1
           fi
           kill "$pid"
           wait "$pid" 2>/dev/null || true
