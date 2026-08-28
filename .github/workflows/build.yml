@@ -1470,6 +1470,19 @@ jobs:
         run: >
           pyinstaller --noconfirm --clean --windowed --name FileConverter
           --icon packaging/icon.icns --collect-submodules app run.py
+      - name: 빌드 아키텍처 검증 (DEC-063 — 매트릭스 라벨·dmg 파일명이 실제 바이너리와 어긋나지 않는지 확인)
+        run: |
+          host_arch=$(uname -m)
+          if [ "$host_arch" != "${{ matrix.arch }}" ]; then
+            echo "::error::러너 아키텍처($host_arch)가 매트릭스 arch(${{ matrix.arch }})와 다릅니다"; exit 1
+          fi
+          exe="dist/FileConverter.app/Contents/MacOS/FileConverter"
+          bin_archs=$(lipo -archs "$exe")
+          if [ "$bin_archs" != "${{ matrix.arch }}" ]; then
+            echo "::error::빌드된 실행 파일 아키텍처($bin_archs)가 기대값(${{ matrix.arch }})과 다릅니다 — dmg 파일명(mac-${{ matrix.arch }})이 실제 바이너리를 오표기할 위험이 있습니다"
+            exit 1
+          fi
+          echo "아키텍처 확인 완료: $exe = $bin_archs"
       - name: Bundle engine into dist (+ 제3자 라이선스 고지)
         run: |
           # app/bundle.py의 engine_dir()는 sys.executable(=.../Contents/MacOS/FileConverter)
