@@ -1675,9 +1675,16 @@ jobs:
         # 한다 — 그러려면 먼저 이 러너에도 설치해 파일을 확보해야 한다.
         run: |
           sudo apt-get update
+          # XCB 계열은 Qt 공식 문서(Deploying Qt for Linux/X11 apps)가 xcb
+          # 플랫폼 플러그인 배포에 필요하다고 명시한 전체 목록 — 처음엔
+          # ldd가 알려준 것만 넣었다가 libxcb-cursor0의 전이 의존성
+          # (libxcb-shape0)을 또 한 라운드 놓쳐서(round-trip 낭비), 이번엔
+          # Qt가 문서화한 목록 전체를 한 번에 반영한다.
           sudo apt-get install -y libegl1 libgl1 xvfb libfuse2 \
             libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
-            libxcb-keysyms1 libxcb-render-util0 libxcb-util1
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-render0 \
+            libxcb-shape0 libxcb-shm0 libxcb-sync1 libxcb-xfixes0 \
+            libxcb-xinerama0 libxcb-xkb1 libxcb-util1
       - run: pip install -r requirements.txt pyinstaller
       - name: Build HWP engine (hwplib + hwpxlib + sidecar + jlink JRE)
         run: |
