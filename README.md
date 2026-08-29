@@ -2,15 +2,16 @@
 
 비개발자를 위한 **완전 오프라인** 데스크톱 파일 포맷 변환기. 파일이 PC 밖으로 절대 나가지 않습니다.
 
-> Windows·macOS 배포 (v0.3.14 프리릴리스) · 사이드 프로젝트 · MVP 완성
+> Windows·macOS·Linux 배포 (v0.3.15 프리릴리스) · 사이드 프로젝트 · MVP 완성
 
 ## 다운로드
 
 | 플랫폼 | 방법 |
 |---|---|
-| 🪟 **Windows** | **[v0.3.14 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.14/FileConverter-Setup-latest.exe)** — 인스톨러 실행 중 "설치 모드 선택" 화면이 뜨면 **기본값("나만 사용하도록 설치")을 그대로 두고 진행**하세요 — 그러면 관리자 권한이 필요 없습니다(v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
-| 🍎 **macOS** (Apple Silicon) | **[v0.3.14 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.14/FileConverter-latest-mac-arm64.dmg)** — dmg를 열어 Applications로 드래그(DEC-029). **미서명 배포**라 처음 실행 시 Gatekeeper가 막습니다 — 아래 안내 참고. Intel Mac은 아직 미지원, **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
-| 🐧 Linux | 지원 계획 없음 |
+| 🪟 **Windows** | **[v0.3.15 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.15/FileConverter-Setup-latest.exe)** — 인스톨러 실행 중 "설치 모드 선택" 화면이 뜨면 **기본값("나만 사용하도록 설치")을 그대로 두고 진행**하세요 — 그러면 관리자 권한이 필요 없습니다(v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
+| 🍎 **macOS** (Apple Silicon) | **[v0.3.15 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.15/FileConverter-latest-mac-arm64.dmg)** — dmg를 열어 Applications로 드래그(DEC-029). **미서명 배포**라 처음 실행 시 Gatekeeper가 막습니다 — 아래 안내 참고. **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
+| 🍎 **macOS** (Intel) | **[v0.3.15 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.15/FileConverter-latest-mac-x86_64.dmg)** — 위 Apple Silicon판과 사용법 동일(DEC-063). **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
+| 🐧 **Linux** (x86_64) | **[v0.3.15 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.15/FileConverter-latest-x86_64.AppImage)** — AppImage(DEC-064) 단일 파일. 다운로드 후 실행 권한을 준 뒤(`chmod +x FileConverter-latest-x86_64.AppImage`) 더블클릭하면 바로 실행됩니다. glibc 2.34 이상(Ubuntu 22.04·Debian 12·Fedora 36 이상 등 최근 배포판)이 필요하고, 대부분의 데스크톱 환경에 이미 있는 FUSE가 없다면 파일 관리자가 "실행할 수 없음"으로 표시할 수 있습니다 — 그럴 땐 터미널에서 `./FileConverter-latest-x86_64.AppImage --appimage-extract-and-run`으로 실행하세요 |
 
 > ⚠️ 설치 파일을 브라우저로 받아 실행하면 Windows SmartScreen이 **빨간 "Windows의 PC
 > 보호" 화면으로 실행을 막습니다**(경고가 아니라 차단 — 정식 코드 서명 인증서가 없는
@@ -26,12 +27,13 @@
 > "latest"로 인정하지 않아** 쓸 수 없다(0.x라 `--prerelease`로 발행 — DEC-014). 그래서 위
 > 링크는 태그 버전이 URL에 고정되어 있다 — **새 버전을 태그할 때마다 이 표의 URL도 함께
 > 갱신할 것**(파일명은 Windows `FileConverter-Setup-latest.exe`·macOS
-> `FileConverter-latest-mac-arm64.dmg`로 고정이라 태그 부분만 바꾸면 됨).
+> `FileConverter-latest-mac-arm64.dmg`/`FileConverter-latest-mac-x86_64.dmg`·Linux
+> `FileConverter-latest-x86_64.AppImage`로 고정이라 태그 부분만 바꾸면 됨).
 
 ## 무엇을 하나
 - **문서**: DOCX→PDF · PPTX→PDF · PDF→TXT/DOCX/이미지 · HWP→PDF/TXT/DOCX · **HWPX→PDF/TXT/DOCX**(hwplib이 아닌 별도 라이브러리 hwpxlib 사용 — DEC-044, 머리말·꼬리말·각주·미주·글상자 텍스트도 반영 — DEC-052) · DOCX·PDF→HWP/**HWPX**(문단 텍스트 + 실제 표(셀 병합 포함, DEC-035·DEC-049) + 문단·**표 셀 안** 문자 서식(DEC-038·DEC-049·DEC-051) + 문단·**표 셀 안** 정렬(DEC-040·DEC-049·DEC-053), PDF는 표 구조가 없어 텍스트만 — DEC-017 정정·DEC-023·DEC-028, 실제 한글 뷰어 렌더링은 검증 중). PDF→이미지는 원본 파일명 폴더에 페이지별 PNG 또는 JPG 저장(DEC-026, JPG는 DEC-043). PDF→DOCX는 굵게/기울임/글자크기 + **이미지·표 테두리**(DEC-054) + **밑줄**(DEC-055, 텍스트 바로 아래의 벡터 선 위치로 추정)까지 원래 위치에 재구성, HWP/HWPX→DOCX는 굵게/기울임/밑줄/글자크기/색상 반영. **PDF→DOCX의 굵게·기울임 감지는 한글 텍스트에서는 거의 항상 실패한다**(문서에 동아시아 글꼴이 명시적으로 지정된 드문 경우만 동작, 라틴 문자는 정상 동작 — 외부 QA #44)
 - **데이터**: CSV↔XLSX · CSV↔JSON (한글 인코딩 깨짐 방지)
-- **영상**: AVI/MOV/MKV/WMV/FLV/M4V→MP4 (H.264/HEVC 스트림은 재인코딩 없이 무손실 복사 — DEC-024. 그 외 코덱은 Windows에서 h264_mf로 재인코딩, 실패하거나 macOS(FFmpeg 미번들 — DEC-029)면 명확한 오류로 거부 — DEC-060)
+- **영상**: AVI/MOV/MKV/WMV/FLV/M4V→MP4 (H.264/HEVC 스트림은 재인코딩 없이 무손실 복사 — DEC-024, Windows·Linux 지원 — DEC-064. 그 외 코덱은 Windows에서만 h264_mf로 재인코딩 — DEC-060. macOS는 FFmpeg 자체를 번들하지 않아 영상 변환 전체 미지원 — DEC-029)
 - **이미지**: JPG/JPEG/PNG/BMP/GIF/WEBP/TIFF 상호 변환 (EXIF 회전 반영, 투명 배경은 무알파 포맷 저장 시 흰 배경 합성, 애니메이션은 첫 프레임만 — DEC-025)
 - **3D 모델**: OBJ/STL/PLY/GLB/GLTF 상호 변환 (형태·정점 색상 보존, STL은 포맷 자체에 색상·재질이 없어 STL로 변환 시 색이 사라짐 — DEC-050)
 - **TXT/MD/HTML**: 상호 변환 6방향 (MD↔HTML은 표·코드블록·굵게/기울임 등 GFM 핵심 문법 반영, TXT는 마크업 문법이 없어 TXT→MD/HTML은 특수문자를 이스케이프해 원본 그대로 보이게 처리, MD→TXT는 표가 셀별 줄바꿈으로 풀려 열 정렬은 사라짐 — DEC-061)
@@ -129,6 +131,7 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] **TXT/MD/HTML 상호 변환 신규 지원**(DEC-061, "Could" 잔여 항목 마지막 하나) — 6방향 전부 지원. MD↔HTML은 순수 Python 라이브러리(Markdown, markdownify — 둘 다 허용적 라이선스, GPL인 html2text는 배제)로 표·코드블록 등 GFM 핵심 문법까지 반영. 검증 중 HTML `<title>` 텍스트가 본문에 새던 문제, 인라인 태그가 텍스트 줄을 갈라놓던 문제 등 실제 버그 2건을 발견해 수정
 - [x] v0.3.13 — **"Could" 잔여 항목 완료**(위 DEC-060·061 항목 전부: 영상 코덱 재인코딩 확장·TXT/MD/HTML 상호 변환) 및 요구사항 문서 정확성 정리(DEC-059)
 - [x] v0.3.14 — **엔진/앱 분리 업데이트 설치 파일 인프라(1/2)**(DEC-062, 사용자 요청 — "업데이트분만 추가 다운은 안되나?") — Windows 설치 파일(477MB)의 대부분을 차지하는 JRE·LibreOffice·FFmpeg 번들은 릴리스마다 거의 안 바뀌는데도 매번 전체를 다시 받아야 했던 문제. 이제 CI가 전체 설치 파일과 함께, 엔진 폴더를 뺀 훨씬 작은 "업데이트 전용" 설치 파일도 함께 만들어 릴리스에 올린다(실측 84% 작음 — 394.7MB → 64.1MB). 이번 릴리스는 인프라만 반영 — 앱이 실제로 이 작은 파일을 찾아 내려받아 적용하는 화면·로직은 다음 릴리스(2/2)에서 이어진다. 그때도 사용자가 "지금 업데이트"를 직접 눌러야만 네트워크를 타는 옵트인 원칙(DEC-022)은 그대로 유지
+- [x] v0.3.15 — **macOS Intel(x86_64) 배포판 + Linux(x86_64) 배포판 신규 추가**(사용자 요청 — REQ-NF-001) — **macOS Intel**(DEC-063): DEC-029가 "PyInstaller universal2가 모든 의존성의 universal2 wheel을 요구해 범위 밖"이라 보류했던 근거를 재검토한 결과, universal2 fat binary가 아니라 아키텍처별로 완전히 분리된 네이티브 빌드를 만들면 이 제약 자체가 성립하지 않음을 확인 — GitHub Actions의 남은 유일한 Intel macOS 러너(`macos-15-intel`)에서 별도 빌드해 Apple Silicon판과 나란히 배포. **Linux**(DEC-064): AppImage(단일 실행 파일, 설치 과정 없음)로 신규 지원 — LibreOffice는 공식 deb 묶음을 `dpkg-deb`로 풀어(시스템 설치 없이) 번들, FFmpeg는 Windows와 같은 LGPL 빌드를 그대로 써서 **영상→MP4를 처음부터 지원**한다(macOS만 계속 미지원). 두 플랫폼 모두 앱 코드 변경 없이 CI 인프라 확장만으로 추가됨(기존 코드가 이미 "실행 파일 옆 평평한 engine/" 경로를 검사하는 구조였음)
 
 ## 라이선스 고지
 - HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)
