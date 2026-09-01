@@ -111,7 +111,15 @@ def csv_to_json(src: Path, tmpdir: Path) -> Path:
         records: list = []
     else:
         header, body = rows[0], rows[1:]
-        records = [dict(zip(header, row)) for row in body]
+        records = []
+        for row in body:
+            record = dict(zip(header, row))
+            # 행 컬럼이 헤더보다 많으면 dict(zip(...))이 초과 값을 조용히
+            # 버린다 — csv.DictReader의 restkey 관례를 따라 "_extra"에
+            # 리스트로 보존한다(불규칙 CSV에서의 데이터 손실 방지).
+            if len(row) > len(header):
+                record["_extra"] = row[len(header):]
+            records.append(record)
     out = tmpdir / (src.stem + ".json")
     out.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
     return out

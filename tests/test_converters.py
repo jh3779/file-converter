@@ -242,6 +242,16 @@ class TestCsvJson(Base):
         out = data.csv_to_json(src, self.tmp)
         self.assertEqual(json.loads(out.read_text()), [{"a": "1", "b": "2"}])
 
+    def test_csv_to_json_extra_columns_preserved(self):
+        """행 컬럼이 헤더보다 많으면 dict(zip(...))이 초과 값을 조용히
+        버리던 데이터 손실 버그 — "_extra"에 리스트로 보존해야 한다."""
+        src = self.tmp / "d.csv"
+        src.write_text("a,b\n1,2,3,4\n5,6\n", encoding="utf-8")
+        out = data.csv_to_json(src, self.tmp)
+        payload = json.loads(out.read_text())
+        self.assertEqual(payload[0], {"a": "1", "b": "2", "_extra": ["3", "4"]})
+        self.assertEqual(payload[1], {"a": "5", "b": "6"})
+
 
 def _block_text(block: dict) -> str:
     """블록의 runs를 이어붙인 평문(DEC-038 — docx_to_blocks가 이제 항상
