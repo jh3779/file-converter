@@ -252,6 +252,15 @@ class TestCsvJson(Base):
         self.assertEqual(payload[0], {"a": "1", "b": "2", "_extra": ["3", "4"]})
         self.assertEqual(payload[1], {"a": "5", "b": "6"})
 
+    def test_csv_to_json_extra_columns_avoid_header_collision(self):
+        """헤더에 이미 "_extra" 컬럼이 있으면 그 값을 초과 컬럼 리스트가
+        덮어쓰던 회귀(코드 리뷰 지적) — 충돌 없는 키를 골라야 한다."""
+        src = self.tmp / "d.csv"
+        src.write_text("a,_extra\n1,2,3,4\n", encoding="utf-8")
+        out = data.csv_to_json(src, self.tmp)
+        payload = json.loads(out.read_text())
+        self.assertEqual(payload[0], {"a": "1", "_extra": "2", "__extra": ["3", "4"]})
+
 
 def _block_text(block: dict) -> str:
     """블록의 runs를 이어붙인 평문(DEC-038 — docx_to_blocks가 이제 항상
