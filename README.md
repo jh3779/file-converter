@@ -22,6 +22,14 @@
 > ⚠️ macOS는 **서명 없이 배포**합니다(개인 사이드 프로젝트 규모에 맞춘 선택, DEC-029) —
 > 처음 실행 시 Gatekeeper가 "확인되지 않은 개발자" 경고로 막습니다. Finder에서 앱을
 > **control+클릭 → "열기"**를 누르면 한 번만 이 경고를 넘길 수 있습니다(악성코드 경고 아님).
+>
+> **"손상되었기 때문에 열 수 없습니다"라고 뜨는 경우** (최신 macOS에서 흔함, DEC-065):
+> 실제로 파일이 손상된 게 아니라, 공증(notarization)되지 않은 앱에 macOS가 자동으로
+> 붙이는 격리(quarantine) 표시 때문입니다 — 이 메시지가 뜨면 control+클릭도 안 통할 수
+> 있습니다. 터미널을 열어 아래 명령을 실행하면 해결됩니다(Applications로 옮긴 뒤 실행):
+> ```
+> xattr -cr /Applications/FileConverter.app
+> ```
 
 > 유지보수 메모: `.../releases/latest/download/...` 단축 링크는 GitHub이 **pre-release를
 > "latest"로 인정하지 않아** 쓸 수 없다(0.x라 `--prerelease`로 발행 — DEC-014). 그래서 위
