@@ -11,6 +11,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import QApplication, QLabel
 from app import i18n, tokens
 from app.history import History
 from app.ui.main_window import MainWindow
+from app.workers import Job
 
 _app = QApplication.instance() or QApplication([])
 
@@ -99,6 +101,26 @@ class TestHistoryPanelLiveRefresh(unittest.TestCase):
         한다(production audit F-07 — 종료 시 안 닫히면 리소스가 샘)."""
         win = self._window()
         win.close()
+        with self.assertRaises(sqlite3.ProgrammingError):
+            win.history.list()
+
+    def test_close_during_active_job_defers_history_close_until_workers_finish(self):
+        """변환 진행 중 종료를 확인해도, 아직 안 끝난 워커가 나중에
+        item_failed/item_done을 emit해 history.add()를 호출할 수 있다
+        (job.cancel()은 취소 플래그만 세우고 이미 실행 중인 태스크를
+        즉시 멈추지는 않음) — 그 전에 history를 닫으면
+        sqlite3.ProgrammingError가 날 수 있었다(코드 리뷰 지적). 워커가
+        전부 끝난(job_finished) 뒤에야 실제로 닫혀야 한다."""
+        win = self._window()
+        win.job = Job([])  # start()는 부르지 않음 — 시그널 연결만 확인
+        with patch.object(win, "_safe_dialog", return_value=True):
+            win.close()
+        # 아직 job_finished가 안 왔으므로 history는 열려 있어야 함
+        win.history.list()  # 예외 없이 통과해야 함
+        self.assertFalse(win.isVisible())
+        self.assertTrue(win._quit_pending)
+
+        win._on_job_finished()  # 실행 중이던 워커가 전부 끝났다고 가정
         with self.assertRaises(sqlite3.ProgrammingError):
             win.history.list()
 

@@ -224,6 +224,7 @@ class MainWindow(QMainWindow):
         self.rows: dict[int, FileRow] = {}
         self._next_id = 1
         self.job: Job | None = None
+        self._quit_pending = False
         self.history = History()
         self._latest_version = ""
         self.update_checker = UpdateChecker()
@@ -574,6 +575,14 @@ class MainWindow(QMainWindow):
 
     def _on_job_finished(self):
         self.job = None
+        if self._quit_pending:
+            # closeEvent가 취소 후 즉시 종료하지 않고 여기까지 미뤄둔
+            # 상태(아래 closeEvent 참고) — 이제 실행 중이던 워커가 전부
+            # 끝났으니(취소된 항목의 item_failed/item_done도 이미
+            # 처리됨) 안전하게 다시 닫는다. self.job이 None이라
+            # closeEvent가 이번엔 바로 history.close() + accept로 간다.
+            self.close()
+            return
         self._show_result()
         self._refresh_state()
 
@@ -631,9 +640,18 @@ class MainWindow(QMainWindow):
         if self.job is not None:
             if self._safe_dialog(tr("dlg.quit.title"), tr("dlg.quit.body"),
                                  tr("dlg.quit.stay"), tr("dlg.quit.quit")):
+                # job.cancel()은 취소 플래그만 세울 뿐, 이미 변환 중이던
+                # 워커 태스크는 계속 실행돼 나중에 item_failed/item_done을
+                # emit하고 그 슬롯이 history.add()를 호출한다(코드 리뷰
+                # 지적) — 그 신호가 다 처리되기 전에 history를 닫으면
+                # sqlite3.ProgrammingError가 날 수 있다. 여기서는 숨기고
+                # 취소만 한 뒤, job_finished(모든 워커 완료)가 오면
+                # _on_job_finished가 self.close()를 다시 불러 그때
+                # history.close()까지 안전하게 마무리한다.
                 self.job.cancel()
-                self.history.close()
-                e.accept()
+                self._quit_pending = True
+                self.hide()
+                e.ignore()
             else:
                 e.ignore()
         else:
