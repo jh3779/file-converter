@@ -363,7 +363,8 @@ class MainWindow(QMainWindow):
     def retranslate(self):
         self.setWindowTitle(tr("app.title"))
         self.title_label.setText("⇄ " + tr("app.title"))
-        self.drop_big.setText(f"📥\n\n{tr('drop.title')}\n{tr('drop.sub')}")
+        drop_sub_key = "drop.sub" if converters.supported("avi") else "drop.sub_novideo"
+        self.drop_big.setText(f"📥\n\n{tr('drop.title')}\n{tr(drop_sub_key)}")
         self.drop_strip.setText(tr("drop.strip"))
         self.shield.setText("🔒 " + (tr("footer.save") if self.items else tr("footer.offline")))
         self.convert_btn.setText(tr("convert"))

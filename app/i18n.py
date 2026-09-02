@@ -22,6 +22,14 @@ _S = {
                  "AVI MOV MKV 등 영상\n· JPG PNG 등 이미지",
                  "or click to browse\nDOCX PPTX PDF HWP HWPX\nCSV XLSX JSON\n"
                  "AVI MOV MKV and other video\n· JPG PNG and other images"),
+    # FFmpeg 미번들 환경(macOS, DEC-029)에서는 영상 확장자가 TARGETS에서
+    # 아예 빠지는데(converters/__init__.py) 위 drop.sub는 항상 영상을
+    # 광고해 "가능한 것만 노출"(C-03) 원칙과 UI 카피가 어긋났다(production
+    # audit F-04) — 영상 미지원 환경 전용 문구를 별도로 둔다.
+    "drop.sub_novideo": ("또는 클릭해서 선택\nDOCX PPTX PDF HWP HWPX\nCSV XLSX JSON\n"
+                         "JPG PNG 등 이미지",
+                         "or click to browse\nDOCX PPTX PDF HWP HWPX\nCSV XLSX JSON\n"
+                         "JPG PNG and other images"),
     "drop.strip": ("＋ 파일 추가 또는 끌어다 놓기", "＋ Add files or drag & drop"),
     "convert": ("변환하기", "Convert"),
     "cancel": ("취소", "Cancel"),
