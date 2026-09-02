@@ -60,3 +60,6 @@ class History:
     def clear(self):
         self._conn.execute("DELETE FROM history")
         self._conn.commit()
+
+    def close(self):
+        self._conn.close()

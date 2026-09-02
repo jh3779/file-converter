@@ -632,8 +632,10 @@ class MainWindow(QMainWindow):
             if self._safe_dialog(tr("dlg.quit.title"), tr("dlg.quit.body"),
                                  tr("dlg.quit.stay"), tr("dlg.quit.quit")):
                 self.job.cancel()
+                self.history.close()
                 e.accept()
             else:
                 e.ignore()
         else:
+            self.history.close()
             e.accept()

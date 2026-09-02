@@ -7,6 +7,7 @@
 """
 import os
 import shutil
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,14 +46,19 @@ class TestHistoryPanelLiveRefresh(unittest.TestCase):
         self._orig_lang_pref = i18n.saved_pref()
         i18n.set_lang("ko")
         self.tmp = Path(tempfile.mkdtemp())
+        self._windows: list[MainWindow] = []
 
     def tearDown(self):
         i18n.set_lang(self._orig_lang_pref or None)
+        for win in self._windows:
+            win.history.close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _window(self) -> MainWindow:
         win = MainWindow(tokens.LIGHT)
+        win.history.close()  # __init__이 기본 경로로 연 최초 연결부터 정리
         win.history = History(self.tmp / "history.db")  # 실제 앱 데이터 오염 방지
+        self._windows.append(win)
         # QWidget.isVisible()은 조상 체인 전체가 보여야 True다 — 최상위
         # 창을 show() 하지 않으면 history_panel.setVisible(True)를 호출해도
         # isVisible()이 계속 False로 나와(offscreen 플랫폼에서도 동일)
@@ -87,6 +93,14 @@ class TestHistoryPanelLiveRefresh(unittest.TestCase):
         self.assertFalse(win.history_panel.isVisible())
         win._record_history("문서.docx", "pdf", "/tmp/out.pdf", True)
         self.assertEqual(len(win.history.list()), 1)
+
+    def test_close_event_closes_history_connection(self):
+        """앱 종료(closeEvent) 시 History의 SQLite 연결도 함께 닫혀야
+        한다(production audit F-07 — 종료 시 안 닫히면 리소스가 샘)."""
+        win = self._window()
+        win.close()
+        with self.assertRaises(sqlite3.ProgrammingError):
+            win.history.list()
 
 
 if __name__ == "__main__":
