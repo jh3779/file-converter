@@ -24,8 +24,9 @@ jobs:
         run: python -m unittest discover tests -v
 
   build-windows:
-    # Windows 우선 배포 (REQ-NF-001). HWP 엔진(jlink JRE + hwplib) + LibreOffice(DOCX/HWP→PDF)를
-    # dist/engine에 번들 — v0.3a·v0.3b(DEC-007·DEC-012).
+    # Windows 배포 잡(REQ-NF-001 — Windows·macOS·Linux 모두 배포 대상, 아래
+    # build-macos·build-linux 참고). HWP 엔진(jlink JRE + hwplib) +
+    # LibreOffice(DOCX/HWP→PDF)를 dist/engine에 번들 — v0.3a·v0.3b(DEC-007·DEC-012).
     # 빌드·스모크·라이선스 검증은 PR에서도 머지 게이트로 실행하고,
     # 아티팩트 업로드·릴리스 발행은 main/태그/수동 실행으로 제한한다.
     needs: test
