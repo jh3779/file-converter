@@ -14,4 +14,4 @@
 | [07_test_plan.md](07_test_plan.md) | 자동 테스트 커버리지 지도 — 변환 경로·UI별 테스트 파일 대응표, 유닛 테스트로 못 잡는 항목과 대신 쓰는 검증 수단(수동 체크리스트는 [testing/MANUAL_TEST_CHECKLIST.md](../testing/MANUAL_TEST_CHECKLIST.md)) |
 | [design-system/](design-system/README.md) | UI 디자인 시스템 v0.1 — Vault Teal 토큰·컴포넌트·상태 패턴·PySide6 매핑·와이어프레임 (HTML, 브라우저로 열람) |
 
-**한 줄 요약:** 비개발자용 완전 오프라인 데스크톱 변환기 (Windows·macOS·Linux) — 문서(DOCX/PDF↔HWP/HWPX, DOCX/PPTX→PDF, PDF→TXT/DOCX/PPTX/이미지) + 데이터(CSV↔XLSX, CSV↔JSON) + 마크업(TXT/MD/HTML 상호 변환) + 영상(→MP4, H.264/HEVC만) + 이미지(JPG/PNG/BMP/GIF/WEBP/TIFF 상호 변환) + 3D 모델(OBJ/STL/PLY/GLB/GLTF 상호 변환), 원스크린 드롭존, 일괄 변환, 원본 절대 보호. 스택: Python + PySide6 + LibreOffice·FFmpeg·Pillow·trimesh (DEC-001).
+**한 줄 요약:** 비개발자용 완전 오프라인 데스크톱 변환기 (Windows·macOS·Linux) — 문서(DOCX/PDF↔HWP/HWPX 양방향(TXT/PDF/DOCX 출력 포함), DOCX/PPTX→PDF, PDF→TXT/DOCX/PPTX/이미지) + 데이터(CSV↔XLSX, CSV↔JSON) + 마크업(TXT/MD/HTML 상호 변환) + 영상(→MP4, H.264/HEVC만) + 이미지(JPG/PNG/BMP/GIF/WEBP/TIFF 상호 변환) + 3D 모델(OBJ/STL/PLY/GLB/GLTF 상호 변환), 원스크린 드롭존, 일괄 변환, 원본 절대 보호. 스택: Python + PySide6 + LibreOffice·FFmpeg·Pillow·trimesh (DEC-001).
