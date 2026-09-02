@@ -16,7 +16,7 @@
 |------|------|
 | 1차 사용자 | 비개발자 일반인 (기술에 익숙하지 않은 사용자) |
 | 2차 사용자/수신자 | — (개인 로컬 도구, 공유 기능 없음) |
-| 사용 맥락 | 데스크톱 PC(Windows·macOS), 필요할 때 수시 사용, **오프라인 환경 포함** |
+| 사용 맥락 | 데스크톱 PC(Windows·macOS·Linux), 필요할 때 수시 사용, **오프라인 환경 포함** |
 
 ## 핵심 가치 · 성공 지표
 - **핵심 가치:** 완전 오프라인 — 파일이 절대 PC 밖으로 나가지 않는 변환기.
@@ -27,4 +27,4 @@
   3. **설치 간편함** — 오피스·한글 등 별도 프로그램 없이 단독 동작
 
 ## 비전 대비 MVP 경계 (요약)
-MVP는 **문서(DOCX/PDF↔HWP, DOCX/PPTX→PDF, PDF→TXT/DOCX) + 데이터(CSV↔XLSX, CSV↔JSON) + 영상(→MP4, H.264/HEVC만) + 일괄 변환**까지. OCR, 미리보기/편집, 그 외 영상 코덱 확장은 [01_requirements.md](01_requirements.md) Could/Won't 참조.
+MVP(Must)는 **문서(DOCX/PDF↔HWP, DOCX/PPTX→PDF, PDF→TXT/DOCX) + 데이터(CSV↔XLSX, CSV↔JSON) + 일괄 변환**까지였고 완료됐다. 이후 Should·Could 범위(영상→MP4, 이미지 상호 변환, PDF→PPTX/이미지, HWPX, TXT/MD/HTML, 3D 모델 변환 등)까지 확장 구현됐다 — 전체 목록은 [01_requirements.md](01_requirements.md) 참조. OCR(스캔 PDF 문자 인식), 미리보기/편집, 클라우드·계정 기능은 여전히 범위 밖(Won't)이다.
