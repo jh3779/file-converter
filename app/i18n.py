@@ -113,10 +113,17 @@ _S = {
                           "The video component is missing. Your antivirus may have quarantined "
                           "it by mistake — please check your antivirus's quarantine list first, "
                           "and reinstall the app if that doesn't resolve it."),
-    "err.video_codec_unsupported": ("이 영상은 지원하지 않는 코덱을 사용해요(H.264/HEVC만 지원). "
+    # H.264/HEVC는 항상 재인코딩 없이 지원되고, 그 외 코덱은 Windows에서만
+    # h264_mf로 재인코딩을 시도한다(DEC-060) — 이 오류는 그 재인코딩까지
+    # 실패했거나(Windows) 애초에 시도할 수단이 없을 때(비Windows) 뜬다.
+    # "H.264/HEVC만 지원"이라고만 말하면 Windows의 재인코딩 경로 자체를
+    # 감추게 되어(production audit F-05) 플랫폼별 실제 동작을 반영했다.
+    "err.video_codec_unsupported": ("이 영상은 지원하지 않는 코덱을 사용해요(H.264/HEVC는 항상 "
+                                    "지원되고, 그 외 코덱은 Windows에서만 재인코딩을 시도해요). "
                                     "다른 도구로 변환한 뒤 다시 시도해 주세요.",
-                                    "This video uses an unsupported codec (only H.264/HEVC are "
-                                    "supported). Please convert it with another tool first."),
+                                    "This video uses an unsupported codec (H.264/HEVC is always "
+                                    "supported; other codecs are only re-encoded on Windows). "
+                                    "Please convert it with another tool first."),
     "err.jsonshape": ("이 JSON은 표로 바꿀 수 없는 구조입니다. 목록 형태의 JSON만 지원해요.",
                       "This JSON has no tabular shape. Only list-style JSON is supported."),
     "err.cancelled": ("취소되었습니다", "Cancelled"),
