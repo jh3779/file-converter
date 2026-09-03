@@ -1,0 +1,95 @@
+# FBX 3D 모델 지원 기술 스파이크 결과
+
+> 2026-09-03 · OQ-007 검증 · 환경: macOS(Apple Silicon, arm64), Python 3.14.5(GIL 활성화, free-threaded 빌드 아님 확인 — `sys._is_gil_enabled()` True), `ufbx` 0.0.5(PyPI)
+
+## 결론: **기각** — FBX 지원(REQ-F-020 확장 후보)은 현재 보류
+
+`ufbx`는 라이선스·플랫폼 조건은 이 프로젝트 원칙(DEC-050)에 완전히 부합했지만, 실제 mesh 데이터 접근 시 인터프리터 종료 시점에 8/8 재현되는 세그폴트가 있어 채택 불가.
+
+## 배경 — 왜 ufbx를 검토했는가
+
+기존 3D 모델 변환기(`app/converters/model3d.py`, DEC-050)는 `trimesh`(MIT, 순수 Python)를 쓰는데, `trimesh`는 FBX를 전혀 지원하지 않는다(`trimesh.exchange.load.mesh_loaders` / `_mesh_exporters`에 `fbx` 없음, `trimesh==5.0.0`에서 직접 확인).
+
+FBX SDK(Autodesk 독점 라이선스)·Blender bpy(GPL-3.0)·Assimp(네이티브 바이너리 번들 필요)는 DEC-050이 이미 배제한 이유와 정확히 충돌해 후보에서 제외. `ufbx`(https://github.com/ufbx/ufbx)는:
+
+- 라이선스: **MIT 또는 Public Domain(Unlicense) 이중 라이선스** — 허용적 라이선스 원칙에 부합
+- `ufbx` 자체는 C 라이브러리이고 Python 바인딩은 그 위에 얹은 **네이티브 확장**이다(아래 §3의 `lldb` 스택 트레이스에서 실제로 `_native.cpython-314-darwin.so`로 확인됨) — Assimp처럼 "네이티브 바이너리를 따로 번들해야 하는" 문제와 근본적으로는 같은 종류지만, PyPI에 Windows(`win_amd64`/`win_arm64`)·macOS(`x86_64`/`arm64`)·Linux(manylinux/musllinux, x86_64/aarch64) **사전 빌드 wheel**이 전부 존재해 `pip install`만으로 끝나고 별도 네이티브 빌드·시스템 설치가 불요하다는 점에서 DEC-050 원칙("허용적 라이선스 + pip install만으로 끝남")을 만족한다
+- 다만 원 라이브러리 소개 자체가 "single source file FBX file **loader**" — 애초에 **읽기 전용**, 쓰기(export)는 지원 안 함. 채택되더라도 "FBX → 기존 5개 포맷" 단방향만 가능(다른 포맷 → FBX 저장은 불가능)
+
+## 검증 절차
+
+### 1. 실제 로드 성공 확인
+
+ufbx 저장소 자체 테스트 픽스처를 사용(신뢰할 수 있는 실제 FBX 샘플, 참조용 OBJ 동봉):
+
+```bash
+git clone https://github.com/ufbx/ufbx.git ufbx-src
+git -C ufbx-src checkout fcc5d6ba444cfd3eb80677dba5e37e493941abe5  # 이 스파이크 검증 시점 HEAD
+# 픽스처: ufbx-src/data/maya_cube_big_endian_7400_binary.fbx
+#   SHA256: ae57b303974668fb814dcca3c81cdd5adad3e3c72e4a69f16aa0776018a0e578
+# 참조:   ufbx-src/data/maya_cube_big_endian.obj (정점 8개, 면 6개)
+```
+
+```python
+import ufbx
+scene = ufbx.load_file("maya_cube_big_endian_7400_binary.fbx")
+m = scene.meshes[0]
+print(m.num_vertices, m.num_faces)  # 8 6 — 참조 OBJ와 정확히 일치
+```
+
+로드 자체와 스칼라 속성(`num_vertices` 등) 읽기는 정상 동작.
+
+### 2. 세그폴트 재현 (8/8)
+
+```python
+import ufbx
+scene = ufbx.load_file("maya_cube_big_endian_7400_binary.fbx")
+m = scene.meshes[0]
+verts = m.vertices          # Vec3List
+idx = m.vertex_indices      # Uint32List
+```
+
+이 4줄을 `python3 -c`로 8회 반복 실행 — **8/8 모두 `exit 139`(SIGSEGV)**. 스크립트 자체는 정상 출력 후 끝나지만, 인터프리터 종료 시점에 크래시. `del m; del scene`으로 명시적으로 먼저 지워도 동일하게 재현됨(코드 순서로 회피 불가).
+
+### 3. lldb로 근본 원인 특정
+
+```bash
+lldb -o "process launch" -o "continue" -o "bt all" -o "quit" -- python3 repro_crash.py
+```
+
+```
+EXC_BAD_ACCESS (code=1, address=0x48)
+frame #0: _native.cpython-314-darwin.so`Context_free + 224
+frame #1: _native.cpython-314-darwin.so`Context_dealloc + 20
+frame #2: Python`_Py_Dealloc + 100
+frame #3: _native.cpython-314-darwin.so`Uint32List_dealloc + 60
+frame #4: Python`dictkeys_decref + 356
+frame #5: Python`dict_dealloc + 176
+frame #6: Python`module_dealloc + 384
+frame #7: Python`insertdict + 368
+frame #8: Python`finalize_modules + 704
+frame #9: Python`_Py_Finalize + 344
+frame #10: Python`Py_RunMain + 436
+frame #11: Python`pymain_main + 236
+frame #12: Python`Py_BytesMain + 44
+```
+
+**해석**: `mesh.vertices`/`.vertex_indices`/`.faces` 같은 List류 속성에 접근하면 그 값을 담는 네이티브 wrapper(`Uint32List` 등)가 상위 `Context`(원본 scene 데이터를 참조 카운트로 공유하는 컨텍스트로 추정)에 대한 참조를 갖는다. 인터프리터 종료(`Py_Finalize` → `finalize_modules`) 시 CPython의 모듈 정리 순서가 이 `Context`를 List wrapper보다 **먼저 해제**해버리고, 뒤이어 List wrapper가 `dealloc`되며 이미 죽은 `Context`를 다시 `free`하려다 널/댕글링 포인터(`address=0x48`)를 역참조해 크래시 — 전형적인 **소멸 순서 의존성 use-after-free**.
+
+## 실무적 함의
+
+**직접 관측한 것**: 이 macOS(arm64)·Python 3.14.5·`ufbx` 0.0.5 환경에서, `python3 -c` 스크립트로 mesh 배열 데이터에 접근한 뒤 인터프리터를 종료하면 8/8 세그폴트가 재현됐다. PySide6 앱·Windows·패키징된(PyInstaller) 실행 파일에서의 재현은 이번 스파이크 범위에 없다.
+
+**여기서 도출한 추론**(검증되지 않음, 재검토 시 직접 확인 필요): `lldb` 스택 트레이스가 보여주는 근본 원인(CPython `Py_Finalize`의 모듈 정리 순서에 의존하는 use-after-free)은 애플리케이션 종류나 OS에 특정되지 않는 CPython 자체의 종료 절차이므로, PySide6 데스크톱 앱(장시간 실행 프로세스라 "인터프리터 종료 시점"이 "사용자가 앱을 닫는 순간"과 일치)에서도 유사하게 재현될 가능성이 높다고 추정한다. 다만 이는 이 스파이크가 직접 검증한 결과가 아니라 스택 트레이스 해석에 기반한 추론이며, 채택을 다시 검토할 경우 실제 PySide6 앱·지원 대상 Python 버전·Windows 환경에서 재현 여부를 별도로 확인해야 한다.
+
+이 macOS 환경에서만도 관측된 결과(스칼라 속성만 읽으면 안전, 배열 데이터에 접근하는 순간 8/8 크래시)만으로 채택을 보류하기에는 충분하다고 판단했다.
+
+## 재검토 조건
+
+- `ufbx`가 이 use-after-free를 수정한 새 버전을 릴리스하면(현재 0.0.5, 매우 초기 버전) 같은 절차로 재검증
+- 또는 같은 기준(허용적 라이선스 + 3플랫폼 사전 빌드 wheel + 외부 실행 파일 설치 불요, 순수 Python이든 네이티브 확장이든 무관)을 만족하는 다른 FBX 파서가 나오면 같은 절차(로드 성공 → 배열 데이터 접근 후 반복 실행 → lldb 크래시 확인)로 검증
+
+## 산출물
+
+- 이 문서(재현 절차·명령·스택 트레이스 전문)
+- 요약은 [docs/06_open_questions.md](../../docs/06_open_questions.md) OQ-007 참고
