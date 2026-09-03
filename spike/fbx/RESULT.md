@@ -23,8 +23,10 @@ FBX SDK(Autodesk 독점 라이선스)·Blender bpy(GPL-3.0)·Assimp(네이티브
 ufbx 저장소 자체 테스트 픽스처를 사용(신뢰할 수 있는 실제 FBX 샘플, 참조용 OBJ 동봉):
 
 ```bash
-git clone --depth 1 https://github.com/ufbx/ufbx.git ufbx-src
+git clone https://github.com/ufbx/ufbx.git ufbx-src
+git -C ufbx-src checkout fcc5d6ba444cfd3eb80677dba5e37e493941abe5  # 이 스파이크 검증 시점 HEAD
 # 픽스처: ufbx-src/data/maya_cube_big_endian_7400_binary.fbx
+#   SHA256: ae57b303974668fb814dcca3c81cdd5adad3e3c72e4a69f16aa0776018a0e578
 # 참조:   ufbx-src/data/maya_cube_big_endian.obj (정점 8개, 면 6개)
 ```
 
@@ -76,7 +78,11 @@ frame #12: Python`Py_BytesMain + 44
 
 ## 실무적 함의
 
-PySide6 데스크톱 앱은 장시간 실행되는 프로세스라 "인터프리터 종료 시점"이 정확히 "사용자가 앱을 닫는 순간"과 일치한다. 즉 FBX를 한 번이라도 읽어 mesh 배열 데이터(스칼라 속성만 읽는 건 안전)에 접근하면, **앱을 종료할 때 100% 재현 확률로 비정상 종료**될 것으로 판단된다 — 변환 자체는 성공해도 나중에 앱이 크래시하는 "가끔 나는 버그"가 아니라 구조적 결함.
+**직접 관측한 것**: 이 macOS(arm64)·Python 3.14.5·`ufbx` 0.0.5 환경에서, `python3 -c` 스크립트로 mesh 배열 데이터에 접근한 뒤 인터프리터를 종료하면 8/8 세그폴트가 재현됐다. PySide6 앱·Windows·패키징된(PyInstaller) 실행 파일에서의 재현은 이번 스파이크 범위에 없다.
+
+**여기서 도출한 추론**(검증되지 않음, 재검토 시 직접 확인 필요): `lldb` 스택 트레이스가 보여주는 근본 원인(CPython `Py_Finalize`의 모듈 정리 순서에 의존하는 use-after-free)은 애플리케이션 종류나 OS에 특정되지 않는 CPython 자체의 종료 절차이므로, PySide6 데스크톱 앱(장시간 실행 프로세스라 "인터프리터 종료 시점"이 "사용자가 앱을 닫는 순간"과 일치)에서도 유사하게 재현될 가능성이 높다고 추정한다. 다만 이는 이 스파이크가 직접 검증한 결과가 아니라 스택 트레이스 해석에 기반한 추론이며, 채택을 다시 검토할 경우 실제 PySide6 앱·지원 대상 Python 버전·Windows 환경에서 재현 여부를 별도로 확인해야 한다.
+
+이 macOS 환경에서만도 관측된 결과(스칼라 속성만 읽으면 안전, 배열 데이터에 접근하는 순간 8/8 크래시)만으로 채택을 보류하기에는 충분하다고 판단했다.
 
 ## 재검토 조건
 
