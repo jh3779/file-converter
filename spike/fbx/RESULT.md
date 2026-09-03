@@ -13,7 +13,7 @@
 FBX SDK(Autodesk 독점 라이선스)·Blender bpy(GPL-3.0)·Assimp(네이티브 바이너리 번들 필요)는 DEC-050이 이미 배제한 이유와 정확히 충돌해 후보에서 제외. `ufbx`(https://github.com/ufbx/ufbx)는:
 
 - 라이선스: **MIT 또는 Public Domain(Unlicense) 이중 라이선스** — 허용적 라이선스 원칙에 부합
-- PyPI에 Windows(`win_amd64`/`win_arm64`)·macOS(`x86_64`/`arm64`)·Linux(manylinux/musllinux, x86_64/aarch64) 사전 빌드 wheel 전부 존재 — `pip install`만으로 끝나는 라이브러리 원칙에 부합
+- `ufbx` 자체는 C 라이브러리이고 Python 바인딩은 그 위에 얹은 **네이티브 확장**이다(아래 §3의 `lldb` 스택 트레이스에서 실제로 `_native.cpython-314-darwin.so`로 확인됨) — Assimp처럼 "네이티브 바이너리를 따로 번들해야 하는" 문제와 근본적으로는 같은 종류지만, PyPI에 Windows(`win_amd64`/`win_arm64`)·macOS(`x86_64`/`arm64`)·Linux(manylinux/musllinux, x86_64/aarch64) **사전 빌드 wheel**이 전부 존재해 `pip install`만으로 끝나고 별도 네이티브 빌드·시스템 설치가 불요하다는 점에서 DEC-050 원칙("허용적 라이선스 + pip install만으로 끝남")을 만족한다
 - 다만 원 라이브러리 소개 자체가 "single source file FBX file **loader**" — 애초에 **읽기 전용**, 쓰기(export)는 지원 안 함. 채택되더라도 "FBX → 기존 5개 포맷" 단방향만 가능(다른 포맷 → FBX 저장은 불가능)
 
 ## 검증 절차
@@ -87,7 +87,7 @@ frame #12: Python`Py_BytesMain + 44
 ## 재검토 조건
 
 - `ufbx`가 이 use-after-free를 수정한 새 버전을 릴리스하면(현재 0.0.5, 매우 초기 버전) 같은 절차로 재검증
-- 또는 다른 순수 Python·허용적 라이선스 FBX 파서가 나오면 같은 절차(로드 성공 → 배열 데이터 접근 후 반복 실행 → lldb 크래시 확인)로 검증
+- 또는 같은 기준(허용적 라이선스 + 3플랫폼 사전 빌드 wheel + 외부 실행 파일 설치 불요, 순수 Python이든 네이티브 확장이든 무관)을 만족하는 다른 FBX 파서가 나오면 같은 절차(로드 성공 → 배열 데이터 접근 후 반복 실행 → lldb 크래시 확인)로 검증
 
 ## 산출물
 
