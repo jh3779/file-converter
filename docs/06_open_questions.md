@@ -11,7 +11,7 @@
 | ~~OQ-003~~ | **해결됨 (2026-07-29)** — DOCX 대상 선택 시 행 인라인 고지 문안 확정 → DEC-010 | REQ-F-004 · SCR-001 | — | 완료 |
 | ~~OQ-004~~ | **해결됨(2026-08-16) — 로컬 SQLite, 최대 50건으로 확정 → DEC-059 참고**(코드는 이미 이렇게 구현·출시돼 있었음) | ENT-003 | — | 완료 |
 | ~~OQ-005~~ | **해결됨 (2026-07-29)** — 결과 화면은 SCR-001 위 오버레이 카드로 확정 → DEC-008 | SCR-002 | — | 완료 |
-| OQ-007 | **3D 모델(FBX) 지원**(사용자 요청, REQ-F-020 확장 후보) — 현재 보류. 유일한 순수 Python 대안 `ufbx`(MIT/Unlicense, 3플랫폼 사전 빌드 wheel — DEC-050 원칙에 부합)가 mesh 배열 데이터 접근 시 인터프리터 종료 시점에 세그폴트를 8/8 재현으로 일으킴(use-after-free, PySide6 앱에서는 종료 시 100% 재현될 구조적 결함). 대안(FBX SDK 독점 라이선스·Blender GPL·Assimp 네이티브 바이너리)도 DEC-050이 배제한 이유와 충돌. 재현 절차·명령·lldb 스택 트레이스 전문은 [spike/fbx/RESULT.md](../spike/fbx/RESULT.md) 참고 | REQ-F-020(3D 모델 변환) | — | `ufbx`가 이 버그를 수정하거나 다른 순수 Python·허용적 라이선스 FBX 파서가 나오면 재검토 |
+| OQ-007 | **3D 모델(FBX) 지원**(사용자 요청, REQ-F-020 확장 후보) — 현재 보류. 유일한 순수 Python 대안 `ufbx`(MIT/Unlicense, 3플랫폼 사전 빌드 wheel — DEC-050 원칙에 부합)가 mesh 배열 데이터 접근 시 인터프리터 종료 시점에 세그폴트를 일으킴(macOS arm64에서 8/8 재현 관측, use-after-free — PySide6·Windows에서의 재현은 미검증인 추론). 대안(FBX SDK 독점 라이선스·Blender GPL·Assimp 네이티브 바이너리)도 DEC-050이 배제한 이유와 충돌. 재현 절차·명령·lldb 스택 트레이스 전문은 [spike/fbx/RESULT.md](../spike/fbx/RESULT.md) 참고 | REQ-F-020(3D 모델 변환) | — | `ufbx`가 이 버그를 수정하거나 다른 순수 Python·허용적 라이선스 FBX 파서가 나오면 재검토 |
 
 ## 가정 (Assumptions)
 잠정으로 두고 진행한 전제. 틀리면 재검토 대상.
