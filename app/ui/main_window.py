@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from . import history_panel, result_panel
+from . import history_panel, job_controller, result_panel
 from .. import converters, i18n, update_check
 from ..history import History
 from ..i18n import tr
@@ -493,98 +493,17 @@ class MainWindow(QMainWindow):
         self.convert_btn.setEnabled(ready and not converting)
         self.hint.setText(tr("hint.pickformat") if (convertible and missing and not converting) else "")
 
-    # ---------- 변환 (FLOW-001) ----------
-    def _start_job(self):
-        targets = [it for it in self.items
-                   if converters.supported(it.source_fmt) and it.target_fmt]
-        if not targets:
-            return
-        for it in targets:
-            it.state = ItemState.QUEUED
-            it.error_key = None
-        target_ids = {it.id for it in targets}
-        for item_id, row in self.rows.items():
-            row.set_locked(True)          # 미참여 행 포함 전체 입력 잠금 (SCR-001 converting)
-            if item_id in target_ids:
-                row.badge.show()
-                row.refresh()
-        self.drop_strip.hide()
-        self._done_count = 0
-        self._total = len(targets)
-        self.progress.setMaximum(self._total)
-        self.progress.setValue(0)
-        self.progress_count.setText(tr("progress.n", done=0, total=self._total))
-
-        self.job = Job(targets)
-        s = self.job.signals
-        s.item_started.connect(self._on_started)
-        s.item_done.connect(self._on_done)
-        s.item_failed.connect(self._on_failed)
-        s.item_skipped.connect(self._on_skipped)
-        s.job_finished.connect(self._on_job_finished)
-        self._refresh_state()
-        self.job.start()
-
-    def _find(self, item_id: int) -> FileItem:
-        return next(it for it in self.items if it.id == item_id)
-
-    def _bump(self):
-        self._done_count += 1
-        self.progress.setValue(self._done_count)
-        self.progress_count.setText(tr("progress.n", done=self._done_count, total=self._total))
-
-    def _on_started(self, item_id: int):
-        it = self._find(item_id)
-        it.state = ItemState.CONVERTING
-        self.rows[item_id].refresh()
-
-    def _on_done(self, item_id: int, output: str, renamed: bool):
-        it = self._find(item_id)
-        it.state = ItemState.DONE
-        it.output = Path(output)
-        it.renamed = renamed
-        self.rows[item_id].refresh()
-        self._record_history(it.name, it.target_fmt, output, True)
-        self._bump()
-
-    def _on_failed(self, item_id: int, key: str):
-        it = self._find(item_id)
-        it.state = ItemState.FAILED
-        it.error_key = key
-        self.rows[item_id].refresh()
-        self._record_history(it.name, it.target_fmt or "", "", False)
-        self._bump()
-
-    def _record_history(self, name: str, target_fmt: str, output_path: str, success: bool):
-        """기록을 저장하고, 기록 패널이 이미 열려 있으면 그 자리에서 바로
-        새로고침한다 — 이전엔 패널을 껐다 켜야만(_toggle_history) 새 항목이
-        보였다(외부 QA 피드백)."""
-        self.history.add(name, target_fmt, output_path, success)
-        if self.history_panel.isVisible():
-            self._reload_history()
-
-    def _on_skipped(self, item_id: int):
-        it = self._find(item_id)
-        it.state = ItemState.SKIPPED
-        self.rows[item_id].refresh()
-        self._bump()
-
-    def _cancel_job(self):
-        if self.job:
-            self.job.cancel()
-
-    def _on_job_finished(self):
-        self.job = None
-        if self._quit_pending:
-            # closeEvent가 취소 후 즉시 종료하지 않고 여기까지 미뤄둔
-            # 상태(아래 closeEvent 참고) — 이제 실행 중이던 워커가 전부
-            # 끝났으니(취소된 항목의 item_failed/item_done도 이미
-            # 처리됨) 안전하게 다시 닫는다. self.job이 None이라
-            # closeEvent가 이번엔 바로 history.close() + accept로 간다.
-            self.close()
-            return
-        self._show_result()
-        self._refresh_state()
+    # ---------- 변환 (FLOW-001, 구성·완료 처리는 job_controller.py) ----------
+    _start_job = job_controller.start_job
+    _find = job_controller.find_item
+    _bump = job_controller.bump_progress
+    _on_started = job_controller.on_started
+    _on_done = job_controller.on_done
+    _on_failed = job_controller.on_failed
+    _record_history = job_controller.record_history
+    _on_skipped = job_controller.on_skipped
+    _cancel_job = job_controller.cancel_job
+    _on_job_finished = job_controller.on_job_finished
 
     # ---------- 결과 오버레이 (SCR-002 · DEC-008, 구성·렌더링은 result_panel.py) ----------
     def _show_result(self):
