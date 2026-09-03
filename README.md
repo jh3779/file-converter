@@ -2,16 +2,16 @@
 
 비개발자를 위한 **완전 오프라인** 데스크톱 파일 포맷 변환기. 파일이 PC 밖으로 절대 나가지 않습니다.
 
-> Windows·macOS·Linux 배포 (v0.3.15 프리릴리스) · 사이드 프로젝트 · MVP 완성
+> Windows·macOS·Linux 배포 (v0.3.16 프리릴리스) · 사이드 프로젝트 · MVP 완성
 
 ## 다운로드
 
 | 플랫폼 | 방법 |
 |---|---|
-| 🪟 **Windows** | **[v0.3.15 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.15/FileConverter-Setup-latest.exe)** — 인스톨러 실행 중 "설치 모드 선택" 화면이 뜨면 **기본값("나만 사용하도록 설치")을 그대로 두고 진행**하세요 — 그러면 관리자 권한이 필요 없습니다(v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
-| 🍎 **macOS** (Apple Silicon) | **[v0.3.15 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.15/FileConverter-latest-mac-arm64.dmg)** — dmg를 열어 Applications로 드래그(DEC-029). **미서명 배포**라 처음 실행 시 Gatekeeper가 막습니다 — 아래 안내 참고. **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
-| 🍎 **macOS** (Intel) | **[v0.3.15 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.15/FileConverter-latest-mac-x86_64.dmg)** — 위 Apple Silicon판과 사용법 동일(DEC-063). **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
-| 🐧 **Linux** (x86_64) | **[v0.3.15 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.15/FileConverter-latest-x86_64.AppImage)** — AppImage(DEC-064) 단일 파일. 다운로드 후 실행 권한을 준 뒤(`chmod +x FileConverter-latest-x86_64.AppImage`) 더블클릭하면 바로 실행됩니다. glibc 2.34 이상(Ubuntu 22.04·Debian 12·Fedora 36 이상 등 최근 배포판)이 필요하고, 대부분의 데스크톱 환경에 이미 있는 FUSE가 없다면 파일 관리자가 "실행할 수 없음"으로 표시할 수 있습니다 — 그럴 땐 터미널에서 `./FileConverter-latest-x86_64.AppImage --appimage-extract-and-run`으로 실행하세요 |
+| 🪟 **Windows** | **[v0.3.16 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.16/FileConverter-Setup-latest.exe)** — 인스톨러 실행 중 "설치 모드 선택" 화면이 뜨면 **기본값("나만 사용하도록 설치")을 그대로 두고 진행**하세요 — 그러면 관리자 권한이 필요 없습니다(v0.3c·DEC-013). 최신 버전·릴리스 노트는 [Releases](https://github.com/jh3779/file-converter/releases) 참고 |
+| 🍎 **macOS** (Apple Silicon) | **[v0.3.16 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.16/FileConverter-latest-mac-arm64.dmg)** — dmg를 열어 Applications로 드래그(DEC-029). **미서명 배포**라 처음 실행 시 Gatekeeper가 막습니다 — 아래 안내 참고. **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
+| 🍎 **macOS** (Intel) | **[v0.3.16 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.16/FileConverter-latest-mac-x86_64.dmg)** — 위 Apple Silicon판과 사용법 동일(DEC-063). **영상→MP4 변환은 이 배포판에서 지원하지 않습니다**(FFmpeg 미번들) |
+| 🐧 **Linux** (x86_64) | **[v0.3.16 다운로드](https://github.com/jh3779/file-converter/releases/download/v0.3.16/FileConverter-latest-x86_64.AppImage)** — AppImage(DEC-064) 단일 파일. 다운로드 후 실행 권한을 준 뒤(`chmod +x FileConverter-latest-x86_64.AppImage`) 더블클릭하면 바로 실행됩니다. glibc 2.34 이상(Ubuntu 22.04·Debian 12·Fedora 36 이상 등 최근 배포판)이 필요하고, 대부분의 데스크톱 환경에 이미 있는 FUSE가 없다면 파일 관리자가 "실행할 수 없음"으로 표시할 수 있습니다 — 그럴 땐 터미널에서 `./FileConverter-latest-x86_64.AppImage --appimage-extract-and-run`으로 실행하세요 |
 
 > ⚠️ 설치 파일을 브라우저로 받아 실행하면 Windows SmartScreen이 **빨간 "Windows의 PC
 > 보호" 화면으로 실행을 막습니다**(경고가 아니라 차단 — 정식 코드 서명 인증서가 없는
@@ -140,6 +140,7 @@ sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌
 - [x] v0.3.13 — **"Could" 잔여 항목 완료**(위 DEC-060·061 항목 전부: 영상 코덱 재인코딩 확장·TXT/MD/HTML 상호 변환) 및 요구사항 문서 정확성 정리(DEC-059)
 - [x] v0.3.14 — **엔진/앱 분리 업데이트 설치 파일 인프라(1/2)**(DEC-062, 사용자 요청 — "업데이트분만 추가 다운은 안되나?") — Windows 설치 파일(477MB)의 대부분을 차지하는 JRE·LibreOffice·FFmpeg 번들은 릴리스마다 거의 안 바뀌는데도 매번 전체를 다시 받아야 했던 문제. 이제 CI가 전체 설치 파일과 함께, 엔진 폴더를 뺀 훨씬 작은 "업데이트 전용" 설치 파일도 함께 만들어 릴리스에 올린다(실측 84% 작음 — 394.7MB → 64.1MB). 이번 릴리스는 인프라만 반영 — 앱이 실제로 이 작은 파일을 찾아 내려받아 적용하는 화면·로직은 다음 릴리스(2/2)에서 이어진다. 그때도 사용자가 "지금 업데이트"를 직접 눌러야만 네트워크를 타는 옵트인 원칙(DEC-022)은 그대로 유지
 - [x] v0.3.15 — **macOS Intel(x86_64) 배포판 + Linux(x86_64) 배포판 신규 추가**(사용자 요청 — REQ-NF-001) — **macOS Intel**(DEC-063): DEC-029가 "PyInstaller universal2가 모든 의존성의 universal2 wheel을 요구해 범위 밖"이라 보류했던 근거를 재검토한 결과, universal2 fat binary가 아니라 아키텍처별로 완전히 분리된 네이티브 빌드를 만들면 이 제약 자체가 성립하지 않음을 확인 — GitHub Actions의 남은 유일한 Intel macOS 러너(`macos-15-intel`)에서 별도 빌드해 Apple Silicon판과 나란히 배포. **Linux**(DEC-064): AppImage(단일 실행 파일, 설치 과정 없음)로 신규 지원 — LibreOffice는 공식 deb 묶음을 `dpkg-deb`로 풀어(시스템 설치 없이) 번들, FFmpeg는 Windows와 같은 LGPL 빌드를 그대로 써서 **영상→MP4를 처음부터 지원**한다(macOS만 계속 미지원). 두 플랫폼 모두 앱 코드 변경 없이 CI 인프라 확장만으로 추가됨(기존 코드가 이미 "실행 파일 옆 평평한 engine/" 경로를 검사하는 구조였음)
+- [x] v0.3.16 — **버그 수정 및 안정성 개선** — CSV→JSON 변환 시 행 컬럼이 헤더보다 많으면 초과 값이 조용히 버려지던 데이터 손실 수정(`_extra` 키에 보존). 드롭존 안내 문구가 FFmpeg 미번들 환경(macOS)에서도 항상 영상 포맷을 광고하던 문제 수정 — 실제 지원 여부에 맞춰 문구 분기. 영상 코덱 오류 문구를 h264_mf 재인코딩 지원(DEC-060) 이후 실제 동작에 맞게 정정. 앱 종료 시 최근 변환 기록(History)의 SQLite 연결이 닫히지 않던 리소스 누수 수정 — 변환 진행 중 종료해도 안전하게 마무리되도록 종료 절차 개선. macOS에서 "파일이 손상되었기 때문에 열 수 없습니다"로 표시되는 경우(quarantine 속성, 실제 손상 아님)에 대한 해결 방법(`xattr -cr`)을 README에 안내 추가
 
 ## 라이선스 고지
 - HWP 처리: [neolord0/hwplib](https://github.com/neolord0/hwplib) (Apache License 2.0)
