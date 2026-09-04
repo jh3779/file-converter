@@ -3,6 +3,7 @@
 UI 스레드는 변환하지 않는다. FileItem 1개 = QRunnable 1개.
 워커 → UI는 시그널로만 통신하고, 모델 상태 전이는 UI 스레드에서 수행한다.
 """
+import logging
 import os
 import shutil
 import threading
@@ -13,6 +14,8 @@ from . import converters
 from .converters.base import ConversionError
 from .models import FileItem
 from .output import finalize, make_tmpdir
+
+logger = logging.getLogger(__name__)
 
 
 class JobSignals(QObject):
@@ -50,6 +53,10 @@ class _Task(QRunnable):
         except OSError:
             job.signals.item_failed.emit(item.id, "err.disk")
         except Exception:
+            # 알려진 실패 종류(ConversionError·OSError)로 안 걸러진 예외 —
+            # 미리 분류해둔 오류가 아니라는 뜻이라 원인을 로그에 남긴다
+            # (사용자에게는 여전히 일반화된 err.engine 문구만 노출).
+            logger.exception("변환 중 예상하지 못한 오류: %s → %s", item.source, item.target_fmt)
             job.signals.item_failed.emit(item.id, "err.engine")
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)

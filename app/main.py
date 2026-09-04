@@ -4,7 +4,7 @@ import sys
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
-from . import tokens
+from . import logging_setup, tokens
 from .ui.main_window import MainWindow
 
 
@@ -16,6 +16,9 @@ def pick_tokens(app: QApplication) -> dict:
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("file-converter")
+    # QStandardPaths.AppDataLocation은 applicationName에 따라 갈리므로
+    # (history.py의 _db_path()와 같은 원칙), 이름을 정한 뒤에 초기화한다.
+    logging_setup.setup()
     t = pick_tokens(app)
     app.setStyleSheet(tokens.build_qss(t))
     win = MainWindow(t)
