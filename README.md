@@ -68,9 +68,18 @@ docs/                  정본 스펙 문서 (기획 인터뷰 산출물)
   04_data_model.md       엔티티
   05_state_machine.md    상태·전이·불변식
   06_open_questions.md   미결정·가정·결정 로그·리스크
+  07_test_plan.md        자동 테스트 커버리지 지도
+  08_production_audit_2026-09-02.md  시점 고정 프로덕션 감사 스냅샷
   design-system/         UI 디자인 시스템 v0.1 (HTML — 브라우저로 열람)
+code-notes/converters/ app/converters/ 코드 노트 (파일별 1:1 대응)
 spike/hwplib/          HWP 라이브러리 기술 검증 (결과: RESULT.md)
+spike/hwpxlib/         HWPX 라이브러리 기술 검증 (결과: RESULT.md)
+spike/fbx/             FBX 자체 파서 실현 가능성 스파이크 (결과: RESULT.md)
 research/hwp-coverage/ 실사용 HWP 문서 커버리지 검증 (결과: RESULT.md)
+research/scanned-pdf-ocr/ 스캔 PDF OCR 조사 노트
+sidecar/hwp/           HWP/HWPX 읽기·쓰기 Java 사이드카 (build.sh로 빌드)
+scripts/               개발용 보조 스크립트 (hwplib 패치, PDF 파이프라인 스모크)
+testing/               수동 테스트 체크리스트·가이드·샘플
 packaging/             배포 자산 — 아이콘, 인스톨러 스크립트, 버전, 제3자 고지
 ```
 
