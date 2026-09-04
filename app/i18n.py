@@ -95,14 +95,20 @@ _S = {
     # 오류 문안 — P-04 (원인 1문장 + 복구 1문장)
     "err.password": ("암호가 걸린 파일입니다. 암호를 해제한 뒤 다시 시도해 주세요.",
                      "This file is password-protected. Remove the password and try again."),
-    "err.corrupted": ("파일을 읽을 수 없습니다. 파일이 손상되었을 수 있어요.",
-                      "The file could not be read. It may be damaged."),
-    "err.encoding": ("한글이 깨질 수 있어 변환을 멈췄습니다. 파일 인코딩을 확인해 주세요.",
-                     "Stopped to avoid corrupting text. Please check the file encoding."),
+    "err.corrupted": ("파일을 읽을 수 없습니다. 파일이 손상되었을 수 있어요. "
+                      "원본 프로그램에서 열리는지 확인해 주세요.",
+                      "The file could not be read. It may be damaged. "
+                      "Please check that it opens in its original program."),
+    "err.encoding": ("한글이 깨질 수 있어 변환을 멈췄습니다. 파일 인코딩을 확인하거나 "
+                     "다른 포맷을 선택해 주세요.",
+                     "Stopped to avoid corrupting text. Please check the file encoding, "
+                     "or choose a different format."),
     "err.disk": ("저장 공간이 부족하거나 폴더에 쓸 수 없습니다. 공간·권한을 확인해 주세요.",
                  "Not enough space or no permission to write. Check disk space and folder permissions."),
-    "err.engine": ("이 파일은 변환하지 못했습니다. 다시 시도해 주세요.",
-                   "This file could not be converted. Please try again."),
+    "err.engine": ("이 파일은 변환하지 못했습니다. 다시 시도하거나, 계속되면 다른 "
+                   "포맷을 선택해 주세요.",
+                   "This file could not be converted. Please try again, or choose "
+                   "a different format if this keeps happening."),
     "err.engine_missing": ("문서 변환 엔진을 찾을 수 없습니다. 앱을 다시 설치해 주세요.",
                            "The document engine is missing. Please reinstall the app."),
     "err.hwp_missing": ("HWP 변환 구성 요소를 찾을 수 없습니다. 앱을 다시 설치해 주세요.",
