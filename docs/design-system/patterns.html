@@ -90,9 +90,15 @@
       <tr><td class="mono">EncodingDetectFail</td><td>"invalid EUC-KR byte"</td><td>한글이 깨질 수 있어 변환을 멈췄습니다</td><td>파일 인코딩을 확인하거나 다른 포맷을 선택해 주세요</td></tr>
       <tr><td class="mono">DiskFull / PermissionDenied</td><td>"errno 28"</td><td>저장 공간이 부족하거나 폴더에 쓸 수 없습니다</td><td>공간을 확보하거나 폴더 권한을 확인해 주세요</td></tr>
       <tr><td class="mono">EngineCrash (LibreOffice)</td><td>"soffice exited 1"</td><td>이 파일은 변환하지 못했습니다</td><td>다시 시도하거나, 계속되면 다른 포맷을 선택해 주세요</td></tr>
+      <tr><td class="mono">EngineMissing (문서 엔진 바이너리 없음)</td><td>파일 경로·스택트레이스</td><td>문서 변환 엔진을 찾을 수 없습니다</td><td>앱을 다시 설치해 주세요</td></tr>
+      <tr><td class="mono">HwpEngineMissing (JRE/hwplib 사이드카 없음)</td><td>파일 경로·스택트레이스</td><td>HWP 변환 구성 요소를 찾을 수 없습니다</td><td>앱을 다시 설치해 주세요</td></tr>
+      <tr><td class="mono">VideoEngineMissing (FFmpeg 없음/백신 격리)</td><td>파일 경로·스택트레이스</td><td>영상 변환 구성 요소를 찾을 수 없습니다</td><td>백신 프로그램이 이 구성 요소를 위협으로 오인해 격리했을 수 있어요 — 백신의 격리 목록을 먼저 확인해 보시고, 그래도 안 되면 앱을 다시 설치해 주세요(production audit F-04로 반영)</td></tr>
+      <tr><td class="mono">VideoCodecUnsupported</td><td>"unsupported codec: xvid"</td><td>이 영상은 지원하지 않는 코덱을 사용해요(H.264/HEVC는 항상 지원되고, 그 외 코덱은 Windows에서만 재인코딩을 시도해요)</td><td>다른 도구로 변환한 뒤 다시 시도해 주세요(DEC-060 재인코딩 확장 이후 실제 동작에 맞게 정정, production audit F-05)</td></tr>
+      <tr><td class="mono">JsonShapeError (표 불가 구조)</td><td>"expected list, got dict"</td><td>이 JSON은 표로 바꿀 수 없는 구조입니다</td><td>목록 형태의 JSON만 지원해요</td></tr>
+      <tr><td class="mono">NotYetImplemented</td><td>—</td><td>이 변환은 다음 버전에서 지원될 예정입니다</td><td>—</td></tr>
       <tr><td class="mono">Cancelled</td><td>—</td><td>취소되었습니다</td><td>—</td></tr>
     </table></div>
-    <div class="note">공통 규칙: ① 원인 1문장 + 복구 1문장 ② 기술 용어·코드 노출 금지 ③ 사용자 탓 화법 금지("잘못된 파일을 넣으셨습니다" ✕) ④ 문안은 실패 행 인라인 + 결과 요약에 동일하게.</div>
+    <div class="note">공통 규칙: ① 원인 1문장 + 복구 1문장(단, 구성 요소 누락·코덱 미지원처럼 원인 설명이 복구 방법과 자연스럽게 이어지는 경우는 한 문장으로 합침) ② 기술 용어·코드 노출 금지 ③ 사용자 탓 화법 금지("잘못된 파일을 넣으셨습니다" ✕) ④ 문안은 실패 행 인라인 + 결과 요약에 동일하게. 정본 텍스트(한/영)는 <span class="mono">app/i18n.py</span>의 <span class="mono">err.*</span> 키.</div>
   </section>
 
   <section id="p5" class="sec card pad">

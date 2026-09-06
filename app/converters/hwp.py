@@ -48,11 +48,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ..bundle import engine_dir
+from ..bundle import app_root, engine_dir
 from .base import ConversionError
 from .docx_build import blocks_to_docx
 
-_REPO = Path(__file__).resolve().parents[2]
+_REPO = app_root()
 
 
 def _java() -> str | None:

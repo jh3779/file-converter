@@ -48,12 +48,12 @@
     <div class="tblwrap"><table>
       <tr><th>컴포넌트</th><th>Qt 구현</th><th>비고</th></tr>
       <tr><td class="mono">C-01 Dropzone</td><td>QWidget + <span class="mono">setAcceptDrops(True)</span>, dragEnter/dropEvent</td><td>창 전체가 드롭 타깃(MainWindow에서 수신). 클릭 시 QFileDialog(다중 선택)</td></tr>
-      <tr><td class="mono">C-02 FileRow</td><td>QListView + QStyledItemDelegate (모델: FileItem)</td><td>행 수가 수백 개일 수 있음(일괄 변환) — 위젯 나열 대신 delegate 렌더</td></tr>
-      <tr><td class="mono">C-03 FormatSelect</td><td>QComboBox (행 에디터) 또는 delegate 내 팝업</td><td>모델이 확장자→가능 포맷 목록 제공(REQ-F-002)</td></tr>
+      <tr><td class="mono">C-02 FileRow</td><td>QFrame 서브클래스(FileRow) 1개 = 행 1개, QListWidget에 <span class="mono">setItemWidget()</span>으로 실제 위젯을 나열</td><td>초기 설계안(QListView+delegate)은 채택되지 않음 — 실사용 규모(수십~수백 파일)에서 위젯 직접 나열로도 충분해 더 단순한 방식 채택(2026-09 정밀 구조 감사로 실제 구현 확인)</td></tr>
+      <tr><td class="mono">C-03 FormatSelect</td><td>QComboBox(행 내부에 직접 배치, delegate 아님)</td><td>모델이 확장자→가능 포맷 목록 제공(REQ-F-002)</td></tr>
       <tr><td class="mono">C-04 버튼</td><td>QPushButton + QSS 변형 클래스(filled/outlined/text/error)</td><td><span class="mono">setProperty("variant","filled")</span> 방식</td></tr>
-      <tr><td class="mono">C-05 Progress</td><td>QProgressBar(전체) + 행 배지 스피너(QMovie 또는 delegate 회전)</td><td>value = 완료 수, max = 전체 수. busy 모드(minimum=maximum=0) 금지 — 실측 원칙</td></tr>
-      <tr><td class="mono">C-06 ResultSummary</td><td>부모 위 반투명 오버레이 QWidget + 중앙 QFrame(elev-3 그림자는 QGraphicsDropShadowEffect)</td><td>OQ-005 제안 구현. 별도 창 금지(단일 창 앱)</td></tr>
-      <tr><td class="mono">C-07 HistoryRow</td><td>QListView + delegate · 위치 열기: Windows <span class="mono">explorer /select,</span> · macOS <span class="mono">open -R</span></td><td>SQLite 로컬 저장(OQ-004)</td></tr>
+      <tr><td class="mono">C-05 Progress</td><td>QProgressBar(전체) + 행 배지는 유니코드 문자(⟳/✓ 등) 정적 표시</td><td>value = 완료 수, max = 전체 수. busy 모드(minimum=maximum=0) 금지 — 실측 원칙. 초기 설계안의 QMovie/회전 애니메이션은 채택되지 않음(정적 아이콘으로 충분 판단)</td></tr>
+      <tr><td class="mono">C-06 ResultSummary</td><td>부모 위 반투명 오버레이 QFrame + 중앙 QFrame(QSS <span class="mono">border-radius:16px</span>, 배경색만 — 그림자 없음)</td><td>OQ-005 제안 구현. 별도 창 금지(단일 창 앱). QGraphicsDropShadowEffect는 채택되지 않음(Qt 네이티브 그림자보다 배경색 대비로 카드 경계를 표현)</td></tr>
+      <tr><td class="mono">C-07 HistoryRow</td><td>QVBoxLayout에 QFrame 행을 직접 나열, QScrollArea에 담음(FileRow와 동일한 "위젯 직접 나열" 패턴) · 위치 열기: Windows <span class="mono">explorer /select,</span> · macOS <span class="mono">open -R</span></td><td>SQLite 로컬 저장, 최대 50건(OQ-004 → <b>완료, DEC-059</b>)</td></tr>
       <tr><td class="mono">C-08 다이얼로그</td><td>QDialog · <span class="mono">setDefaultButton</span>=안전 행동 · Esc=reject=안전</td><td>변환 중 closeEvent 가로채서 경고 다이얼로그</td></tr>
     </table></div>
   </section>
@@ -91,9 +91,9 @@
       <tr><th>ID</th><th>내용</th><th>이 문서의 잠정안</th><th>상태</th></tr>
       <tr><td class="mono">OQ-005</td><td>결과 화면: 별도 화면 vs 오버레이</td><td><b>오버레이 카드로 확정</b>(C-06, S-04)</td><td><b>확정 — DEC-008</b></td></tr>
       <tr><td class="mono">DEC-009</td><td>UI 언어: 한국어·영어 2개만. 시스템 감지 + 설정(⚙) 메뉴에서 수동 전환</td><td>문자열은 i18n 키 경유 — 하드코딩 금지. 언어 변경은 즉시 반영(retranslate)</td><td><b>확정</b></td></tr>
-      <tr><td class="mono">OQ-002</td><td>자동 업데이트 여부(오프라인 원칙과 충돌)</td><td>UI에 업데이트 요소 없음(미포함 가정)</td><td>미결</td></tr>
+      <tr><td class="mono">OQ-002</td><td>자동 업데이트 여부(오프라인 원칙과 충돌)</td><td>설정(⚙) 메뉴에 "업데이트 확인" 토글 추가(기본 꺼짐, 옵트인) — 켜져 있을 때만 GitHub Releases에 <b>버전 번호만</b> 조회, 자동 다운로드·설치 없음. 헤더 옆 update_notice 라벨로 조용히 안내</td><td><b>확정 — DEC-022</b></td></tr>
       <tr><td class="mono">OQ-003</td><td>PDF→DOCX 정확도 기대치 고지</td><td>DOCX 선택 시 행 인라인 캡션 "레이아웃이 단순화될 수 있어요 — 텍스트·표 내용은 유지됩니다"</td><td><b>확정 — DEC-010</b></td></tr>
-      <tr><td class="mono">OQ-004</td><td>기록 보관 건수 N·저장 방식</td><td>N=50 · SQLite 가정(M-02)</td><td>미결</td></tr>
+      <tr><td class="mono">OQ-004</td><td>기록 보관 건수 N·저장 방식</td><td>N=50 · SQLite(<span class="mono">QStandardPaths</span> 기반 로컬 경로)</td><td><b>완료 — DEC-059</b></td></tr>
       <tr><td class="mono">OQ-006</td><td>실사용 HWP 커버리지 검증 (TXT/DOCX)</td><td>UI 영향 없음(실패 시 P-04 문안으로 수렴)</td><td><b>완료 — DEC-011</b> (HWP→PDF는 v0.3b 이후 별도 검증)</td></tr>
     </table></div>
   </section>

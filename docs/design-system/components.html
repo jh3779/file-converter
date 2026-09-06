@@ -89,7 +89,7 @@
     </div>
     <div class="tblwrap" style="margin-top:10px"><table>
       <tr><th>구성</th><th>규칙</th></tr>
-      <tr><td>파일 타입 아이콘</td><td>문서 <span class="mono">description</span> · 데이터 <span class="mono">table_chart</span> · 미지원 <span class="mono">block</span></td></tr>
+      <tr><td>파일 타입 아이콘</td><td>실제 앱은 Material Symbols 폰트가 아닌 <b>이모지 문자</b>로 표시(별도 아이콘 폰트 미번들) — 문서 📄 · 프레젠테이션 📽 · 데이터(CSV/XLSX/JSON) 📊 · 영상 🎬 · 이미지 🖼 · 3D 모델 🧊 · 미지원 🚫(이 목업의 <span class="mono">description</span>/<span class="mono">table_chart</span>/<span class="mono">block</span>은 웹 프리뷰 표기일 뿐 실제 렌더링과 다름)</td></tr>
       <tr><td>파일명</td><td>SemiBold 600 · 넘치면 중간 말줄임. 확장자·포맷 표기는 mono</td></tr>
       <tr><td>포맷 셀렉트</td><td>C-03. 변환 중(converting)에는 셀렉트·제거 버튼 대신 상태 배지로 교체(입력 잠금)</td></tr>
       <tr><td>제거 ✕</td><td>목록에서 제거만. 원본 파일은 건드리지 않음(INV-01)</td></tr>
@@ -105,7 +105,7 @@
         <div class="mono" style="font-size:11px;padding:6px 10px">TXT</div>
         <div class="mono" style="font-size:11px;padding:6px 10px">DOCX</div>
       </div>
-      <div class="note" style="flex:1;min-width:220px">원본 확장자에서 변환 가능한 포맷만 나열한다(불가 포맷은 아예 표시하지 않음 — 비활성 항목 없음). 포맷명은 mono·대문자. 메뉴만 elev-2 그림자 허용.<br><br>포맷 매트릭스(정본 REQ-F-003~006·012·014~016): DOCX→PDF/HWP · PPTX→PDF · PDF→TXT/DOCX/HWP/이미지 · HWP→PDF/TXT/DOCX · CSV↔XLSX · CSV↔JSON · XLSX→CSV · JSON→CSV · AVI/MOV/MKV/WMV/FLV/M4V→MP4 · JPG/PNG/BMP/GIF/WEBP/TIFF 상호 변환</div>
+      <div class="note" style="flex:1;min-width:220px">원본 확장자에서 변환 가능한 포맷만 나열한다(불가 포맷은 아예 표시하지 않음 — 비활성 항목 없음, 코드 정본 <span class="mono">app/converters/__init__.py</span>의 <span class="mono">TARGETS</span>). 포맷명은 mono·대문자. 메뉴만 elev-2 그림자 허용.<br><br>포맷 매트릭스(정본 REQ-F-003~006·012·014~020): DOCX→PDF/HWP/HWPX · PPTX→PDF · PDF→TXT/DOCX/HWP/HWPX/PNG/JPG/PPTX · HWP↔TXT/PDF/DOCX · HWPX↔TXT/PDF/DOCX · CSV↔XLSX/JSON · XLSX→CSV · JSON→CSV · AVI/MOV/MKV/WMV/FLV/M4V→MP4(코덱에 따라 스트림 카피 또는 Windows 재인코딩, macOS는 미노출) · JPG/PNG/BMP/GIF/WEBP/TIFF 상호 변환 · OBJ/STL/PLY/GLB/GLTF 상호 변환(20쌍) · TXT/MD/HTML 상호 변환(6방향)</div>
     </div>
   </section>
 
