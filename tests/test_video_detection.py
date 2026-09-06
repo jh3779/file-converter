@@ -34,8 +34,8 @@ class TestContentBasedVideoDetection(unittest.TestCase):
             self.assertTrue(converters.is_content_detected_video(src))
             self.assertEqual(converters.targets_for_source(src), ["mp4"])
             item = FileItem(id=1, source=src, source_fmt="06")
+            self.assertEqual(converters.targets_for(item.source_fmt), ["mp4"])
         self.assertEqual(item.source_fmt, converters.content_video_key())
-        self.assertEqual(converters.targets_for(item.source_fmt), ["mp4"])
 
     def test_extensionless_file_is_detected_by_content(self):
         src = self.tmp / "recording"
