@@ -41,6 +41,7 @@ _S = {
     "hint.pickformat": ("포맷을 선택해 주세요", "Choose a format for every file"),
     "unsupported": ("지원하지 않는 형식입니다", "Unsupported format"),
     "pick.placeholder": ("선택", "Select"),
+    "fmt.detectedVideo": ("영상", "Video"),
     "converting": ("변환 중…", "Converting…"),
     "progress.n": ("{done} / {total} 완료", "{done} / {total} done"),
 

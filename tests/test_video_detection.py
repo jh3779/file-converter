@@ -85,6 +85,19 @@ class TestContentBasedVideoDetection(unittest.TestCase):
         self.assertTrue(out.exists())
         self.assertFalse(renamed)
 
+    def test_existing_mp4_is_not_exposed_as_content_detected_video(self):
+        src = self.tmp / "clip.mp4"
+        src.write_bytes(b"real-mp4")
+        with patch.object(converters, "_VIDEO_AVAILABLE", True), \
+             patch("app.converters.video.can_convert_to_mp4", return_value=True):
+            self.assertFalse(converters.is_content_detected_video(src))
+            self.assertEqual(converters.targets_for_source(src), [])
+            self.assertFalse(converters.supported_source(src))
+            item = FileItem(id=1, source=src, source_fmt="mp4")
+            self.assertEqual(item.source_fmt, "mp4")
+            with self.assertRaises(Exception):
+                converters.convert(src, "mp4", self.tmp)
+
     def test_convert_routes_valid_unknown_extension_to_video_converter(self):
         src = self.tmp / "26.09.06"
         src.write_bytes(b"fake")

@@ -50,6 +50,7 @@ REQ-F ID·DEC는 `docs/01_requirements.md`·`docs/06_open_questions.md` 참고.
 | HWP→TXT/PDF/DOCX | REQ-F-005, DEC-027 | `test_pipeline.py::TestHwp`, `test_format_fidelity.py::TestHwpToDocxFormatting` | JDK+hwplib(soffice도 PDF 경로에 필요) |
 | HWPX→TXT/PDF/DOCX(머리말·꼬리말·각주·미주·글상자 텍스트 포함) | DEC-044·DEC-052 | `test_hwpx.py::TestHwpx`(`test_hwpx_to_docx_preserves_header_footer_text`·`test_hwpx_to_docx_preserves_nested_shape_text`) | JDK+hwpxlib(soffice도 PDF 경로에 필요) |
 | 영상→MP4(H.264/HEVC 스트림 카피 + 그 외 코덱은 h264_mf 재인코딩) | REQ-F-014, DEC-024·DEC-060 | `test_video.py` | ffmpeg(재인코딩 폴백 검증은 h264_mf 있는 환경 — 사실상 Windows 전용) |
+| 확장자 없음/알 수 없는 확장자 영상의 콘텐츠 기반 감지(오탐 방지·기존 `.mp4` 자기 변환 노출 금지 포함) | REQ-F-002, REQ-F-014 | `test_video_detection.py` | ffmpeg(모킹으로 대부분 검증, 실장비 불요) |
 | 이미지↔이미지 | REQ-F-015, DEC-025 | `test_image.py::TestImageConversion` | 항상(Pillow) |
 | 3D 모델↔3D 모델(OBJ/STL/PLY/GLB/GLTF) | DEC-050 | `test_model3d.py::TestModel3DConversion` | 항상(trimesh) |
 | TXT/MD/HTML 상호 변환(6방향) | REQ-F-018, DEC-061 | `test_markup.py::TestMarkupConversion` | 항상(순수 Python) |

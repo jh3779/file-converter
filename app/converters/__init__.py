@@ -81,6 +81,8 @@ def content_video_key() -> str:
 
 def is_content_detected_video(src: Path) -> bool:
     ext = src.suffix.lstrip(".").lower()
+    if ext == "mp4":
+        return False  # 이미 대상 포맷과 같은 확장자 — 자기 자신으로의 변환 노출 방지
     return ext not in TARGETS and _VIDEO_AVAILABLE and video.can_convert_to_mp4(src)
 
 
