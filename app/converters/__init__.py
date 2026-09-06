@@ -10,30 +10,26 @@ from .base import ConversionError
 from . import data, pdf, pdf_docx, pdf_pptx, office, hwp, hwpx, video, image, model3d, markup
 
 TARGETS: dict[str, list[str]] = {
-    "docx": ["pdf", "hwp", "hwpx"],  # DEC-017/DEC-028 — 표는 실제 HWP/HWPX 표로 생성됨(셀 안 서식 제외). hwpx: DEC-049
-    "pptx": ["pdf"],   # DEC-016
-    "pdf": ["txt", "docx", "hwp", "hwpx", "png", "jpg", "pptx"],  # DEC-023 — HWP/HWPX도 텍스트 기반(DEC-010과 같은 원칙, hwpx는 DEC-049). png/jpg: DEC-026, 페이지별 이미지를 폴더에 저장(jpg 옵션은 DEC-043). pptx: DEC-030, 줄 단위 위치 재구성(이미지로 뭉개지 않음)
+    "docx": ["pdf", "hwp", "hwpx"],
+    "pptx": ["pdf"],
+    "pdf": ["txt", "docx", "hwp", "hwpx", "png", "jpg", "pptx"],
     "hwp": ["txt", "pdf", "docx"],
-    "hwpx": ["txt", "pdf", "docx"],  # 읽기(Phase 1, 외부 QA 요청) — hwplib이 아닌 별도 라이브러리 hwpxlib 사용
+    "hwpx": ["txt", "pdf", "docx"],
     "csv": ["xlsx", "json"],
     "xlsx": ["csv"],
     "json": ["csv"],
 }
 
 _VIDEO_EXTS = ("avi", "mov", "mkv", "wmv", "flv", "m4v")
+_VIDEO_AVAILABLE = video.find_ffmpeg() is not None and video.find_ffprobe() is not None
 
-# DEC-024 — 영상 스트림이 H.264/HEVC일 때만 지원(그 외 코덱은 변환 시 오류).
-# webm은 목록에서 제외 — 표준 WEBM은 VP8/VP9/AV1만 담아 H.264/HEVC를 실을 수
-# 없으므로 "지원"으로 노출하면 사실상 항상 실패한다(가능한 것만 노출한다는
-# TARGETS 원칙 위반, 코드 리뷰 지적으로 발견).
-# DEC-029 — FFmpeg는 macOS 빌드에서 번들하지 않는다(검증된 사전 빌드
-# LGPL macOS 바이너리가 없었음). find_ffmpeg()가 못 찾으면(엔진이 애초에
-# 없는 배포판) 영상 확장자를 TARGETS에서 아예 뺀다 — "재설치하세요"라는
-# 엉뚱한 오류를 보여주는 대신, 지원 안 하는 형식으로 자연스럽게 처리된다
-# (가능한 것만 노출한다는 원칙을 여기에도 그대로 적용).
-if video.find_ffmpeg() is not None:
+# DEC-024/DEC-029 — 영상 엔진이 실제로 사용 가능한 배포판에서만 영상 변환을
+# 노출한다. "video"는 확장자가 없거나 지원하지 않는 확장자를 가진 파일을
+# ffprobe로 검사해 실제 영상 스트림이 확인됐을 때 사용하는 내부 canonical type이다.
+if _VIDEO_AVAILABLE:
     for _ext in _VIDEO_EXTS:
         TARGETS[_ext] = ["mp4"]
+    TARGETS["video"] = ["mp4"]
     del _ext
 
 # 이미지 상호 변환 — jpg/jpeg는 같은 포맷(JPEG)으로 취급해 서로를 대상
@@ -46,16 +42,13 @@ for _src in _IMAGE_SRC_EXTS:
     TARGETS[_src] = [t for t in _IMAGE_TARGET_EXTS if t != _IMAGE_CANON[_src]]
 del _src
 
-# 3D 모델 상호 변환(trimesh) — 스파이크로 5개 포맷 전 조합(20쌍)의 정점·면·
-# 부피 보존을 직접 확인(model3d.py 참고). 자기 자신으로의 "변환"은
-# 노출하지 않는다(이미지와 같은 원칙).
+# 3D 모델 상호 변환(trimesh)
 _MODEL3D_EXTS = ("obj", "stl", "ply", "glb", "gltf")
 for _src in _MODEL3D_EXTS:
     TARGETS[_src] = [t for t in _MODEL3D_EXTS if t != _src]
 del _src
 
-# TXT/MD/HTML 상호 변환(DEC-061) — 이미지·3D 모델과 같은 "포맷 집합 내
-# 전원이 서로 변환 가능" 패턴. 자기 자신으로의 "변환"은 노출하지 않는다.
+# TXT/MD/HTML 상호 변환(DEC-061)
 _MARKUP_EXTS = ("txt", "md", "html")
 for _src in _MARKUP_EXTS:
     TARGETS[_src] = [t for t in _MARKUP_EXTS if t != _src]
@@ -67,28 +60,29 @@ _DISPATCH = {
     ("csv", "json"): data.csv_to_json,
     ("json", "csv"): data.json_to_csv,
     ("pdf", "txt"): pdf.pdf_to_txt,
-    ("pdf", "docx"): pdf_docx.pdf_to_docx,  # 텍스트 기반 (DEC-010 고지)
-    ("pdf", "hwp"): hwp.pdf_to_hwp,        # 텍스트 기반 (DEC-023, DEC-010과 같은 원칙)
-    ("pdf", "png"): partial(pdf.pdf_to_images, ext="png"),  # 페이지별 이미지, 폴더 결과물 (DEC-026)
-    ("pdf", "jpg"): partial(pdf.pdf_to_images, ext="jpg"),  # 위와 동일, JPG(DEC-043)
-    ("pdf", "pptx"): pdf_pptx.pdf_to_pptx,  # 줄 단위 위치 재구성 (DEC-030)
+    ("pdf", "docx"): pdf_docx.pdf_to_docx,
+    ("pdf", "hwp"): hwp.pdf_to_hwp,
+    ("pdf", "png"): partial(pdf.pdf_to_images, ext="png"),
+    ("pdf", "jpg"): partial(pdf.pdf_to_images, ext="jpg"),
+    ("pdf", "pptx"): pdf_pptx.pdf_to_pptx,
     ("docx", "pdf"): office.office_to_pdf,
-    ("pptx", "pdf"): office.office_to_pdf,  # DEC-016 — 동일 LibreOffice 경로 재사용
-    ("docx", "hwp"): hwp.docx_to_hwp,      # DEC-017/DEC-028 — 문단+표(실제 표로 신규 생성)
-    ("docx", "hwpx"): hwpx.docx_to_hwpx,   # DEC-049 — hwp.docx_to_hwp와 대칭
-    ("pdf", "hwpx"): hwpx.pdf_to_hwpx,     # DEC-049 — hwp.pdf_to_hwp와 대칭
+    ("pptx", "pdf"): office.office_to_pdf,
+    ("docx", "hwp"): hwp.docx_to_hwp,
+    ("docx", "hwpx"): hwpx.docx_to_hwpx,
+    ("pdf", "hwpx"): hwpx.pdf_to_hwpx,
     ("hwp", "txt"): hwp.hwp_to_txt,
-    ("hwp", "pdf"): hwp.hwp_to_pdf,        # DOCX 경유 → LibreOffice
-    ("hwp", "docx"): hwp.hwp_to_docx,      # 구조 JSON → python-docx
-    ("hwpx", "txt"): hwpx.hwpx_to_txt,     # 읽기(Phase 1) — hwpxlib 사이드카
-    ("hwpx", "pdf"): hwpx.hwpx_to_pdf,     # DOCX 경유 → LibreOffice
-    ("hwpx", "docx"): hwpx.hwpx_to_docx,   # 구조 JSON → python-docx
-    **{(ext, "mp4"): video.video_to_mp4 for ext in _VIDEO_EXTS},  # DEC-024
+    ("hwp", "pdf"): hwp.hwp_to_pdf,
+    ("hwp", "docx"): hwp.hwp_to_docx,
+    ("hwpx", "txt"): hwpx.hwpx_to_txt,
+    ("hwpx", "pdf"): hwpx.hwpx_to_pdf,
+    ("hwpx", "docx"): hwpx.hwpx_to_docx,
+    **{(ext, "mp4"): video.video_to_mp4 for ext in _VIDEO_EXTS},
+    ("video", "mp4"): video.video_to_mp4,
     **{(src, tgt): partial(image.convert_image, target_ext=tgt)
        for src in _IMAGE_SRC_EXTS for tgt in TARGETS[src]},
     **{(src, tgt): partial(model3d.convert_3d, target_ext=tgt)
        for src in _MODEL3D_EXTS for tgt in TARGETS[src]},
-    ("txt", "html"): markup.txt_to_html,  # DEC-061
+    ("txt", "html"): markup.txt_to_html,
     ("txt", "md"): markup.txt_to_md,
     ("md", "html"): markup.md_to_html,
     ("md", "txt"): markup.md_to_txt,
@@ -105,8 +99,53 @@ def targets_for(ext: str) -> list[str]:
     return TARGETS.get(ext.lower(), [])
 
 
+def detect_source_format(src: Path) -> str:
+    """확장자를 우선 사용하되, 확장자가 없거나 알 수 없는 파일은 ffprobe로
+    실제 영상 스트림을 검사한다.
+
+    `26.09.06`처럼 파일명에 점이 있어 Path가 `.06`을 확장자로 오인하는 경우도
+    지원하지 않는 확장자이므로 이 경로로 들어와 정상적으로 영상으로 감지된다.
+    검사 실패는 오류로 승격하지 않고 원래 확장자를 반환해 기존 unsupported
+    동작을 유지한다.
+    """
+    ext = src.suffix.lstrip(".").lower()
+    if supported(ext):
+        return ext
+    if not _VIDEO_AVAILABLE:
+        return ext
+
+    ffprobe = video.find_ffprobe()
+    if ffprobe is None:
+        return ext
+    try:
+        streams = video._probe_streams(ffprobe, src)
+    except (ConversionError, OSError):
+        return ext
+
+    has_real_video = any(
+        s.get("codec_type") == "video"
+        and not s.get("disposition", {}).get("attached_pic")
+        for s in streams
+    )
+    return "video" if has_real_video else ext
+
+
 def convert(src: Path, dst_fmt: str, tmpdir: Path) -> Path:
-    fn = _DISPATCH.get((src.suffix.lstrip(".").lower(), dst_fmt))
+    source_fmt = detect_source_format(src)
+    fn = _DISPATCH.get((source_fmt, dst_fmt))
     if fn is None:
         raise ConversionError("err.engine")
-    return fn(src, tmpdir)
+
+    out = fn(src, tmpdir)
+
+    # 알 수 없는/없는 확장자를 콘텐츠 기반으로 영상 감지한 경우 src.stem을 쓰면
+    # `26.09.06` → `26.09.mp4`처럼 파일명 일부가 사라진다. 원래 이름 전체를
+    # 보존해 `26.09.06.mp4`로 만든다.
+    if source_fmt == "video" and dst_fmt == "mp4":
+        desired = tmpdir / f"{src.name}.mp4"
+        if out != desired:
+            if desired.exists():
+                desired.unlink()
+            out.replace(desired)
+            out = desired
+    return out
