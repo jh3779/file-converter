@@ -6,10 +6,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app import converters
+from app.converters import video
 from app.models import FileItem
+from app.output import finalize
 
 
-_VIDEO_STREAM = {
+_H264_STREAM = {
     "index": 0,
     "codec_type": "video",
     "codec_name": "h264",
@@ -20,79 +22,79 @@ _VIDEO_STREAM = {
 class TestContentBasedVideoDetection(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self._original_video_target = converters.TARGETS.get("video")
-        converters.TARGETS["video"] = ["mp4"]
 
     def tearDown(self):
-        if self._original_video_target is None:
-            converters.TARGETS.pop("video", None)
-        else:
-            converters.TARGETS["video"] = self._original_video_target
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _detect_patches(self, streams=None):
-        return (
-            patch.object(converters, "_VIDEO_AVAILABLE", True),
-            patch("app.converters.video.find_ffprobe", return_value="ffprobe"),
-            patch("app.converters.video._probe_streams", return_value=streams or [_VIDEO_STREAM]),
-        )
-
-    def test_filename_with_dot_number_suffix_detected_as_video(self):
+    def test_dotted_numeric_suffix_is_detected_by_content(self):
         src = self.tmp / "26.09.06"
         src.write_bytes(b"fake")
-        p1, p2, p3 = self._detect_patches()
-        with p1, p2, p3:
-            self.assertEqual(converters.detect_source_format(src), "video")
-
-    def test_extensionless_file_detected_as_video(self):
-        src = self.tmp / "recording"
-        src.write_bytes(b"fake")
-        p1, p2, p3 = self._detect_patches()
-        with p1, p2, p3:
-            self.assertEqual(converters.detect_source_format(src), "video")
-
-    def test_attached_picture_only_is_not_video(self):
-        src = self.tmp / "album.bin"
-        src.write_bytes(b"fake")
-        cover = dict(_VIDEO_STREAM)
-        cover["disposition"] = {"attached_pic": 1}
-        p1, p2, p3 = self._detect_patches([cover])
-        with p1, p2, p3:
-            self.assertEqual(converters.detect_source_format(src), "bin")
-
-    def test_file_item_normalizes_unknown_extension_to_video(self):
-        src = self.tmp / "26.09.06"
-        src.write_bytes(b"fake")
-        p1, p2, p3 = self._detect_patches()
-        with p1, p2, p3:
+        with patch.object(converters, "_VIDEO_AVAILABLE", True), \
+             patch("app.converters.video.can_convert_to_mp4", return_value=True):
+            self.assertTrue(converters.is_content_detected_video(src))
+            self.assertEqual(converters.targets_for_source(src), ["mp4"])
             item = FileItem(id=1, source=src, source_fmt="06")
-        self.assertEqual(item.source_fmt, "video")
+        self.assertEqual(item.source_fmt, converters.content_video_key())
         self.assertEqual(converters.targets_for(item.source_fmt), ["mp4"])
 
-    def test_convert_preserves_full_original_name_for_detected_video(self):
-        src = self.tmp / "26.09.06"
+    def test_extensionless_file_is_detected_by_content(self):
+        src = self.tmp / "recording"
         src.write_bytes(b"fake")
-        produced = self.tmp / "26.09.mp4"
+        with patch.object(converters, "_VIDEO_AVAILABLE", True), \
+             patch("app.converters.video.can_convert_to_mp4", return_value=True):
+            item = FileItem(id=1, source=src, source_fmt="")
+        self.assertEqual(item.source_fmt, converters.content_video_key())
 
-        def fake_convert(_src, _tmpdir):
-            produced.write_bytes(b"mp4")
-            return produced
+    def test_real_dot_video_extension_does_not_bypass_content_validation(self):
+        src = self.tmp / "clip.video"
+        src.write_bytes(b"not-video")
+        with patch.object(converters, "_VIDEO_AVAILABLE", True), \
+             patch("app.converters.video.can_convert_to_mp4", return_value=False):
+            item = FileItem(id=1, source=src, source_fmt="video")
+            self.assertFalse(converters.supported_source(src))
+        self.assertEqual(item.source_fmt, "video")
+        self.assertFalse(converters.supported("video"))
+        self.assertEqual(converters.targets_for("video"), [])
 
-        p1, p2, p3 = self._detect_patches()
-        original = converters._DISPATCH.get(("video", "mp4"))
-        converters._DISPATCH[("video", "mp4")] = fake_convert
-        try:
-            with p1, p2, p3:
-                out = converters.convert(src, "mp4", self.tmp)
-        finally:
-            if original is None:
-                converters._DISPATCH.pop(("video", "mp4"), None)
-            else:
-                converters._DISPATCH[("video", "mp4")] = original
+    def test_attached_picture_only_is_not_convertible_video(self):
+        cover = dict(_H264_STREAM)
+        cover["disposition"] = {"attached_pic": 1}
+        self.assertFalse(video.streams_convertible_to_mp4([cover], ffmpeg="ffmpeg"))
+
+    def test_unsupported_codec_not_exposed_without_fallback_encoder(self):
+        vp9 = dict(_H264_STREAM)
+        vp9["codec_name"] = "vp9"
+        with patch("app.converters.video._fallback_video_encoder_available", return_value=False):
+            self.assertFalse(video.streams_convertible_to_mp4([vp9], ffmpeg="ffmpeg"))
+
+    def test_safe_codec_is_exposed_without_reencode_fallback(self):
+        with patch("app.converters.video._fallback_video_encoder_available", return_value=False):
+            self.assertTrue(video.streams_convertible_to_mp4([_H264_STREAM], ffmpeg="ffmpeg"))
+
+    def test_finalize_preserves_full_original_name_for_detected_video(self):
+        source = self.tmp / "26.09.06"
+        source.write_bytes(b"source")
+        temp_dir = self.tmp / "temp"
+        temp_dir.mkdir()
+        produced = temp_dir / "26.09.mp4"
+        produced.write_bytes(b"mp4")
+
+        out, renamed = finalize(produced, source, "mp4", stem=source.name)
 
         self.assertEqual(out.name, "26.09.06.mp4")
         self.assertTrue(out.exists())
-        self.assertFalse(produced.exists())
+        self.assertFalse(renamed)
+
+    def test_convert_routes_valid_unknown_extension_to_video_converter(self):
+        src = self.tmp / "26.09.06"
+        src.write_bytes(b"fake")
+        produced = self.tmp / "26.09.mp4"
+        with patch.object(converters, "_VIDEO_AVAILABLE", True), \
+             patch("app.converters.video.can_convert_to_mp4", return_value=True), \
+             patch("app.converters.video.video_to_mp4", return_value=produced) as convert_mock:
+            out = converters.convert(src, "mp4", self.tmp)
+        self.assertEqual(out, produced)
+        convert_mock.assert_called_once_with(src, self.tmp)
 
 
 if __name__ == "__main__":
