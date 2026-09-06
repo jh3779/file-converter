@@ -158,8 +158,13 @@ def parse_fbx(path: Path) -> tuple[list[FbxNode], int]:
 
 
 def extract_geometry(nodes: list[FbxNode]) -> list[dict]:
-    """최상위 노드들에서 Objects/Geometry를 찾아 정점·폴리곤 정점 인덱스를
-    뽑는다. 반환: [{"name", "num_vertices", "num_polygons"}]"""
+    """최상위 노드들에서 Objects/Geometry를 찾아 정점 좌표와 디코딩된
+    폴리곤 정점 인덱스를 뽑는다. 반환: [{"name", "vertices", "polygons",
+    "num_vertices", "num_polygons"}]
+    - vertices: [(x, y, z), ...] — Vertices 배열을 3개씩 묶은 실제 좌표
+    - polygons: [[v0, v1, ...], ...] — PolygonVertexIndex의 비트 NOT(~i)
+      경계 인코딩을 디코딩해 각 폴리곤을 구성하는 정점 인덱스 리스트로 복원
+    """
     results = []
     for top in nodes:
         if top.name != "Objects":
@@ -171,15 +176,27 @@ def extract_geometry(nodes: list[FbxNode]) -> list[dict]:
                 continue
             vertices_flat = vertices_node.properties[0]
             poly_indices = poly_idx_node.properties[0]
-            num_vertices = len(vertices_flat) // 3
+            vertices = [
+                tuple(vertices_flat[i : i + 3]) for i in range(0, len(vertices_flat), 3)
+            ]
             # PolygonVertexIndex: 각 폴리곤의 "마지막" 정점 인덱스는
             # 비트 NOT(~i)으로 저장돼 폴리곤 경계를 표시한다(FBX 바이너리
-            # 포맷의 알려진 관례) — 음수 개수 = 폴리곤 개수.
-            num_polygons = sum(1 for i in poly_indices if i < 0)
+            # 포맷의 알려진 관례) — ~i로 원래 인덱스를 복원한다.
+            polygons: list[list[int]] = []
+            current: list[int] = []
+            for idx in poly_indices:
+                if idx < 0:
+                    current.append(~idx)
+                    polygons.append(current)
+                    current = []
+                else:
+                    current.append(idx)
             results.append({
                 "name": geom.properties[1] if len(geom.properties) > 1 else "",
-                "num_vertices": num_vertices,
-                "num_polygons": num_polygons,
+                "vertices": vertices,
+                "polygons": polygons,
+                "num_vertices": len(vertices),
+                "num_polygons": len(polygons),
             })
     return results
 
@@ -192,3 +209,5 @@ if __name__ == "__main__":
     geoms = extract_geometry(nodes)
     for g in geoms:
         print(f"Geometry {g['name']!r}: 정점 {g['num_vertices']}개, 폴리곤 {g['num_polygons']}개")
+        print(f"  정점 좌표: {g['vertices']}")
+        print(f"  폴리곤(디코딩된 정점 인덱스): {g['polygons']}")
