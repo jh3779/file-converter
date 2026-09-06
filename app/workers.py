@@ -41,12 +41,21 @@ class _Task(QRunnable):
         job.signals.item_started.emit(item.id)
         tmpdir = make_tmpdir()
         try:
+            content_video = (
+                item.target_fmt == "mp4"
+                and converters.is_content_detected_video(item.source)
+            )
             produced = converters.convert(item.source, item.target_fmt, tmpdir)
             if job.cancelled:
                 # 취소: 결과 폐기 + 임시파일 삭제 (STATE-002 전이)
                 job.signals.item_failed.emit(item.id, "err.cancelled")
             else:
-                out, renamed = finalize(produced, item.source, item.target_fmt)
+                # 확장자 없는/알 수 없는 영상은 원본 파일명 전체가 basename이다.
+                # 예: 26.09.06 → 26.09.06.mp4. 일반 변환은 기존 source.stem 규칙 유지.
+                stem = item.source.name if content_video else None
+                out, renamed = finalize(
+                    produced, item.source, item.target_fmt, stem=stem,
+                )
                 job.signals.item_done.emit(item.id, str(out), renamed)
         except ConversionError as e:
             job.signals.item_failed.emit(item.id, e.key)

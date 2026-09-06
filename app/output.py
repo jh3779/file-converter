@@ -27,16 +27,20 @@ def unique_output_path(directory: Path, stem: str, ext: str | None) -> Path:
     return candidate
 
 
-def finalize(tmp_result: Path, source: Path, ext: str) -> tuple[Path, bool]:
+def finalize(tmp_result: Path, source: Path, ext: str, *, stem: str | None = None) -> tuple[Path, bool]:
     """임시 산출물을 원본 폴더로 이동. (최종 경로, 리네임 발생 여부) 반환.
 
-    tmp_result가 폴더이면(예: PDF→이미지, DEC-025) 확장자 없이 폴더째로
-    이동한다 — shutil.move()는 파일·폴더 양쪽에 그대로 동작한다."""
+    기본 stem은 기존과 동일하게 ``source.stem``이다. 단, 확장자 자체가 파일명
+    일부인 콘텐츠 감지 입력(예: ``26.09.06``)은 호출자가 ``stem=source.name``을
+    명시해 전체 원본 파일명을 보존할 수 있다. tmp_result가 폴더이면(예:
+    PDF→이미지, DEC-025) 확장자 없이 폴더째로 이동한다.
+    """
     with _finalize_lock:
         is_dir = tmp_result.is_dir()
         target_ext = None if is_dir else ext
-        out = unique_output_path(source.parent, source.stem, target_ext)
-        expected_name = source.stem if is_dir else f"{source.stem}.{ext}"
+        output_stem = source.stem if stem is None else stem
+        out = unique_output_path(source.parent, output_stem, target_ext)
+        expected_name = output_stem if is_dir else f"{output_stem}.{ext}"
         renamed = out.name != expected_name
         shutil.move(str(tmp_result), out)
     return out, renamed

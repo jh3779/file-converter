@@ -26,7 +26,15 @@ _ICONS = {"docx": "📄", "pdf": "📄", "hwp": "📄", "hwpx": "📄", "txt": "
           "webm": "🎬", "m4v": "🎬",
           "jpg": "🖼", "jpeg": "🖼", "png": "🖼", "bmp": "🖼", "gif": "🖼",
           "webp": "🖼", "tiff": "🖼",
-          "obj": "🧊", "stl": "🧊", "ply": "🧊", "glb": "🧊", "gltf": "🧊"}
+          "obj": "🧊", "stl": "🧊", "ply": "🧊", "glb": "🧊", "gltf": "🧊",
+          converters.content_video_key(): "🎬"}
+
+
+def _display_fmt(fmt: str) -> str:
+    """내부 routing key(`@video`)를 사용자용 표시 문자열로 변환."""
+    if fmt == converters.content_video_key():
+        return tr("fmt.detectedVideo")
+    return fmt.upper()
 
 _BADGE = {  # state → (bg 토큰, fg 토큰, i18n 키)
     ItemState.QUEUED: ("stQueuedBg", "stQueuedFg", "st.queued"),
@@ -65,7 +73,7 @@ class FileRow(QFrame):
         mid.addWidget(self.reason)
         lay.addLayout(mid, 1)
 
-        self.fmt_label = QLabel(item.source_fmt.upper() + " →")
+        self.fmt_label = QLabel(_display_fmt(item.source_fmt) + " →")
         self.fmt_label.setObjectName("muted")
         lay.addWidget(self.fmt_label)
 
@@ -181,7 +189,7 @@ class FileRow(QFrame):
         self.remove_btn.setVisible(not locked)
         self.fmt_label.setVisible(True)
         if locked and self.item.target_fmt:
-            self.fmt_label.setText(f"{self.item.source_fmt.upper()} → {self.item.target_fmt.upper()}")
+            self.fmt_label.setText(f"{_display_fmt(self.item.source_fmt)} → {self.item.target_fmt.upper()}")
 
     def refresh(self):
         """상태 → 배지·사유 반영 (P-02: 색+아이콘+텍스트)."""
