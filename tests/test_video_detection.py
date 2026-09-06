@@ -1,4 +1,5 @@
 """확장자 없는/알 수 없는 영상의 콘텐츠 기반 감지 회귀 테스트."""
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,9 +20,14 @@ _VIDEO_STREAM = {
 class TestContentBasedVideoDetection(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
+        self._original_video_target = converters.TARGETS.get("video")
+        converters.TARGETS["video"] = ["mp4"]
 
     def tearDown(self):
-        import shutil
+        if self._original_video_target is None:
+            converters.TARGETS.pop("video", None)
+        else:
+            converters.TARGETS["video"] = self._original_video_target
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _detect_patches(self, streams=None):
