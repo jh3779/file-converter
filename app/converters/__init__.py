@@ -21,11 +21,12 @@ TARGETS: dict[str, list[str]] = {
 }
 
 _VIDEO_EXTS = ("avi", "mov", "mkv", "wmv", "flv", "m4v")
-_VIDEO_AVAILABLE = video.find_ffmpeg() is not None and video.find_ffprobe() is not None
+_VIDEO_AVAILABLE = video.find_ffmpeg() is not None
 
-# DEC-024/DEC-029 — 영상 엔진이 실제로 사용 가능한 배포판에서만 영상 변환을
-# 노출한다. "video"는 확장자가 없거나 지원하지 않는 확장자를 가진 파일을
-# ffprobe로 검사해 실제 영상 스트림이 확인됐을 때 사용하는 내부 canonical type이다.
+# DEC-024/DEC-029 — 기존과 동일하게 FFmpeg가 사용 가능한 배포판에서만 영상
+# 변환을 노출한다. "video"는 확장자가 없거나 지원하지 않는 확장자를 가진
+# 파일을 ffprobe로 검사해 실제 영상 스트림이 확인됐을 때 사용하는 내부
+# canonical type이다. ffprobe 존재 여부는 실제 콘텐츠 감지 시 별도로 확인한다.
 if _VIDEO_AVAILABLE:
     for _ext in _VIDEO_EXTS:
         TARGETS[_ext] = ["mp4"]
