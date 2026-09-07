@@ -1,6 +1,6 @@
 # model3d.py — 3D 모델(OBJ/STL/PLY/GLB/GLTF) 상호 변환
 
-원본: `app/converters/model3d.py` (51줄)
+원본: `app/converters/model3d.py` (66줄)
 
 가장 짧은 컨버터 파일이지만(실제 함수는 18줄), docstring에 실제로 발견된
 버그 하나와 그 수정 근거가 그대로 남아 있어 "왜 이 코드가 이 모양인지"를
@@ -26,9 +26,15 @@
    형태(geometry, 정점·면)는 모든 조합에서 보존되지만 색상은 대상이
    STL일 때만 사라진다 — 이 사실을 UI가 변환 전에 미리 알려준다
    (`note.stl_no_color`).
-3. **실제 버그와 수정(L15-25)**: 아래 L46에서 자세히.
+3. **실제 버그와 수정(L15-25)**: 아래 "glTF 전용 옵션 분기" 절에서 자세히.
+4. **FBX 소스 지원(L27-34, DEC-069 신규)**: trimesh가 FBX를 자체
+   지원하지 않아, 소스 확장자가 `.fbx`면 `trimesh.load()` 대신
+   `fbx.load_trimesh()`(`app/converters/fbx.py`, 순수 Python 자체
+   파서)를 호출한다. 이후 내보내기 로직은 다른 4개 포맷과 완전히
+   동일한 경로를 그대로 탄다 — "읽기 방식만 소스별로 다르고, 쓰기는
+   전부 공유"라는 구조.
 
-## L27-31: import와 상수
+## L36-40: import와 상수
 
 ```python
 from pathlib import Path
@@ -41,16 +47,21 @@ _TARGET_EXTS = ("obj", "stl", "ply", "glb", "gltf")
 것으로 보임) — 실제 포맷 목록은 `__init__.py`의 `_MODEL3D_EXTS`가
 정본이다. 이 파일의 진짜 로직은 `convert_3d` 함수 하나뿐이다.
 
-## L34-51: `convert_3d` — 유일한 함수
+## L43-65: `convert_3d` — 유일한 함수
 
 ```python
 def convert_3d(src: Path, tmpdir: Path, target_ext: str) -> Path:
     import trimesh
 
-    try:
-        mesh = trimesh.load(src, force="mesh")
-    except Exception as e:
-        raise ConversionError("err.corrupted", str(e))
+    if src.suffix.lower() == ".fbx":
+        from . import fbx
+
+        mesh = fbx.load_trimesh(src)  # ConversionError를 그대로 전파(err.corrupted/err.disk)
+    else:
+        try:
+            mesh = trimesh.load(src, force="mesh")
+        except Exception as e:
+            raise ConversionError("err.corrupted", str(e))
 
     if mesh.vertices is None or len(mesh.vertices) == 0:
         raise ConversionError("err.corrupted", "empty mesh")
@@ -64,27 +75,42 @@ def convert_3d(src: Path, tmpdir: Path, target_ext: str) -> Path:
     return out
 ```
 
-- **L38**: `trimesh.load(src, force="mesh")` — 파일을 읽어 메시(정점+면)
-  객체로 로드한다. `force="mesh"`가 중요한 옵션: trimesh는 파일 내용에
-  따라 `Trimesh`(단일 메시), `Scene`(여러 메시로 구성된 장면), 심지어
-  `PointCloud`(점군)처럼 다른 타입을 반환할 수 있는데, `force="mesh"`는
-  "무조건 단일 메시로 합쳐서 달라"고 강제한다 — 이후 코드(L42의
-  `mesh.vertices`)가 항상 같은 인터페이스(Trimesh 객체)를 기대하므로,
-  이 강제가 없으면 입력에 따라 타입이 달라져 코드가 깨질 수 있다.
-- **L39-40**: 로드 자체가 실패하면(포맷을 못 읽음, 손상된 파일 등)
-  `err.corrupted`로 통일한다. `except Exception`으로 넓게 잡는 이유는
-  trimesh가 내부적으로 포맷별 파서(OBJ 파서, STL 파서 등)를 쓰는데
-  각각 어떤 예외를 던질지 다 예측하기 어렵기 때문 — "trimesh가 뭘
-  던지든 우리 쪽에서는 다 '손상된 파일'로 통일해서 처리한다"는
-  방어적 설계.
-- **L42-43**: 로드 자체는 성공했지만 정점이 아예 없는(빈 메시) 경우도
+- **L46-49(DEC-069 신규)**: 소스가 `.fbx`면 `fbx.load_trimesh()`로
+  분기한다. `fbx.py`를 함수 안에서 지연 import하는 이유는 이 파일의
+  다른 모든 컨버터와 같은 패턴(무거운 모듈은 실제로 쓸 때만
+  로드)이지만, `fbx.py` 자체는 표준 라이브러리(`struct`/`zlib`)만
+  쓰므로 사실 무겁지 않다 — 그래도 일관성을 위해 지연 import를
+  유지했다. `fbx.load_trimesh()`가 던지는 `ConversionError`는 여기서
+  다시 감싸지 않고 그대로 전파된다(주석 참고) — `fbx.py` 내부에서
+  이미 `err.corrupted`/`err.disk`로 의미 있게 분류해뒀기 때문에,
+  여기서 `except Exception`으로 다시 뭉개면 오히려 정보가 사라진다.
+- **L50-54(그 외 4개 포맷)**: `trimesh.load(src, force="mesh")` —
+  파일을 읽어 메시(정점+면) 객체로 로드한다. `force="mesh"`가 중요한
+  옵션: trimesh는 파일 내용에 따라 `Trimesh`(단일 메시), `Scene`
+  (여러 메시로 구성된 장면), 심지어 `PointCloud`(점군)처럼 다른
+  타입을 반환할 수 있는데, `force="mesh"`는 "무조건 단일 메시로
+  합쳐서 달라"고 강제한다 — 이후 코드(L56의 `mesh.vertices`)가 항상
+  같은 인터페이스(Trimesh 객체)를 기대하므로, 이 강제가 없으면
+  입력에 따라 타입이 달라져 코드가 깨질 수 있다. 로드 자체가
+  실패하면(포맷을 못 읽음, 손상된 파일 등) `err.corrupted`로
+  통일한다. `except Exception`으로 넓게 잡는 이유는 trimesh가
+  내부적으로 포맷별 파서(OBJ 파서, STL 파서 등)를 쓰는데 각각 어떤
+  예외를 던질지 다 예측하기 어렵기 때문 — "trimesh가 뭘 던지든
+  우리 쪽에서는 다 '손상된 파일'로 통일해서 처리한다"는 방어적 설계.
+  FBX 분기(L46-49)가 `ConversionError`를 그대로 전파하는 것과
+  대비된다 — FBX는 우리가 직접 만든 파서라 예외 분류를 이미 소스
+  쪽에서 정확히 했고, trimesh는 우리가 통제 못 하는 외부 라이브러리라
+  뭘 던질지 몰라 여기서 뭉뚱그린다는 차이.
+- **L56-57**: 로드 자체는 성공했지만 정점이 아예 없는(빈 메시) 경우도
   손상으로 간주한다 — `mesh.vertices is None`은 애초에 정점 배열
   자체가 없는 경우, `len(mesh.vertices) == 0`은 배열은 있지만 빈
   경우(둘 다 방어). 빈 메시를 그대로 내보내면 "성공했지만 아무것도
-  없는 파일"이 나오므로, 이걸 미리 걸러 명확한 오류로 바꾼다.
-- **L45**: 출력 파일명 규칙은 다른 모든 컨버터와 동일
-  (`src.stem + "." + target_ext`).
-- **L46: 이 파일의 핵심 — glTF 전용 옵션 분기**:
+  없는 파일"이 나오므로, 이걸 미리 걸러 명확한 오류로 바꾼다. FBX
+  분기로 온 메시도 이 검증을 똑같이 통과해야 한다(공유 경로).
+- **L59**: 출력 파일명 규칙은 다른 모든 컨버터와 동일
+  (`src.stem + "." + target_ext`) — FBX 소스도 `src.stem`은 원본 FBX
+  파일명 그대로라 다르지 않다.
+- **L60: 이 파일의 핵심 — glTF 전용 옵션 분기**:
   ```python
   export_kwargs = {"embed_buffers": True} if target_ext == "gltf" else {}
   ```
@@ -112,9 +138,10 @@ def convert_3d(src: Path, tmpdir: Path, target_ext: str) -> Path:
     glTF — 이건 원래 스펙상 이미 단일 파일이라 이 문제 자체가 없음)
     익스포터에 이 키워드 인자를 넘기면 `TypeError`가 난다(직접 확인).
     그래서 조건부로만 `export_kwargs`에 넣는다.
-- **L47-50**: `mesh.export(out, **export_kwargs)`가 실패하면(디스크
-  문제, 익스포터 자체 오류 등) `err.engine`으로 통일한다 — L38-40의
-  "입력을 못 읽음"과 대비되는 "출력을 못 씀" 실패 지점.
+- **L61-64**: `mesh.export(out, **export_kwargs)`가 실패하면(디스크
+  문제, 익스포터 자체 오류 등) `err.engine`으로 통일한다 — L50-54(및
+  FBX 분기 L46-49)의 "입력을 못 읽음"과 대비되는 "출력을 못 씀"
+  실패 지점(이 단계부터는 소스가 FBX였든 아니든 완전히 같은 경로).
 
 ---
 
@@ -126,3 +153,7 @@ def convert_3d(src: Path, tmpdir: Path, target_ext: str) -> Path:
   이 파일 밖의 어느 부분(다른 파일)까지 바꿔야 하는가?
 - STL로의 변환에서 색상이 사라지는 게 이 코드의 버그인가, 아닌가?
   왜 그렇게 판단할 수 있는가?
+- FBX 소스일 때 `fbx.load_trimesh()`가 던진 `ConversionError`를 이
+  함수가 다시 감싸지 않고 그대로 전파하는 이유는? trimesh 로드
+  실패를 `except Exception`으로 넓게 잡는 것과 왜 다른 방식을
+  택했는가?

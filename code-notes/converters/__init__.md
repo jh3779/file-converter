@@ -139,6 +139,23 @@ del _src
   "스파이크로 20쌍 전 조합의 정점·면·부피 보존을 확인했다"는 근거가 남아
   있다 — 즉 이 자동 생성된 20개 조합이 전부 실제로 검증됐다는 뜻.
 
+## FBX 추가(DEC-069) — 위 3D 모델 패턴과 의도적으로 다른 모양
+
+```python
+TARGETS["fbx"] = list(_MODEL3D_EXTS)
+```
+
+3D 모델·이미지·마크업 3개 블록은 전부 "포맷 집합 내 전원이 서로
+변환 가능"(자기 자신만 제외 루프)인데, FBX는 **읽기 전용**이라 이
+루프에 끼워 넣지 않고 완전히 별도 줄로 단방향만 추가한다 — 다른
+4개 포맷(OBJ/STL/PLY/GLB/GLTF)의 `TARGETS`에는 "fbx"가 **한 번도**
+안 들어간다(대칭이 아님을 코드 구조로도 강제). `_DISPATCH`도 같은
+원칙으로 별도 컴프리헨션(`{("fbx", tgt): partial(model3d.convert_3d,
+target_ext=tgt) for tgt in TARGETS["fbx"]}`)을 하나 더 추가했다 —
+실제 변환 함수는 3D 모델과 똑같이 `model3d.convert_3d`를 재사용하고,
+그 함수 내부가 소스 확장자로 `fbx.load_trimesh()`와 `trimesh.load()`
+를 분기한다(`model3d.py`, `fbx.py` 참고).
+
 ## L57-62: TXT/MD/HTML — 같은 패턴 세 번째
 
 3D 모델과 똑같은 구조(3개 포맷, 자기 자신 제외). 6방향(3×2)이 여기서 나온다.

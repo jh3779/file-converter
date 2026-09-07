@@ -172,6 +172,23 @@ class TestFormatNote(unittest.TestCase):
         visible, text = self._note_for("txt", "md")
         self.assertFalse(visible)
 
+    def test_fbx_to_obj_shows_local_transform_note(self):
+        """DEC-069: FBX 소스는 Model 노드의 로컬 변환(위치/회전/스케일)과
+        단위 배율을 적용하지 않는다는 알려진 한계를 대상 포맷과 무관하게
+        항상 고지한다."""
+        visible, text = self._note_for("fbx", "obj")
+        self.assertTrue(visible)
+        self.assertIn("위치", text)
+
+    def test_fbx_to_stl_shows_local_transform_note_not_color_note(self):
+        """FBX→STL은 STL 타깃 고지(note.stl_no_color)가 아니라 FBX 전용
+        고지가 떠야 한다 — model3d.py의 `_update_note` STL 분기는 소스를
+        ("obj","ply","glb","gltf")로 한정해 fbx를 명시적으로 제외한다."""
+        visible, text = self._note_for("fbx", "stl")
+        self.assertTrue(visible)
+        self.assertIn("위치", text)
+        self.assertNotIn("색상", text)
+
 
 if __name__ == "__main__":
     unittest.main()

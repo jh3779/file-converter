@@ -23,6 +23,15 @@ JSON 변환)는 포맷 자체가 다중 파일이라, trimesh가 기본값으로
 된다(직접 재현 확인 — 재로드 시 형태 동일). glTF 익스포터에만 있는
 옵션이라(`.glb`·OBJ·STL·PLY 익스포터에 넘기면 `TypeError`) target이
 "gltf"일 때만 넘긴다.
+
+**FBX 소스 지원(REQ-F-020 확장, DEC-069 · OQ-007)**: trimesh는 FBX를
+자체 지원하지 않는다(`trimesh.exchange.load.mesh_loaders`에 `fbx` 없음,
+`fbx.py` 모듈 docstring의 스파이크 기록 참고) — 소스 확장자가 `fbx`이면
+`trimesh.load()` 대신 이 프로젝트가 직접 구현한 읽기 전용 파서
+`fbx.load_trimesh()`를 호출해 `Trimesh` 객체를 얻은 뒤, 이후 내보내기
+로직(대상 포맷별 export)은 다른 4개 포맷과 완전히 동일한 경로를 그대로
+탄다. FBX는 읽기 전용이라 `__init__.py`의 `TARGETS`에 소스로만 등록되고
+대상으로는 노출되지 않는다(FBX로 내보내는 방향은 없음).
 """
 from pathlib import Path
 
@@ -34,10 +43,15 @@ _TARGET_EXTS = ("obj", "stl", "ply", "glb", "gltf")
 def convert_3d(src: Path, tmpdir: Path, target_ext: str) -> Path:
     import trimesh
 
-    try:
-        mesh = trimesh.load(src, force="mesh")
-    except Exception as e:
-        raise ConversionError("err.corrupted", str(e))
+    if src.suffix.lower() == ".fbx":
+        from . import fbx
+
+        mesh = fbx.load_trimesh(src)  # ConversionError를 그대로 전파(err.corrupted/err.disk)
+    else:
+        try:
+            mesh = trimesh.load(src, force="mesh")
+        except Exception as e:
+            raise ConversionError("err.corrupted", str(e))
 
     if mesh.vertices is None or len(mesh.vertices) == 0:
         raise ConversionError("err.corrupted", "empty mesh")
