@@ -16,7 +16,7 @@
 |------|------|------|
 | id | string | 항목 ID |
 | sourcePath | string | 원본 파일 경로 (읽기 전용 접근) |
-| sourceFormat | enum | docx / pptx / pdf / hwp / csv / xlsx / json / avi / mov / mkv / wmv / flv / m4v / jpg / jpeg / png / bmp / gif / webp / tiff … |
+| sourceFormat | enum | docx / pptx / pdf / hwp / csv / xlsx / json / avi / mov / mkv / wmv / flv / m4v / jpg / jpeg / png / bmp / gif / webp / tiff … · 예외: 확장자 없음/알 수 없는 확장자인데 콘텐츠 감지로 영상임이 확인된 파일은 실제 확장자 대신 내부 라우팅 키 `@video`를 담는다(DEC-066) — `TARGETS`의 실제 확장자 namespace와 충돌하지 않도록 분리된 값이라 이 필드가 "항상 실제 파일 포맷"이라는 원칙의 유일한 예외다 |
 | targetFormat | enum | 사용자가 선택한 대상 포맷 |
 | outputPath | string? | 결과 파일(또는 폴더 — PDF→이미지처럼 페이지별 결과물인 경우, DEC-026) 경로. 완료 후 확정, 충돌 시 자동 리네임 반영 |
 | status | enum | STATE-002 참조 (queued / converting / done / failed / skipped) |
