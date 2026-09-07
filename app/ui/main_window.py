@@ -18,7 +18,7 @@ from ..history import History
 from ..i18n import tr
 from ..models import FileItem, ItemState
 from ..update_check import UpdateChecker
-from ..workers import Job
+from ..workers import FileDetectionSignals, Job, create_file_item_async
 
 _ICONS = {"docx": "📄", "pdf": "📄", "hwp": "📄", "hwpx": "📄", "txt": "📄", "pptx": "📽",
           "csv": "📊", "xlsx": "📊", "json": "📊",
@@ -251,6 +251,8 @@ class MainWindow(QMainWindow):
         self._latest_version = ""
         self.update_checker = UpdateChecker()
         self.update_checker.found.connect(self._on_update_found)
+        self._detect_signals = FileDetectionSignals()
+        self._detect_signals.ready.connect(self._on_item_ready)
 
         self.setAcceptDrops(True)
         self.setMinimumSize(640, 480)
@@ -466,16 +468,33 @@ class MainWindow(QMainWindow):
         for p in paths:
             if not p.is_file():
                 continue
-            item = FileItem(self._next_id, p, p.suffix.lstrip(".").lower())
+            ext = p.suffix.lstrip(".").lower()
+            item_id = self._next_id
             self._next_id += 1
-            self.items.append(item)
-            row = FileRow(item, self.tokens, self._remove_item, self._refresh_state)
-            self.rows[item.id] = row
-            lw_item = QListWidgetItem()
-            lw_item.setSizeHint(row.sizeHint())
-            lw_item.setData(Qt.UserRole, item.id)
-            self.list.addItem(lw_item)
-            self.list.setItemWidget(lw_item, row)
+            if converters.supported(ext):
+                # 확장자만으로 지원 여부가 바로 정해지는 절대다수의 경우 —
+                # FileItem.__post_init__(models.py)이 콘텐츠 감지를 시도조차
+                # 안 하므로(이미 지원되는데 감지가 필요 없음) 지금까지처럼
+                # 메인 스레드에서 즉시 만들어도 안전하다.
+                self._add_item_row(FileItem(item_id, p, ext))
+            else:
+                # 확장자로는 판단 불가 — FileItem 생성 자체(내부적으로
+                # ffprobe를 동기 실행하는 콘텐츠 기반 영상 감지 포함,
+                # models.py __post_init__)를 백그라운드로 미뤄 UI를 막지
+                # 않는다(정밀 검증 발견 — 미지원 확장자 파일 하나만
+                # 드롭해도 최대 수십 초간 창이 멈추던 문제). 완료되면
+                # _on_item_ready가 같은 방식으로 행을 추가한다.
+                create_file_item_async(item_id, p, ext, self._detect_signals)
+
+    def _add_item_row(self, item: FileItem):
+        self.items.append(item)
+        row = FileRow(item, self.tokens, self._remove_item, self._refresh_state)
+        self.rows[item.id] = row
+        lw_item = QListWidgetItem()
+        lw_item.setSizeHint(row.sizeHint())
+        lw_item.setData(Qt.UserRole, item.id)
+        self.list.addItem(lw_item)
+        self.list.setItemWidget(lw_item, row)
         self._refresh_state()
         # 기록 패널을 먼저 열어둔 채(목록이 비어 있을 때는 넓힐 필요가
         # 없어 _toggle_history의 보정이 아무 일도 안 함) 파일을 나중에
@@ -484,6 +503,12 @@ class MainWindow(QMainWindow):
         # 있으면 다시 확인한다.
         if self.history_panel.isVisible():
             self._ensure_width_for_history_panel()
+
+    def _on_item_ready(self, item: FileItem):
+        """create_file_item_async()가 백그라운드 스레드에서 만든 FileItem을
+        메인 스레드에서 화면에 반영한다 — Qt 위젯 조작은 항상 메인
+        스레드에서만 해야 한다."""
+        self._add_item_row(item)
 
     def _remove_item(self, item_id: int):
         self.items = [it for it in self.items if it.id != item_id]

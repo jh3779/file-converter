@@ -7,6 +7,7 @@ import logging
 import os
 import shutil
 import threading
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 
@@ -24,6 +25,50 @@ class JobSignals(QObject):
     item_failed = Signal(int, str)          # id, error i18n key
     item_skipped = Signal(int)
     job_finished = Signal()
+
+
+class FileDetectionSignals(QObject):
+    ready = Signal(object)  # FileItem — 감지가 끝난 완성된 항목
+
+
+class _CreateItemTask(QRunnable):
+    """확장자만으로 지원 여부를 못 정하는 파일의 FileItem 생성을 백그라운드
+    스레드에서 수행한다.
+
+    FileItem.__post_init__(models.py)이 확장자 미지원 파일에 대해 콘텐츠
+    기반 영상 감지(ffprobe subprocess, 최대 수십 초 타임아웃)를 동기적으로
+    실행하는데, 드롭/파일 선택 이벤트 핸들러(main_window.py의 dropEvent·
+    _browse → add_files)는 워커 스레드 디스패치 없이 Qt 메인 스레드에서
+    바로 호출된다 — 즉 미지원 확장자 파일 하나를 드롭하기만 해도 UI가
+    그 시간만큼 그대로 멈췄다(정밀 검증에서 발견). FileItem 생성 자체를
+    이 QRunnable로 옮겨 무거운 판정이 메인 스레드를 막지 않게 한다."""
+
+    def __init__(self, item_id: int, source: Path, source_fmt: str, signals: FileDetectionSignals):
+        super().__init__()
+        self.item_id = item_id
+        self.source = source
+        self.source_fmt = source_fmt
+        self.signals = signals
+
+    def run(self):
+        try:
+            item = FileItem(self.item_id, self.source, self.source_fmt)
+        except Exception:
+            # PySide6는 QRunnable 안의 미처리 예외를 애플리케이션에 전파하지
+            # 않고 조용히 삼킨다 — 가드가 없으면 사용자가 드롭한 파일이
+            # 목록에 아예 안 뜨고 원인도 어디에도 안 남는다(정밀 재검증
+            # 지적). _Task.run()과 같은 원칙으로 로그에 남긴다.
+            logger.exception("파일 항목 생성 중 예상하지 못한 오류: %s", self.source)
+            return
+        self.signals.ready.emit(item)
+
+
+def create_file_item_async(item_id: int, source: Path, source_fmt: str, signals: FileDetectionSignals):
+    """QThreadPool의 전역 인스턴스에 생성 작업을 맡긴다 — 변환용 Job이 쓰는
+    스레드풀(Job.__init__, 동시 실행 수 제한)과는 별개다. 파일 추가는
+    변환과 동시에 일어나지 않고(파일을 추가하는 동안엔 변환 중이 아님),
+    작업 하나하나가 짧아 동시 실행 수를 따로 제한할 이유가 없다."""
+    QThreadPool.globalInstance().start(_CreateItemTask(item_id, source, source_fmt, signals))
 
 
 class _Task(QRunnable):
