@@ -27,7 +27,7 @@ def start_job(self):
         it.error_key = None
     target_ids = {it.id for it in targets}
     for item_id, row in self.rows.items():
-        row.set_locked(True)
+        row.set_locked(True)          # 미참여 행 포함 전체 입력 잠금 (SCR-001 converting)
         if item_id in target_ids:
             row.badge.show()
             row.refresh()
@@ -85,6 +85,9 @@ def on_failed(self, item_id: int, key: str):
 
 
 def record_history(self, name: str, target_fmt: str, output_path: str, success: bool):
+    """기록을 저장하고, 기록 패널이 이미 열려 있으면 그 자리에서 바로
+    새로고침한다 — 이전엔 패널을 껐다 켜야만(_toggle_history) 새 항목이
+    보였다(외부 QA 피드백)."""
     self.history.add(name, target_fmt, output_path, success)
     if self.history_panel.isVisible():
         self._reload_history()
@@ -105,6 +108,11 @@ def cancel_job(self):
 def on_job_finished(self):
     self.job = None
     if self._quit_pending:
+        # closeEvent가 취소 후 즉시 종료하지 않고 여기까지 미뤄둔
+        # 상태(main_window.py의 closeEvent 참고) — 이제 실행 중이던
+        # 워커가 전부 끝났으니(취소된 항목의 item_failed/item_done도
+        # 이미 처리됨) 안전하게 다시 닫는다. self.job이 None이라
+        # closeEvent가 이번엔 바로 history.close() + accept로 간다.
         self.close()
         return
     self._show_result()
