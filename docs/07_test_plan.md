@@ -12,7 +12,7 @@
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
-전체 289개 중 8개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
+전체 295개 중 8개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
 CI(`test` job, `.github/workflows/build.yml`)는 매 push/PR마다 이 명령을
 그대로 실행한다 — Java/LibreOffice/FFmpeg가 없는 가벼운 러너라 사이드카
 필요 테스트는 CI에서도 스킵되고, 그 부분은 `build-windows`/`build-macos`/
@@ -54,7 +54,7 @@ REQ-F ID·DEC는 `docs/01_requirements.md`·`docs/06_open_questions.md` 참고.
 | 위 감지를 백그라운드로 미뤄 UI 스레드를 안 막는지(DEC-067) | REQ-F-002, REQ-F-014, REQ-NF-006 | `test_file_detection_async.py` | 항상(모킹) |
 | 이미지↔이미지 | REQ-F-015, DEC-025 | `test_image.py::TestImageConversion` | 항상(Pillow) |
 | 3D 모델↔3D 모델(OBJ/STL/PLY/GLB/GLTF) | DEC-050 | `test_model3d.py::TestModel3DConversion` | 항상(trimesh) |
-| FBX→3D 모델(OBJ/STL/PLY/GLB/GLTF, 읽기 전용 단방향) — 비압축/압축 파싱, 좌표축 정규화, Connections 필터링, FBX 6.x 거부, 손상 파일 방어성, 파이프라인 왕복 | REQ-F-020, DEC-069 | `test_fbx.py`(`TestFbxParsing`·`TestFbxConvertPipeline`·`TestFbxRegistry`·`TestFbxRobustness`, 24건) | 항상(순수 Python + trimesh) |
+| FBX→3D 모델(OBJ/STL/PLY/GLB/GLTF, 읽기 전용 단방향) — 비압축/압축 파싱(압축 해제 크기 상한 검증 포함), 좌표축 정규화(축·부호 값 자체 검증 포함), Connections 필터링, FBX 6.x 거부, Geometry별 인덱스 범위 방어(다중 Geometry 교차 오염 방지), 파이프라인 왕복 | REQ-F-020, DEC-069 | `test_fbx.py`(`TestFbxParsing`·`TestFbxConvertPipeline`·`TestFbxRegistry`·`TestFbxRobustness`·`TestFbxCompressedArrayBounds`, 30건) | 항상(순수 Python + trimesh) |
 | TXT/MD/HTML 상호 변환(6방향) | REQ-F-018, DEC-061 | `test_markup.py::TestMarkupConversion` | 항상(순수 Python) |
 
 ## UI·플랫폼·부가 기능 커버리지

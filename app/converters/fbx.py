@@ -25,10 +25,14 @@ spike/fbx/spike_parser.py 2단계 스파이크에서 실현 가능성을 검증�
 2. **ASCII FBX는 지원 안 함** — 바이너리 매직 헤더가 없으면 즉시 명확히
    거부한다(바이너리만).
 3. **Model 노드의 로컬 변환(Translation/Rotation/Scaling)은 적용하지
-   않는다** — 원점 근처의 단순한 단일 오브젝트 FBX(3D 프린팅용 단일
-   메시 등 흔한 사용 사례)는 정확하지만, 여러 오브젝트가 있거나 오브젝트가
-   원점에서 크게 벗어난 씬은 위치·회전이 원본과 다를 수 있다. 실제
-   Blender 다중 오브젝트 fixture(Cube+Light+Camera+Cone)로 직접 확인—
+   않는다** — Translation/Rotation/Scaling이 항등(identity)인 오브젝트만
+   정확하다(3D 프린팅용 단일 메시처럼 원점에 변환 없이 배치된 흔한 사용
+   사례가 해당). 원점 근처에 있어도 회전·스케일이 걸려 있으면(이동만
+   없고 회전·크기가 non-identity인 경우도 포함) 부정확해질 수 있다 —
+   "원점 근처"라는 위치 자체가 정확성을 보장하지 않는다. 여러 오브젝트가
+   있거나 오브젝트가 원점에서 크게 벗어난 씬은 위치·회전이 원본과 다를
+   수 있다. 실제 Blender 다중 오브젝트 fixture(Cube+Light+Camera+Cone)로
+   직접 확인—
    Geometry 자체의 형태·크기·축 방향은 정확히 재현되고, Model의
    Translation만큼 위치가 원점 쪽으로 어긋난다. 실사용 피드백을 보고
    필요해지면 Translation/Rotation/Scaling 베이킹을 후속 과제로 추가한다.
@@ -112,9 +116,20 @@ def _read_properties(buf: bytes, pos: int, num_properties: int) -> tuple[list, i
                 raw = buf[pos : pos + array_length * elem_size]
                 pos += array_length * elem_size
             elif encoding == 1:
-                raw = zlib.decompress(buf[pos : pos + compressed_length])
+                # 압축 해제 전에 기대 크기를 정해두고 그 상한까지만 풀어
+                # 압축 폭탄류(비정상적으로 큰 array_length·조작된 압축
+                # 블록이 무제한 메모리 할당을 유발) 방어한다 — zlib.decompress()를
+                # 그대로 쓰면 크기 검증이 전체를 다 푼 "뒤"에야 일어나 그 사이
+                # 거대한 메모리 할당이 먼저 벌어진다(review 지적 반영).
+                expected = array_length * elem_size
+                decompressor = zlib.decompressobj()
+                raw = decompressor.decompress(buf[pos : pos + compressed_length], expected + 1)
                 pos += compressed_length
-                if len(raw) != array_length * elem_size:
+                # 상한(expected+1)까지 풀었는데도 스트림이 안 끝났다는 건
+                # 실제 압축 해제 결과가 선언된 크기보다 크다는 뜻 —
+                # unconsumed_tail/eof로 이를 확인한다(전체를 다 풀지 않고도
+                # 판별 가능).
+                if len(raw) != expected or not decompressor.eof:
                     raise ConversionError("err.corrupted", "fbx: 압축 해제 크기 불일치")
             else:
                 raise ConversionError("err.corrupted", f"fbx: 알 수 없는 배열 인코딩 {encoding}")
@@ -191,6 +206,20 @@ def _axis_matrix(nodes: list["_FbxNode"]) -> tuple[list[list[float]], float]:
             up_sign = int(values.get("UpAxisSign", up_sign))
             front_axis = int(values.get("FrontAxis", front_axis))
             front_sign = int(values.get("FrontAxisSign", front_sign))
+    # 값 자체가 스펙 위반이면(Axis가 0/1/2 순열이 아니거나 Sign이 ±1이
+    # 아님) 여기서 명확히 실패시킨다. 이렇게 하면 두 가지를 동시에 막는다:
+    # (1) Sign이 ±1이 아닌 값(예: 2)이면 det≈0 축퇴 방어를 피해가면서
+    # (det≈2 등) 축 하나가 조용히 배로 왜곡된 좌표가 나오는 것을 막고,
+    # (2) Axis가 0/1/2가 아닌 값(예: 3)이면 아래 matrix[.][axis] 인덱싱에서
+    # IndexError가 나는데, 그 호출자(_extract_from_nodes)의 try/except가
+    # 이 함수 호출 지점을 감싸지 않아 IndexError가 최상위까지 그대로
+    # 전파돼 err.corrupted가 아니라 원인 불명의 err.engine으로 보고되는
+    # 문제를 막는다(값 검증이 인덱싱보다 먼저 일어나므로 IndexError 자체가
+    # 발생하지 않게 됨 — review 지적 반영).
+    axes = (coord_axis, up_axis, front_axis)
+    signs = (coord_sign, up_sign, front_sign)
+    if set(axes) != {0, 1, 2} or any(s not in (1, -1) for s in signs):
+        raise ConversionError("err.corrupted", "fbx: GlobalSettings의 좌표축 설정이 유효하지 않음")
     matrix = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
     matrix[0][coord_axis] = float(coord_sign)
     matrix[1][up_axis] = float(up_sign)
@@ -279,12 +308,23 @@ def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, floa
                 continue
             flat = vertices_node.properties[0]
             base = len(all_vertices)
+            local_vertex_count = len(flat) // 3
             for i in range(0, len(flat) - 2, 3):
                 all_vertices.append(_apply_axis(matrix, flat[i], flat[i + 1], flat[i + 2]))
             polygon: list[int] = []
             for idx in poly_idx_node.properties[0]:
                 is_last = idx < 0
-                real_idx = (~idx if is_last else idx) + base
+                local_idx = ~idx if is_last else idx
+                # base를 더하기 전에 이 Geometry 안에서의 로컬 범위부터
+                # 검증한다 — base를 더한 뒤(전역 인덱스)에만 검증하면, 앞쪽
+                # Geometry의 범위 초과 로컬 인덱스가 뒤쪽 Geometry들이 늘려준
+                # 전체 정점 수 안에 우연히 들어와 검증을 통과해버릴 수 있다
+                # (서로 무관한 Geometry의 정점을 잇는 삼각형이 조용히 생성되는
+                # 위험 — review 지적 반영). 아래 최종 전역 검증(298번 줄
+                # 근처)은 다른 방식의 손상에 대한 안전망으로 남겨둔다.
+                if local_idx < 0 or local_idx >= local_vertex_count:
+                    raise ConversionError("err.corrupted", "fbx: PolygonVertexIndex가 정점 범위를 벗어남")
+                real_idx = local_idx + base
                 polygon.append(real_idx)
                 if is_last:
                     tris = list(_triangulate_fan(polygon))

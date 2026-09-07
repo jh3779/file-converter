@@ -19,8 +19,10 @@
 훨씬 안정적이고 읽기 쉽다(`fbx.py`의 `_extract_from_nodes` docstring 참고).
 """
 import shutil
+import struct
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 
 from app import converters
@@ -361,6 +363,55 @@ class TestFbxRobustness(unittest.TestCase):
         self.assertEqual(len(vertices), 3)
         self.assertEqual(len(faces), 1)
 
+    def test_out_of_range_local_index_across_geometries_raises_corrupted(self):
+        """앞쪽 Geometry가 자기 정점 범위를 벗어난 로컬 인덱스를 담고
+        있어도, 뒤쪽 Geometry가 전체 정점 수를 충분히 늘려주면 base를 더한
+        '전역' 인덱스만 검증해서는 통과해버릴 수 있다(서로 무관한
+        Geometry의 정점을 잇는 삼각형이 조용히 만들어짐) — Geometry별
+        로컬 범위 검증이 없던 수정 전에는 조용히 통과했을 상황을
+        재현한다(review 지적 Finding 3)."""
+        # g1: 정점 3개(로컬 인덱스 0~2)뿐인데 로컬 인덱스 5를 참조(범위 초과).
+        bad_poly = (0, 1, ~5)
+        g1 = _geom(100, _TRI_VERTS, bad_poly)
+        # g2: 정점 8개 — g1의 범위 초과 로컬 인덱스(5)가 base(=0)를 더한
+        # 뒤에도 여전히 5인데, 전역 정점 수가 3+8=11이라 5 < 11로 "전역"
+        # 검증만으로는 통과해버리는 상황을 만든다.
+        g2_verts = tuple(float(i) for i in range(24))  # 정점 8개 분량
+        g2_poly = (0, 1, ~2)
+        g2 = _geom(200, g2_verts, g2_poly)
+        nodes = [_objects([g1, g2])]
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._extract_from_nodes(nodes)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_axis_sign_not_unit_raises_corrupted(self):
+        """CoordAxisSign 등이 ±1이 아닌 값(예: 2)이면 det≈0 축퇴 방어를
+        피해가면서(det≈2 등) 축 하나가 조용히 배로 왜곡된 좌표가 나올 수
+        있다 — 값 자체를 검증해 명확히 실패해야 한다(review 지적
+        Finding 4-a)."""
+        gs = _global_settings(CoordAxis=0, CoordAxisSign=2, UpAxis=1, UpAxisSign=1, FrontAxis=2, FrontAxisSign=1)
+        g = _geom(100, _TRI_VERTS, _TRI_POLY)
+        nodes = [gs, _objects([g])]
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._extract_from_nodes(nodes)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_axis_value_out_of_range_raises_corrupted_not_index_error(self):
+        """CoordAxis 등이 0/1/2가 아닌 값(예: 3)이면 `matrix[.][axis]`
+        인덱싱에서 IndexError가 나기 쉬운데, 수정 전에는 이 예외가
+        `_extract_from_nodes`의 try 블록 밖(`_axis_matrix` 호출 지점)에서
+        발생해 err.corrupted가 아니라 원인 불명의 err.engine으로 최상위까지
+        전파될 위험이 있었다 — 값 검증을 인덱싱보다 먼저 해 IndexError
+        자체가 나지 않고 ConversionError(err.corrupted)로 바뀌어야 한다
+        (review 지적 Finding 4-b). assertRaises(ConversionError)라
+        IndexError가 그대로 새면 이 테스트 자체가 실패한다."""
+        gs = _global_settings(CoordAxis=3, CoordAxisSign=1, UpAxis=1, UpAxisSign=1, FrontAxis=2, FrontAxisSign=1)
+        g = _geom(100, _TRI_VERTS, _TRI_POLY)
+        nodes = [gs, _objects([g])]
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._extract_from_nodes(nodes)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
     def test_geometry_without_id_is_included_by_default(self):
         """Geometry 노드에 ID 프로퍼티 자체가 없는(비정상이지만 방어적으로
         다뤄야 하는) 경우, `if geom.properties and ...`의 단락 평가로
@@ -374,6 +425,60 @@ class TestFbxRobustness(unittest.TestCase):
         vertices, faces = fbx._extract_from_nodes(nodes)
         self.assertEqual(len(vertices), 3)
         self.assertEqual(len(faces), 1)
+
+
+class TestFbxCompressedArrayBounds(unittest.TestCase):
+    """압축 배열 property의 해제 크기가 선언된 array_length*elem_size와
+    다른(조작되거나 손상된) 경우를 `_read_properties` 레벨에서 직접
+    검증한다(review 지적 Finding 2) — `zlib.decompress()`를 무제한으로
+    쓰면 크기 검증이 전체를 다 푼 "뒤"에야 일어나 그 사이 거대한 메모리
+    할당이 먼저 벌어질 수 있다. 수정 후에는 `decompressobj().decompress(...,
+    max_length=expected+1)`로 상한을 두고 해제 도중에 기대 크기와 일치하는지
+    검증해야 한다."""
+
+    @staticmethod
+    def _build_compressed_array_property(declared_array_length: int, actual_floats: list[float]) -> bytes:
+        """type_code='f' 압축 배열 property 하나짜리 최소 버퍼를 만든다
+        (`_read_properties`가 읽는 바이너리 레이아웃과 동일: type_code(1) +
+        array_length(4) + encoding(4) + compressed_length(4) + 압축 데이터)."""
+        compressed = zlib.compress(struct.pack(f"<{len(actual_floats)}f", *actual_floats))
+        buf = bytearray()
+        buf.append(ord("f"))
+        buf += struct.pack("<III", declared_array_length, 1, len(compressed))
+        buf += compressed
+        return bytes(buf)
+
+    def test_decompressed_size_larger_than_declared_raises_corrupted(self):
+        """실제 해제 결과가 선언된 array_length보다 큰 경우(조작된 압축
+        블록/압축 폭탄류) — 전체를 다 풀지 않고도 상한(max_length)에서
+        막혀 명확히 실패해야 한다."""
+        buf = self._build_compressed_array_property(
+            declared_array_length=1, actual_floats=[float(i) for i in range(100)]
+        )
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._read_properties(buf, 0, 1)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_decompressed_size_smaller_than_declared_raises_corrupted(self):
+        """실제 해제 결과가 선언된 array_length보다 작은 경우(손상된
+        압축 블록)도 명확히 실패해야 한다."""
+        buf = self._build_compressed_array_property(
+            declared_array_length=100, actual_floats=[1.0, 2.0]
+        )
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._read_properties(buf, 0, 1)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_decompressed_size_matches_declared_parses_correctly(self):
+        """대조군 — 선언된 크기와 실제 해제 결과가 정확히 일치하면
+        정상적으로 파싱돼야 한다(회귀 방지)."""
+        floats = [1.5, 2.5, 3.5]
+        buf = self._build_compressed_array_property(declared_array_length=3, actual_floats=floats)
+        props, pos = fbx._read_properties(buf, 0, 1)
+        self.assertEqual(len(props), 1)
+        for got, want in zip(props[0], floats):
+            self.assertAlmostEqual(got, want, places=5)
+        self.assertEqual(pos, len(buf))
 
 
 if __name__ == "__main__":

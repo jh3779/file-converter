@@ -165,16 +165,16 @@ _S = {
                              "unwrapped into separate lines — column alignment "
                              "is lost since TXT can't represent tables"),
     "note.fbx_source": ("모양(정점·면)과 좌표축은 그대로 옮겨지지만, 오브젝트의 "
-                        "위치·회전·크기 이동이나 씬 안의 단위 배율은 반영되지 "
-                        "않아요 — 원점 근처의 단일 오브젝트는 정확하지만, 여러 "
-                        "오브젝트가 있거나 원점에서 많이 벗어난 씬은 위치가 "
-                        "달라질 수 있어요",
+                        "위치·회전·크기 이동(로컬 변환)이나 씬 안의 단위 배율은 "
+                        "반영되지 않아요 — 이동·회전·크기 조정이 걸려 있지 않은 "
+                        "오브젝트만 정확하고, 이런 변환이 걸려 있으면 원점 "
+                        "근처라도 위치·회전·크기가 달라질 수 있어요",
                         "Shape (vertices/faces) and coordinate axes carry over "
                         "correctly, but each object's position/rotation/scale "
-                        "offset and the scene's unit scale aren't applied — a "
-                        "single object near the origin converts accurately, but "
-                        "scenes with multiple objects or objects far from the "
-                        "origin may end up in different positions"),
+                        "offset (local transform) and the scene's unit scale "
+                        "aren't applied — only objects with no such transform "
+                        "convert accurately; if position/rotation/scale is set, "
+                        "the result may differ even near the origin"),
     "err.notyet": ("이 변환은 다음 버전에서 지원될 예정입니다.",
                    "This conversion is coming in a future update."),
 }
