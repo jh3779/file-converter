@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QStandardPaths
+from . import appdata
 
 LIMIT = 50
 
@@ -19,15 +19,17 @@ class Entry:
     success: bool
 
 
-def _db_path() -> Path:
-    base = Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
-    base.mkdir(parents=True, exist_ok=True)
-    return base / "history.db"
+def _db_path() -> Path | None:
+    base = appdata.resolve()
+    return base / "history.db" if base else None
 
 
 class History:
     def __init__(self, path: Path | None = None):
-        self._conn = sqlite3.connect(path or _db_path())
+        # AppData 경로 해석이 타임아웃되면(appdata.py 참고) 메모리 전용
+        # DB로 대체한다 — 이번 세션 동안은 기록 기능이 정상 동작하지만
+        # 앱을 닫으면 사라진다. "창이 아예 안 뜨는 것"보다는 훨씬 낫다.
+        self._conn = sqlite3.connect(path or _db_path() or ":memory:")
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS history ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, source_name TEXT, target_fmt TEXT,"
