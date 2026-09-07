@@ -3,7 +3,7 @@
 TARGETS: 확장자별 선택 가능한 대상 포맷(가능한 것만 노출 — C-03).
 convert(src, dst_fmt, tmpdir) → 임시 산출물 Path. 실패 시 ConversionError(i18n 키).
 """
-from functools import partial
+from functools import lru_cache, partial
 from pathlib import Path
 
 from .base import ConversionError
@@ -119,7 +119,24 @@ def content_video_key() -> str:
     return _CONTENT_VIDEO_KEY
 
 
+@lru_cache(maxsize=256)
 def is_content_detected_video(src: Path) -> bool:
+    """확장자로 판단 안 되는 파일이 실제로는 영상인지 ffprobe로 확인한다.
+
+    이 판정을 파일 하나당 여러 지점(FileItem 생성, 워커의 사전 판정,
+    convert()의 라우팅 재확인)에서 각각 독립적으로 다시 호출하면 매번 새
+    ffprobe 서브프로세스가 실행돼 느릴 뿐 아니라, 순간적 I/O 오류 등으로
+    두 호출이 서로 다른 결과를 낼 수 있어 같은 파일의 확장·라우팅 판정이
+    어긋나는 위험이 있었다(정밀 검증에서 발견 — 어긋나면 finalize()가 원본
+    파일명 보존용 stem을 못 받아 확장자 없는 파일명이 조용히 잘려 저장될
+    수 있음). `_encoder_available`(video.py)과 같은 원칙으로 캐시해 같은
+    파일에 대해서는 항상 동일한 값을 재사용한다.
+
+    **트레이드오프**: 앱을 켜둔 채로 같은 경로에 다른 내용의 파일이
+    놓이면(드문 케이스 — 예: 같은 이름으로 다른 파일을 다시 저장) 캐시가
+    이전 판정을 그대로 반환할 수 있다. 파일 하나의 수명 동안 여러 지점의
+    판정이 서로 어긋나지 않는 게 이런 드문 경우보다 우선순위가 높다고
+    판단해 무효화 로직은 두지 않았다."""
     ext = src.suffix.lstrip(".").lower()
     if ext == "mp4":
         return False  # 이미 대상 포맷과 같은 확장자 — 자기 자신으로의 변환 노출 방지

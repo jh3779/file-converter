@@ -21,10 +21,18 @@ def _log_path() -> Path:
 
 
 def setup():
-    handler = logging.handlers.RotatingFileHandler(
-        _log_path(), maxBytes=1_000_000, backupCount=2, encoding="utf-8",
-    )
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-    root.addHandler(handler)
+    """진단 로그 파일 핸들러를 등록한다. 이 기능 자체는 부가적인 진단
+    수단일 뿐이라, 초기화가 실패해도(예: AppData 쓰기 권한 없음) 그
+    실패 때문에 앱 실행 자체가 막혀서는 안 된다 — 실패하면 조용히
+    포기하고 로깅 없이 계속 진행한다(정밀 검증에서 지적: 이전에는 여기서
+    예외가 나면 MainWindow가 뜨기도 전에 앱이 죽었다)."""
+    try:
+        handler = logging.handlers.RotatingFileHandler(
+            _log_path(), maxBytes=1_000_000, backupCount=2, encoding="utf-8",
+        )
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        root = logging.getLogger()
+        root.setLevel(logging.INFO)
+        root.addHandler(handler)
+    except OSError:
+        pass
