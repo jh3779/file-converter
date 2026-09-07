@@ -216,8 +216,22 @@ class FileRow(QFrame):
     def retranslate(self):
         if not converters.supported(self.item.source_fmt):
             self.fmt_label.setText(tr("unsupported"))
-        elif self.combo.count():
-            self.combo.setItemText(0, tr("pick.placeholder"))
+        else:
+            if self.combo.count():
+                self.combo.setItemText(0, tr("pick.placeholder"))
+            # _display_fmt()는 감지된 영상(@video)처럼 언어에 따라 달라지는
+            # 문자열을 반환할 수 있어(fmt.detectedVideo) — 일반 확장자
+            # 포맷은 항상 대문자라 언어와 무관했지만 이제는 재계산이 필요.
+            # isHidden()은 이 위젯에 직접 hide()/setVisible(False)가 호출됐는지만
+            # 보고 최상위 창이 실제 화면에 떠 있는지와 무관하다(isVisible()은
+            # 최상위 표시 여부까지 타서 테스트처럼 아직 show() 안 한 창에서는
+            # 항상 False) — set_locked()가 combo에 setVisible()로 남긴 잠금
+            # 상태를 그대로 재사용한다.
+            if self.combo.isHidden() and self.item.target_fmt:
+                self.fmt_label.setText(
+                    f"{_display_fmt(self.item.source_fmt)} → {self.item.target_fmt.upper()}")
+            else:
+                self.fmt_label.setText(_display_fmt(self.item.source_fmt) + " →")
         if self.badge.isVisible():
             self.refresh()
         elif self.item.state == ItemState.QUEUED:
