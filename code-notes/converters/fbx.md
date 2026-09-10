@@ -1,20 +1,23 @@
 # fbx.py — FBX(Autodesk) 읽기 전용 파서
 
-원본: `app/converters/fbx.py` (629줄)
+원본: `app/converters/fbx.py` (675줄)
 
 이 프로젝트에서 유일하게 "서드파티 3D 라이브러리에 안 기대고 바이너리
 포맷을 직접 파싱하는" 파일이다. `model3d.py`가 trimesh 하나로 5개
 포맷을 다 처리하는 것과 대조적으로, FBX는 trimesh가 아예 지원하지
 않는 포맷이라 `struct`·`zlib` 표준 라이브러리만으로 바이너리 트리
 파서를 새로 만들었다. 왜 그래야 했는지(ufbx 세그폴트)와 무엇을
-검증했는지가 이 파일의 핵심 서사다. 코드 리뷰를 다섯 차례 거치며
+검증했는지가 이 파일의 핵심 서사다. 코드 리뷰를 여섯 차례 거치며
 `LayerElementHole`(숨긴 면) 처리, 애플리케이션 기준 자원 한도,
 Geometry 구조 잔여 검증(2차), 배열 property 자료구조를
 `struct.unpack()+list()`에서 `array.array`로 교체한 메모리 최적화(3차),
 그 전환이 남긴 배열 길이 미검증 회귀 수정과 정점·면 전개 단계의
 별도 상한(4차), 그 면 상한 검사 자체가 triangulation 물질화 이후에야
 실행되던 우회 경로 차단과 노드 `end_offset`의 부모/파일 경계 사전
-검증(5차)이 차례로 추가됐다 — 아래 각 절에서 다룬다.
+검증(5차), 그리고 그 정점·면 상한 자체가 실제 순간 메모리를 안전하게
+막지 못했던 문제를 정점·면 출력 자료구조를 파이썬 튜플 리스트에서
+평탄(flat) `array.array`로 바꿔 해소한 것(6차)이 차례로 추가됐다 —
+아래 각 절에서 다룬다.
 
 ---
 
@@ -48,7 +51,7 @@ Geometry 구조 잔여 검증(2차), 배열 property 자료구조를
    `_FbxNode` 트리를 직접 구성해 검증한다. 실제 바이너리 fixture 추가는
    후속 과제로 남아 있다.
 
-## L62-155: import·상수(배열 자료구조·자원 상한)·저수준 예외 타입
+## L70-170: import·상수(배열 자료구조·자원 상한)·저수준 예외 타입
 
 ```python
 _MAGIC = b"Kaydara FBX Binary  \x00\x1a\x00"
@@ -63,6 +66,8 @@ _MAX_NODE_COUNT = 2_000_000
 _MAX_NODE_DEPTH = 128
 _MAX_VERTEX_COUNT = 10_000_000
 _MAX_FACE_COUNT = 10_000_000
+_OUTPUT_VERTEX_TYPECODE = "d"
+_OUTPUT_FACE_TYPECODE = "q"
 _LOW_LEVEL_ERRORS = (struct.error, zlib.error, UnicodeDecodeError, IndexError, ValueError, TypeError)
 ```
 
@@ -106,19 +111,50 @@ typecode `'l'`(C `long`, Windows 64비트에서는 4바이트일 수 있음)이
 프린팅용 단일 메시 등, 모듈 docstring 참고)에 여유 있게 맞췄다.
 
 이 상한들은 입력 단계(`array.array`로 압축 저장된 원시 배열)만
-지킨다 — `_extract_from_nodes`가 이 원시 배열을 (x, y, z)/(i, j, k)
-파이썬 튜플의 리스트로 다시 전개하는 순간 원소 하나당 다시 개별
-객체가 생겨(위 `array.array` 전환으로 해결한 것과 같은 종류의 배율
-문제가 출력 단계에서 재발) 입력 배열보다 훨씬 큰 메모리를 쓰게
-된다(4차 리뷰 지적). `_MAX_VERTEX_COUNT`/`_MAX_FACE_COUNT`(L146-147)
-는 이를 막는 별도 상한 — 실측(CPython, 64비트, `sys.getsizeof`
-기준)으로 (float,float,float) 튜플 하나가 튜플 자체(72바이트)+float
-객체 3개(72바이트)+리스트 슬롯 포인터(8바이트)=약 152바이트, 면
-튜플도 약 164바이트임을 확인해, 정점·면 각 1000만 개(리스트 각각
-최대 약 1.4~1.5GiB)로 순간 메모리를 고정 상한 안에 묶었다 —
+지킨다 — `_extract_from_nodes`가 이 원시 배열에서 정점·면을 새로
+조립하는 출력 단계에도 별도 상한이 필요하다(4차 리뷰 지적).
+`_MAX_VERTEX_COUNT`/`_MAX_FACE_COUNT`는 이를 막는 별도 상한인데,
+**상한 값(정점·면 각 1000만 개) 자체는 4차 이후 그대로이지만, 그
+상한이 실제로 억제하는 순간 메모리 크기는 6차에서 크게 바뀌었다**:
+
+- **4~5차 시점(개선 전)**: 정점·면을 (x, y, z)/(i, j, k) 파이썬 튜플의
+  리스트로 전개해 쌓았다. 실측(CPython, 64비트, `sys.getsizeof` 기준)
+  (float,float,float) 튜플 하나가 튜플 자체(72바이트)+float 객체
+  3개(72바이트)+리스트 슬롯 포인터(8바이트)=약 152바이트, 면 튜플도
+  약 164바이트 — 상한(각 1000만 개)까지 채우면 튜플 리스트만으로도
+  각각 최대 약 1.4~1.5GiB. 여기에 더해 `load_trimesh`가 이 튜플
+  리스트를 `np.array()`로 NumPy 배열로 복제하는 동안 원본 튜플
+  리스트와 사본 NumPy 배열이 동시에 살아있는 순간이 생겨, 상한까지
+  채운 파일 하나로 순간 메모리가 약 3GiB까지 치솟을 수 있었다(6차
+  review 지적 Finding 1 — 상한 값은 있었지만 "정점·면 개수"라는
+  상한과 "실제 순간 메모리" 사이의 배율이 너무 커서, 정상적인 대형
+  photogrammetry 모델도 상한에 도달하기 훨씬 전에 프로세스가 OOM으로
+  죽을 위험이 있었다. 필수 보완 판정).
+- **6차 수정 후**: 정점·면을 파이썬 객체 리스트가 아니라
+  `array.array('d')`(정점, x0,y0,z0,x1,... 평탄 배열)/`array.array('q')`
+  (면, i0,j0,k0,i1,... 평탄 배열)에 직접 기록한다(`_OUTPUT_VERTEX_TYPECODE`/
+  `_OUTPUT_FACE_TYPECODE`) — 원소 하나당 정확히 8바이트(파이썬 객체
+  헤더 없음)만 쓴다. `load_trimesh`도 이 평탄 배열을 `np.array()`로
+  버퍼 복사 1회에 NumPy 배열로 옮긴다(아래 `load_trimesh` 절 참고) —
+  튜플 리스트 단계 자체가 없어졌다. 같은 상한(정점·면 각 1000만 개)
+  기준 순간 메모리는 이제 정점·면 평탄 배열 각각 최대 약 240MiB
+  (1000만 × 3 × 8바이트) 수준, `np.array()` 복사가 잠깐 더하는 사본까지
+  합쳐도 최대 약 960MiB 수준으로 억제된다 — 6차 이전 추정치(~3GiB)
+  대비 3배 이상 감소, 상한 값 자체를 낮추지 않고도 review 지적을
+  해소한다.
+
 3D 프린팅용 메시(보통 수십만~수백만 삼각형, 극단적 사례도
-수백만~천만 단위)에는 여유 있는 값이다. 적용 지점은
+수백만~천만 단위)에는 상한 값 자체가 여전히 여유 있다. 적용 지점은
 `_extract_from_nodes` 절에서 다룬다.
+
+**`_OUTPUT_VERTEX_TYPECODE`/`_OUTPUT_FACE_TYPECODE`**: 입력 파싱
+경로의 `_ARRAY_TYPECODE`와 같은 이유로 `'l'`이 아니라 `'d'`/`'q'`를
+쓴다 — `'d'`(C `double`)는 IEEE 754 8바이트가 사실상 보편적이고,
+`'q'`(C `long long`)는 `array` 모듈 문서상 최소 8바이트가 보장된다
+(반대로 `'l'`은 Windows 64비트에서 4바이트일 수 있어 위험). 둘 다
+NumPy dtype(`np.float64`/`np.int64`)과 짝지어 8바이트로 맞춰뒀다 —
+`load_trimesh`의 `np.array()`가 원소별 파이썬 객체 변환 없이 버퍼를
+통째로 복사할 수 있게 하기 위해서다.
 
 `_LOW_LEVEL_ERRORS`는 이 파일 전체의 예외 처리 철학을 담은
 튜플이다 — "파싱 중 뭐가 잘못됐든 사용자에게는 `err.corrupted`
@@ -386,7 +422,7 @@ _HOLE_MAPPING_DIRECT = ("ByPolygon", "Direct")
 3. `Holes` 배열이 없거나 길이가 실제 폴리곤 개수와 다르면 손상된
    파일로 보고 거부한다.
 
-## L465-590: `_extract_from_nodes` — 이 파일의 핵심 로직
+## L480-625: `_extract_from_nodes` — 이 파일의 핵심 로직
 
 `parse_geometry`(파일 IO)와 분리된 이유부터 짚을 만하다 — **테스트
 용이성 때문에 리팩터링된 함수**다. 노드 트리 레벨의 엣지 케이스
@@ -397,72 +433,89 @@ _HOLE_MAPPING_DIRECT = ("ByPolygon", "Direct")
 분리했다(`tests/test_fbx.py::TestFbxRobustness`,
 `TestFbxLayerElementHole` 참고).
 
+**반환값은 (x, y, z)/(i, j, k) 튜플의 리스트가 아니라 평탄(flat)
+`array.array`다(6차 리뷰 반영, 위 `_MAX_VERTEX_COUNT` 절 참고)** —
+정점 N개면 길이 3N짜리 `array.array('d')`(x0,y0,z0,x1,y1,z1,...), 면
+M개면 길이 3M짜리 `array.array('q')`(i0,j0,k0,i1,...)다. 아래 동작
+순서 설명의 "누적 리스트에 추가" 부분들은 전부 이 평탄 배열에
+`.append()` 세 번씩 하는 것으로 바뀌었다 — 어떤 단계에서 튜플이
+잠깐이라도 만들어지면(예: `_apply_axis`/`_triangulate_fan`이 돌려주는
+`(x, y, z)`/`(a, b, c)`), 그 튜플은 즉시 풀어서(unpack) 평탄 배열에
+흘려넣고 바로 버린다 — 튜플 자체를 리스트에 쌓아두지 않는다.
+
 동작 순서:
-1. `Objects` 노드가 없으면 즉시 실패(L451-453) — FBX 6.x가 여기
+1. `Objects` 노드가 없으면 즉시 실패(L494-496) — FBX 6.x가 여기
    걸린다(알려진 한계 1번).
-2. 좌표축 행렬·Connections 필터를 미리 한 번만 계산(L455-466).
-3. `Objects` 아래 모든 `Geometry`를 순회하며(L471), Connections
-   필터를 통과 못 하면 건너뛴다(L472-473) — 단, `geom.properties`가
+2. 좌표축 행렬·Connections 필터를 미리 한 번만 계산(L498-509).
+3. `Objects` 아래 모든 `Geometry`를 순회하며(L514), Connections
+   필터를 통과 못 하면 건너뛴다(L515-516) — 단, `geom.properties`가
    비어있으면(ID 자체가 없는 비정상 케이스) 단락 평가로 무조건
    포함시킨다(안전한 기본값).
 4. `Vertices`/`PolygonVertexIndex` 둘 다 있는 Geometry만 처리
-   (L474-477, 둘 중 하나라도 없으면 조용히 skip).
-5. **Vertices 3배수 검증(L479-484, 2차 리뷰 반영)**: `len(flat) % 3`이
+   (L517-520, 둘 중 하나라도 없으면 조용히 skip).
+5. **Vertices 3배수 검증(L521-527, 2차 리뷰 반영)**: `len(flat) % 3`이
    0이 아니면 (x, y, z) 세 값씩 안 묶이는 손상된 배열이라 즉시 실패한다
    — 예전엔 `range(0, len(flat) - 2, 3)`로 남는 좌표 1~2개를 그냥
    버려 손상을 조용히 가려버렸다.
-6. **정점 상한 검사 후 축 변환 적용(L506-515, 4차 리뷰 지적 Finding
+6. **정점 상한 검사 후 축 변환 적용(L528-543, 4차 리뷰 지적 Finding
    2)**: `base + local_vertex_count > _MAX_VERTEX_COUNT`면 이 Geometry의
-   정점을 튜플로 전개하기 **전에** `err.too_large`로 실패한다 —
-   전개가 끝난 뒤에야 확인하면 이미 상한을 훨씬 넘는 튜플들이 다
-   만들어진 뒤라 상한을 둔 의미가 없어진다. 통과하면 정점 좌표를
-   3개씩 끊어 축 변환 적용 후 누적 리스트에 추가한다 — `base`(L506)는
-   여러 Geometry를 하나의 정점/면 리스트로 합칠 때 인덱스가 겹치지
-   않게 하는 오프셋.
-7. **숨긴 면 조회(L516-518)**: `PolygonVertexIndex`의 음수(폴리곤
+   정점을 평탄 배열에 전개하기 **전에** `err.too_large`로 실패한다 —
+   전개가 끝난 뒤에야 확인하면 이미 상한을 훨씬 넘는 만큼 다 써넣은
+   뒤라 상한을 둔 의미가 없어진다. 통과하면 정점 좌표를 3개씩 끊어
+   축 변환 적용 후(`_apply_axis`가 돌려주는 `(ax, ay, az)` 튜플을
+   즉시 풀어 평탄 배열에 원소 3개로 흘려넣음, 6차 리뷰 반영)
+   `all_vertices`에 추가한다 — `base = len(all_vertices) // 3`(L528,
+   평탄 배열이라 정점 개수는 길이의 1/3)는 여러 Geometry를 하나의
+   정점/면 목록으로 합칠 때 인덱스가 겹치지 않게 하는 오프셋.
+7. **숨긴 면 조회(L544-546)**: `PolygonVertexIndex`의 음수(폴리곤
    종결자) 개수로 이 Geometry의 폴리곤 총 개수를 미리 세고,
    `_polygon_holes`로 폴리곤별 숨김 플래그(`holes`, 없으면 `None`)를
    가져온다.
-8. `PolygonVertexIndex`를 순회하며(L521-569) 음수(비트 NOT으로
+8. `PolygonVertexIndex`를 순회하며(L549-610) 음수(비트 NOT으로
    인코딩된 폴리곤 마지막 정점, `~idx`)를 만나면 그 폴리곤이 끝난
    것으로 본다:
-   - **로컬 범위 검증(L524-532)**: `base`를 더하기 전에 이 Geometry
+   - **로컬 범위 검증(L552-560)**: `base`를 더하기 전에 이 Geometry
      안에서의 로컬 인덱스부터 범위를 검증한다 — base를 더한 뒤(전역
      인덱스)에만 검증하면, 앞쪽 Geometry의 범위 초과 로컬 인덱스가
      뒤쪽 Geometry들이 늘려준 전체 정점 수 안에 우연히 들어와 검증을
      통과해버릴 수 있다(서로 무관한 Geometry의 정점을 잇는 삼각형이
      조용히 생성되는 위험 — review 지적).
-   - **폴리곤 인덱스 누적 단계의 조기 면 상한 검사(L534-547, 5차 리뷰
+   - **폴리곤 인덱스 누적 단계의 조기 면 상한 검사(L561-576, 5차 리뷰
      지적 — 아래 별도 절에서 상세히 다룸)**: `polygon.append(real_idx)`
      직후, 종결자(`is_last`)를 기다리지 않고 매 인덱스 추가마다
-     `len(polygon) - 2 > _MAX_FACE_COUNT - len(all_faces)`를 확인해
-     초과하면 즉시 `err.too_large`로 실패한다.
-   - **폴리곤 정점 수 검증(L548-554, 2차 리뷰 반영)**: 종결된 폴리곤의
+     `len(polygon) - 2 > _MAX_FACE_COUNT - current_face_count`를
+     확인해 초과하면 즉시 `err.too_large`로 실패한다(`current_face_count
+     = len(all_faces) // 3` — 평탄 배열이라 면 개수는 길이의 1/3).
+   - **폴리곤 정점 수 검증(L577-583, 2차 리뷰 반영)**: 종결된 폴리곤의
      정점이 3개 미만이면 삼각형을 만들 수 없는 손상된 데이터인데,
      예전에는 `_triangulate_fan`이 삼각형 0개를 내놓는 것으로 조용히
      흡수해버렸다 — 여기서 명확히 실패시킨다.
-   - **숨긴 면이 아니면 물질화 전 면 상한 재검사 후 삼각형화(L555-567,
+   - **숨긴 면이 아니면 물질화 전 면 상한 재검사 후 삼각형화(L584-602,
      4차 리뷰 지적 Finding 2 + 5차 리뷰 지적 — 아래 별도 절 참고)**:
      `holes`가 `None`이거나 이 폴리곤의 플래그가 거짓이면(보임)
-     `list(_triangulate_fan(polygon))`로 실제 물질화하기 **전에** 먼저
+     `_triangulate_fan(polygon)`을 실제로 돌리기 **전에** 먼저
      `expected_tri_count = len(polygon) - 2`만 계산해 상한 초과 여부를
-     확인한다. 통과하면 그제서야 삼각형 튜플을 실제로 만들고(필요하면
-     winding 뒤집기) → `all_faces`에 누적. 숨긴 면이어도 **정점 자체는
-     이미 6번에서 추가돼 남아있다** — 숨김은 "이 면을 그리지 않는다"는
-     뜻이지 "이 정점이 없다"는 뜻이 아니기 때문(다른 폴리곤이 같은
-     정점을 쓸 수도 있음).
-9. **폴리곤 종결자 누락 검증(L570-575, 2차 리뷰 반영)**: 루프가 끝난
+     확인한다. 통과하면 그제서야 `for a, b, c in _triangulate_fan(polygon)`로
+     삼각형을 하나씩 만들며(필요하면 winding 뒤집기) 그 자리에서 바로
+     `all_faces`에 원소 3개씩 흘려넣는다(6차 리뷰 반영 — 예전처럼
+     `list(_triangulate_fan(...))`로 전체를 리스트에 먼저 모아두지
+     않음). 숨긴 면이어도 **정점 자체는 이미 6번에서 추가돼 남아있다**
+     — 숨김은 "이 면을 그리지 않는다"는 뜻이지 "이 정점이 없다"는
+     뜻이 아니기 때문(다른 폴리곤이 같은 정점을 쓸 수도 있음).
+9. **폴리곤 종결자 누락 검증(L605-610, 2차 리뷰 반영)**: 루프가 끝난
    뒤에도 `polygon` 버퍼가 비어있지 않으면, `PolygonVertexIndex` 끝에
    음수 종결자가 없어 마지막 폴리곤이 잘린 것이다 — 예전에는 이
    잔여 정점들이 조용히 버려졌다.
-10. **경계 검증(L579-589, 코드 리뷰 중 추가)**: 최종적으로 정점·면이
+10. **경계 검증(L614-624, 코드 리뷰 중 추가)**: 최종적으로 정점·면이
     하나도 없으면 실패(FBX 6.x·빈 파일·모든 폴리곤이 숨김인 경우
     등), 그리고 신규로 추가된 방어 — 폴리곤 인덱스가 실제 정점 개수
-    범위를 벗어나면(손상된 파일) 여기서 명확히 실패시킨다. 이 검증이
-    없으면 `load_trimesh`가 `process=False`로 trimesh에 넘기기
-    때문에(아래 절 참고) trimesh 자체 검증도 기대할 수 없어, 깨진
-    인덱스가 그대로 export 단계까지 흘러가 알 수 없는 방식으로
-    망가진 출력 파일이 나올 위험이 있었다.
+    범위를 벗어나면(손상된 파일) 여기서 명확히 실패시킨다(6차: 평탄
+    `all_faces` 배열을 직접 순회하며 `any(i < 0 or i >= vertex_count
+    for i in all_faces)`로 확인 — 예전엔 `(i, j, k)` 튜플을 순회하며
+    안의 원소를 검사했다). 이 검증이 없으면 `load_trimesh`가
+    `process=False`로 trimesh에 넘기기 때문에(아래 절 참고) trimesh
+    자체 검증도 기대할 수 없어, 깨진 인덱스가 그대로 export 단계까지
+    흘러가 알 수 없는 방식으로 망가진 출력 파일이 나올 위험이 있었다.
 
 **면 상한 검사가 triangulation 물질화 "뒤"에야 실행되던 우회 경로와
 그 수정(5차 리뷰 지적)**: 4차에서 추가한 면 상한 검사는
@@ -481,16 +534,19 @@ property 자체의 상한(`_MAX_ARRAY_BYTES`, uint32 기준 약 6700만 개)
 사실상 무력화됐다(실측: 종결자 없이 정점 200만 개를 반복 참조하는
 폴리곤 하나로, 수정 전 코드는 peak 메모리 약 178MB·0.45초를 쓴 뒤에야
 `err.too_large`를 던졌다). 수정은 **두 지점에 방어를 겹쳐 둔다**:
-1. **폴리곤 인덱스 누적 단계(L534-547)**: 종결자를 기다리지 않고,
+1. **폴리곤 인덱스 누적 단계(L561-576)**: 종결자를 기다리지 않고,
    `polygon.append(real_idx)` 직후 매번 "이 폴리곤이 지금 당장
    끝난다면(`len(polygon) - 2`개의 삼각형) 남은 예산
-   (`_MAX_FACE_COUNT - len(all_faces)`)을 넘는가"를 확인해 초과 즉시
-   실패시킨다 — 폴리곤 리스트 자체가 무한정 자라는 것을 막는 주된
-   방어선.
-2. **`_triangulate_fan()` 호출 직전(L561-563)**: `list(...)`로
-   물질화하기 전에 `len(polygon) - 2`(예상 삼각형 개수)만 먼저 계산해
-   재검사한다 — 1번 방어와 별개의 방어선으로, `_triangulate_fan()`
-   자체를 호출하지 않고 막는다.
+   (`_MAX_FACE_COUNT - current_face_count`)을 넘는가"를 확인해 초과
+   즉시 실패시킨다 — 폴리곤 리스트 자체가 무한정 자라는 것을 막는
+   주된 방어선.
+2. **`_triangulate_fan()` 호출 직전(L588-591)**: 실제로 호출하기 전에
+   `len(polygon) - 2`(예상 삼각형 개수)만 먼저 계산해 재검사한다 —
+   1번 방어와 별개의 방어선으로, `_triangulate_fan()` 자체를 호출하지
+   않고 막는다(6차 이후에는 `list(_triangulate_fan(...))`이 아니라
+   `for a, b, c in _triangulate_fan(polygon):`로 순회하며 즉시
+   평탄 배열에 흘려넣지만, 이 방어가 막는 대상은 동일하게
+   `_triangulate_fan()` 호출 자체다).
 
 수정 후 같은 재현 시나리오(정점 200만 개 반복 참조)는
 `_triangulate_fan()`이 아예 호출되지 않고 peak 메모리 약 1.75KB·
@@ -507,27 +563,45 @@ TestFbxFaceCountLimitBypassViaUnterminatedPolygon`이 `_MAX_FACE_COUNT`를
 하기 때문(`app/i18n.py`의 `err.too_large` 키 참고, `err.corrupted`
 문구 그대로 쓰면 사용자가 파일이 깨졌다고 오인할 수 있음). 이
 두 예외는 `_LOW_LEVEL_ERRORS` 튜플에 없는 `ConversionError`를 직접
-던지므로 L576의 `except _LOW_LEVEL_ERRORS`에 잡히지 않고 그대로
+던지므로 L611의 `except _LOW_LEVEL_ERRORS`에 잡히지 않고 그대로
 전파된다(다른 `ConversionError` raise들과 동일한 패턴).
 
-## L593-614: `parse_geometry` — 공개 API 1 (파일 → 정점/면)
+## L628-651: `parse_geometry` — 공개 API 1 (파일 → 정점/면)
 
-**파일 크기 선(先)검사(L599-604, 2차 리뷰 반영)**: `read_bytes()`로
+**파일 크기 선(先)검사(L639-641, 2차 리뷰 반영)**: `read_bytes()`로
 파일 전체를 메모리에 올리기 전에 `src.stat().st_size`부터
 `_MAX_FILE_SIZE`와 비교한다 — 읽은 "뒤"에 검사하면 거대한 파일이
 거부되기도 전에 이미 다 메모리에 올라가 버려 방어 의미가 없어진다.
 그 다음 파일을 바이트로 읽고(`OSError`는 `err.disk` — `stat()`도
 `read_bytes()`도 둘 다 여기서 잡힌다) `_parse()`로 노드 트리를 만든
 뒤(저수준 파싱 오류는 `err.corrupted`) `_extract_from_nodes`로
-위임한다. `ConversionError`는 그대로 다시 던진다(L607-608) — `_parse`
+위임한다. `ConversionError`는 그대로 다시 던진다(L644-645) — `_parse`
 내부나 파일 크기 검사에서 이미 의미 있는 메시지를 담아 던진 것을
-여기서 뭉개면 안 되기 때문(다른 저수준 예외만 새로 감싼다).
+여기서 뭉개면 안 되기 때문(다른 저수준 예외만 새로 감싼다). 반환값은
+`_extract_from_nodes`와 동일하게 평탄(flat) `array.array` 쌍이다(6차
+리뷰 반영).
 
-## L617-629: `load_trimesh` — 공개 API 2 (파일 → Trimesh 객체)
+## L654-675: `load_trimesh` — 공개 API 2 (파일 → Trimesh 객체)
 
 `model3d.py`의 `convert_3d()`가 소스 확장자가 `.fbx`일 때 호출하는
-진입점. `parse_geometry`로 얻은 (vertices, faces)를 numpy 배열로
-바꿔 `trimesh.Trimesh(..., process=False)`를 만든다.
+진입점. `parse_geometry`로 얻은 평탄 `array.array` 쌍(vertices, faces)을
+`np.array(..., dtype=np.float64/np.int64).reshape(-1, 3)`로 (N, 3)
+NumPy 배열로 바꿔 `trimesh.Trimesh(..., process=False)`를 만든다.
+
+**왜 `np.array()`(항상 복사)이지 `np.frombuffer()`(zero-copy)가
+아닌가(6차 리뷰 반영)**: `array.array`는 버퍼 프로토콜을 지원하므로
+`np.array()`가 원소별로 파이썬 객체를 만들지 않고 버퍼를 통째로
+복사한다(파이썬 튜플 리스트를 거치던 6차 이전 경로보다 훨씬 적은
+메모리, 위 `_MAX_VERTEX_COUNT` 절 참고) — 이 지점에서 `np.frombuffer()`를
+쓰면 그 복사조차 없앨 수 있지만(진짜 zero-copy), 그렇게 만들어진
+NumPy 배열이 always-writable임이 보장되지 않는다(`array.array`의
+쓰기 가능 여부·NumPy/플랫폼 버전에 따라 read-only 뷰가 될 수 있음 —
+문서화된 보장이 아님). trimesh가 내부적으로 배열에 쓰기를 시도할 수
+있는데(`process=False`라도), 이를 실행/테스트로 확인할 수 없는 환경
+(코드 리뷰만으로 검증)이었기 때문에 성능보다 안전 쪽(복사)을
+택했다 — 필요하면 이후에 `np.frombuffer()` + writability 검증으로
+한 단계 더 최적화할 수 있는 여지로 남겨둔다.
+
 **`process=False`가 중요**하다 — trimesh의 기본 로드 처리(중복
 정점 병합, 퇴화 삼각형 제거 등)를 여기서는 적용하지 않는다. 이
 파서가 이미 유효한 메시를 만들었다고 보고, 후속 export 단계에서
@@ -539,6 +613,21 @@ trimesh가 그 시점의 기본 `process=True`로 근접 좌표를 병합해 정
 아니라 trimesh 재로드 처리의 특성이라, glb처럼 인덱스를 그대로
 보존하는 바이너리 포맷으로 정확한 정점 수 일치를 확인하고 텍스트
 포맷은 면(위상) 개수만 비교하도록 테스트를 나눴다.
+
+## 테스트 파일에서의 반환 타입 변화 흡수(6차)
+
+`tests/test_fbx.py`는 정점/면을 여전히 `(x, y, z)`/`(i, j, k)` 튜플의
+리스트로 다루는 기존 어서션(`len()`, `zip()`, `sorted()`, 튜플 언패킹
+등)이 많다 — `fbx.parse_geometry`/`fbx._extract_from_nodes`가 이제
+평탄 배열을 반환하므로, 테스트 파일에 `_chunks3(flat)` 헬퍼(3개씩
+묶어 튜플 리스트로 되돌림)와 `_parse_geometry_chunked`/
+`_extract_from_nodes_chunked` 래퍼 함수를 추가해 기존 어서션을 거의
+그대로 유지했다(모든 기존 호출부를 이 래퍼로 일괄 치환). 단,
+새로 추가한 메모리 회귀 테스트
+(`tests/test_fbx.py::TestFbxVertexFaceMaterializationMemory`)는 이
+래퍼를 쓰지 않고 `fbx._extract_from_nodes`를 직접 호출한다 — 래퍼가
+다시 튜플로 묶어버리면 이 테스트가 검증하려는 개선(원소별 파이썬
+객체 미생성) 자체가 래퍼 안에서 사라져버리기 때문이다.
 
 ---
 
@@ -579,8 +668,8 @@ trimesh가 그 시점의 기본 `process=True`로 근접 좌표를 병합해 정
   _MAX_FACE_COUNT`)는 왜 "검사가 있다"는 사실만으로는 충분하지
   않았는가? `list(_triangulate_fan(polygon))`가 이미 호출된 "뒤"에
   검사가 실행되면 구체적으로 어떤 입력이 그 검사를 무력화시키는가?
-- 5차 수정은 폴리곤 인덱스 누적 단계(L534-547)와
-  `_triangulate_fan()` 호출 직전(L561-563) 두 곳에 방어를 겹쳐
+- 5차 수정은 폴리곤 인덱스 누적 단계(L561-576)와
+  `_triangulate_fan()` 호출 직전(L588-591) 두 곳에 방어를 겹쳐
   뒀다. 앞쪽 방어 하나만으로 이미 충분해 보이는데, 뒤쪽 방어를
   "죽은 코드"로 남겨둔 이유는 무엇인가?
 - `_read_node`가 `parent_end`를 받기 전에는 헤더의 `end_offset`이
@@ -592,3 +681,22 @@ trimesh가 그 시점의 기본 `process=True`로 근접 좌표를 병합해 정
   파일 전체 길이(`len(buf)`)가 아니라 "현재 노드 자신의
   `end_offset`"이어야 하는가? 만약 모든 재귀 호출에 파일 전체
   길이를 그대로 물려줬다면 어떤 손상 파일 패턴을 놓쳤을까?
+- 4~5차의 `_MAX_VERTEX_COUNT`/`_MAX_FACE_COUNT` 상한은 "정점·면
+  개수"를 제한하는데, 6차 리뷰는 왜 그것만으로는 "실제 순간 메모리"를
+  안전하게 제한하지 못한다고 지적했는가? 상한 값(1000만) 자체를
+  낮추는 대신 정점·면의 내부 자료구조를 바꾸는 쪽을 택한 이유는?
+- `_extract_from_nodes`가 평탄 `array.array`를 반환하도록 바뀐 뒤,
+  `base = len(all_vertices) // 3`·`current_face_count = len(all_faces)
+  // 3`처럼 "길이를 3으로 나눠 개수를 구하는" 패턴이 여러 곳에
+  등장한다. 이 변환을 빠뜨리고 옛날처럼 `len(all_vertices)`를 정점
+  개수로 그대로 썼다면 어떤 증상으로 나타났을까(예: `_MAX_VERTEX_COUNT`
+  검사가 실제보다 몇 배 느슨해지거나 빡빡해지는 등)?
+- `load_trimesh`는 `np.frombuffer()`(진짜 zero-copy)가 아니라
+  `np.array()`(항상 복사)를 쓴다. 이 선택이 순수 성능 관점에서는
+  최적이 아닐 수 있는데도 왜 이렇게 결정했는가 — 만약 이 프로젝트가
+  테스트를 실제로 실행할 수 있는 환경에서 작업했다면 이 결정이
+  달라졌을 수 있는가?
+- 테스트 파일의 `_extract_from_nodes_chunked` 래퍼는 결과를 다시
+  튜플 리스트로 묶어 기존 어서션을 그대로 재사용할 수 있게 한다.
+  그런데 `TestFbxVertexFaceMaterializationMemory`는 왜 이 래퍼 대신
+  `fbx._extract_from_nodes`를 직접 호출해야만 하는가?

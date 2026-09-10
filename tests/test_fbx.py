@@ -120,6 +120,24 @@ def _global_settings(**axis_overrides):
     return gs
 
 
+def _chunks3(flat):
+    """평탄(flat) array.array를 3개씩 묶은 튜플 리스트로 바꾼다 — fbx.py가
+    이제 정점/면을 (x,y,z)/(i,j,k) 튜플 리스트가 아니라 평탄 배열로 반환하므로
+    (review 6라운드 Finding 1, 피크 메모리 절감), 테스트에서 예전처럼 좌표
+    단위로 비교·순회하려면 이 헬퍼로 다시 묶어야 한다."""
+    return [tuple(flat[i : i + 3]) for i in range(0, len(flat), 3)]
+
+
+def _parse_geometry_chunked(src):
+    vertices, faces = fbx.parse_geometry(src)
+    return _chunks3(vertices), _chunks3(faces)
+
+
+def _extract_from_nodes_chunked(nodes):
+    vertices, faces = fbx._extract_from_nodes(nodes)
+    return _chunks3(vertices), _chunks3(faces)
+
+
 # 삼각형 하나(정점 3개) — 로우레벨 노드 트리 테스트용 최소 지오메트리.
 # PolygonVertexIndex의 마지막 인덱스는 비트 NOT으로 인코딩(FBX 관례,
 # fbx.py L233 부근 `_triangulate_fan` 관련 로직과 동일 규칙).
@@ -132,7 +150,7 @@ class TestFbxParsing(unittest.TestCase):
     """실제 Maya/Blender FBX 익스포트 픽스처 기반 검증."""
 
     def test_cube_7400_binary_parses_correctly(self):
-        vertices, faces = fbx.parse_geometry(CUBE_7400)
+        vertices, faces = _parse_geometry_chunked(CUBE_7400)
         self.assertEqual(len(vertices), 8)
         # 4각형 폴리곤 6개가 fan triangulation으로 삼각형 12개가 됨
         self.assertEqual(len(faces), 12)
@@ -140,13 +158,13 @@ class TestFbxParsing(unittest.TestCase):
     def test_cube_7500_binary_parses_correctly(self):
         """7500은 4바이트 대신 8바이트 오프셋 필드를 쓰는 버전 — 같은
         큐브를 파싱한 결과가 7400과 정확히 같아야 한다."""
-        vertices, faces = fbx.parse_geometry(CUBE_7500)
+        vertices, faces = _parse_geometry_chunked(CUBE_7500)
         self.assertEqual(len(vertices), 8)
         self.assertEqual(len(faces), 12)
 
     def test_cube_7400_and_7500_produce_identical_vertex_set(self):
-        v1, _ = fbx.parse_geometry(CUBE_7400)
-        v2, _ = fbx.parse_geometry(CUBE_7500)
+        v1, _ = _parse_geometry_chunked(CUBE_7400)
+        v2, _ = _parse_geometry_chunked(CUBE_7500)
         self.assertEqual(sorted(v1), sorted(v2))
 
     def test_cube_6100_binary_rejected_as_corrupted_not_crash(self):
@@ -155,7 +173,7 @@ class TestFbxParsing(unittest.TestCase):
         인터프리터가 죽는 대신 명확한 ConversionError(err.corrupted)로
         실패해야 한다."""
         with self.assertRaises(ConversionError) as ctx:
-            fbx.parse_geometry(CUBE_6100)
+            _parse_geometry_chunked(CUBE_6100)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_suzanne_compressed_matches_reference_obj(self):
@@ -169,7 +187,7 @@ class TestFbxParsing(unittest.TestCase):
         (직접 대조로 확인) — 그래서 대응 관계가 항등이 아니라
         `(x, y, z)_ours == (x, -z, y)_ref`다. 이 관계가 507개 정점 전부에서
         성립함을 사전에 전수 확인했다(공차 안에서 507/507 일치)."""
-        vertices, faces = fbx.parse_geometry(SUZANNE)
+        vertices, faces = _parse_geometry_chunked(SUZANNE)
         ref = _read_obj_vertices(SUZANNE_OBJ)
         self.assertEqual(len(vertices), 507)
         self.assertEqual(len(vertices), len(ref))
@@ -209,7 +227,7 @@ class TestFbxParsing(unittest.TestCase):
         자체가 없어 자동으로 제외되고, Cube(정점 8)+Cone(정점 9) 두
         Geometry만 Connections로 실제 Model에 연결된 것으로 확인돼
         합쳐진 17개 정점이 나와야 한다."""
-        vertices, faces = fbx.parse_geometry(ZUP)
+        vertices, faces = _parse_geometry_chunked(ZUP)
         self.assertEqual(len(vertices), 17)
         self.assertGreater(len(faces), 0)
 
@@ -241,7 +259,7 @@ class TestFbxConvertPipeline(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_cube_round_trip_to_all_targets(self):
-        vertices, faces = fbx.parse_geometry(CUBE_7400)
+        vertices, faces = _parse_geometry_chunked(CUBE_7400)
         for target_ext in ("obj", "stl", "ply", "glb", "gltf"):
             with self.subTest(target=target_ext):
                 out_dir = self.tmp / target_ext
@@ -263,7 +281,7 @@ class TestFbxConvertPipeline(unittest.TestCase):
         인덱스를 그대로 보존하는 바이너리 포맷(glb)으로 정확한 왕복을
         검증한다. 위상(면 개수)은 모든 대상 포맷에서 동일하게 보존됨은
         `test_cube_round_trip_to_all_targets`에서 이미 확인."""
-        vertices, faces = fbx.parse_geometry(SUZANNE)
+        vertices, faces = _parse_geometry_chunked(SUZANNE)
         out = converters.convert(SUZANNE, "glb", self.tmp)
         result = trimesh.load(out, force="mesh")
         self.assertEqual(len(result.vertices), len(vertices))
@@ -273,13 +291,13 @@ class TestFbxConvertPipeline(unittest.TestCase):
         """텍스트 포맷(obj)으로 왕복해도 면(삼각형) 개수, 즉 형태의
         위상 구조는 그대로 보존돼야 한다(정점 개수는 위 테스트의 설명대로
         근접 좌표 병합으로 살짝 줄 수 있음)."""
-        _vertices, faces = fbx.parse_geometry(SUZANNE)
+        _vertices, faces = _parse_geometry_chunked(SUZANNE)
         out = converters.convert(SUZANNE, "obj", self.tmp)
         result = trimesh.load(out, force="mesh")
         self.assertEqual(len(result.faces), len(faces))
 
     def test_z_up_scene_round_trip_to_stl(self):
-        vertices, faces = fbx.parse_geometry(ZUP)
+        vertices, faces = _parse_geometry_chunked(ZUP)
         out = converters.convert(ZUP, "stl", self.tmp)
         result = trimesh.load(out, force="mesh")
         self.assertEqual(len(result.vertices), len(vertices))
@@ -313,7 +331,7 @@ class TestFbxRobustness(unittest.TestCase):
 
     def test_missing_objects_node_raises_corrupted(self):
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes([])  # Objects 노드가 아예 없는 최상위 목록
+            _extract_from_nodes_chunked([])  # Objects 노드가 아예 없는 최상위 목록
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_missing_connections_node_includes_all_geometry_safely(self):
@@ -323,7 +341,7 @@ class TestFbxRobustness(unittest.TestCase):
         g1 = _geom(100, _TRI_VERTS, _TRI_POLY)
         g2 = _geom(200, _TRI_VERTS, _TRI_POLY)
         nodes = [_objects([g1, g2, _model(101)])]  # Connections 노드 없음
-        vertices, faces = fbx._extract_from_nodes(nodes)
+        vertices, faces = _extract_from_nodes_chunked(nodes)
         self.assertEqual(len(vertices), 6)  # 삼각형 2개 분량
         self.assertEqual(len(faces), 2)
 
@@ -336,7 +354,7 @@ class TestFbxRobustness(unittest.TestCase):
         nodes = [_objects([g_empty, g_valid]), _connections([(100, 101), (300, 101)]), ]
         # Connections에 Model(101)이 실제로 없어도(연결 대상 누락) 안전한
         # 기본값(모든 Geometry 포함)으로 fallback해야 하므로 Model 없이도 확인.
-        vertices, faces = fbx._extract_from_nodes(nodes)
+        vertices, faces = _extract_from_nodes_chunked(nodes)
         self.assertEqual(len(vertices), 3)
         self.assertEqual(len(faces), 1)
 
@@ -344,7 +362,7 @@ class TestFbxRobustness(unittest.TestCase):
         g_empty = _geom(300, (), ())
         nodes = [_objects([g_empty])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_no_geometry_objects_at_all_raises_corrupted(self):
@@ -352,7 +370,7 @@ class TestFbxRobustness(unittest.TestCase):
         (FBX 6.x 등)도 명확히 실패해야 한다."""
         nodes = [_objects([_model(101)])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_out_of_range_polygon_index_raises_corrupted(self):
@@ -364,7 +382,7 @@ class TestFbxRobustness(unittest.TestCase):
         g_bad = _geom(400, _TRI_VERTS, bad_poly)
         nodes = [_objects([g_bad])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_degenerate_axis_settings_raise_corrupted_instead_of_silent_distortion(self):
@@ -377,7 +395,7 @@ class TestFbxRobustness(unittest.TestCase):
         g = _geom(100, _TRI_VERTS, _TRI_POLY)
         nodes = [gs, _objects([g])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_normal_axis_settings_do_not_raise(self):
@@ -386,7 +404,7 @@ class TestFbxRobustness(unittest.TestCase):
         gs = _global_settings(CoordAxis=0, CoordAxisSign=1, UpAxis=1, UpAxisSign=1, FrontAxis=2, FrontAxisSign=1)
         g = _geom(100, _TRI_VERTS, _TRI_POLY)
         nodes = [gs, _objects([g])]
-        vertices, faces = fbx._extract_from_nodes(nodes)
+        vertices, faces = _extract_from_nodes_chunked(nodes)
         self.assertEqual(len(vertices), 3)
         self.assertEqual(len(faces), 1)
 
@@ -408,7 +426,7 @@ class TestFbxRobustness(unittest.TestCase):
         g2 = _geom(200, g2_verts, g2_poly)
         nodes = [_objects([g1, g2])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_axis_sign_not_unit_raises_corrupted(self):
@@ -420,7 +438,7 @@ class TestFbxRobustness(unittest.TestCase):
         g = _geom(100, _TRI_VERTS, _TRI_POLY)
         nodes = [gs, _objects([g])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_axis_value_out_of_range_raises_corrupted_not_index_error(self):
@@ -436,7 +454,7 @@ class TestFbxRobustness(unittest.TestCase):
         g = _geom(100, _TRI_VERTS, _TRI_POLY)
         nodes = [gs, _objects([g])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_geometry_without_id_is_included_by_default(self):
@@ -449,7 +467,7 @@ class TestFbxRobustness(unittest.TestCase):
             fbx._FbxNode("PolygonVertexIndex", [list(_TRI_POLY)]),
         ]
         nodes = [_objects([g_no_id])]
-        vertices, faces = fbx._extract_from_nodes(nodes)
+        vertices, faces = _extract_from_nodes_chunked(nodes)
         self.assertEqual(len(vertices), 3)
         self.assertEqual(len(faces), 1)
 
@@ -461,7 +479,7 @@ class TestFbxRobustness(unittest.TestCase):
         g = _geom(100, bad_verts, (0, ~1))
         nodes = [_objects([g])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_polygon_with_fewer_than_3_vertices_raises_corrupted(self):
@@ -471,7 +489,7 @@ class TestFbxRobustness(unittest.TestCase):
         g = _geom(100, _TRI_VERTS, (0, ~1))  # 정점 2개짜리 폴리곤 하나뿐
         nodes = [_objects([g])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_missing_polygon_terminator_raises_corrupted(self):
@@ -481,7 +499,7 @@ class TestFbxRobustness(unittest.TestCase):
         g = _geom(100, _TRI_VERTS, (0, 1, 2))  # 마지막 인덱스가 양수(종결자 없음)
         nodes = [_objects([g])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
 
@@ -503,7 +521,7 @@ class TestFbxLayerElementHole(unittest.TestCase):
         hole = _hole_layer(holes=[1, 0])
         g = _geom(100, self._QUAD_VERTS, self._QUAD_TWO_TRIS_POLY, hole_layer=hole)
         nodes = [_objects([g])]
-        vertices, faces = fbx._extract_from_nodes(nodes)
+        vertices, faces = _extract_from_nodes_chunked(nodes)
         self.assertEqual(len(vertices), 4)
         self.assertEqual(len(faces), 1)
 
@@ -513,7 +531,7 @@ class TestFbxLayerElementHole(unittest.TestCase):
         hole = _hole_layer(holes=[0, 0])
         g = _geom(100, self._QUAD_VERTS, self._QUAD_TWO_TRIS_POLY, hole_layer=hole)
         nodes = [_objects([g])]
-        vertices, faces = fbx._extract_from_nodes(nodes)
+        vertices, faces = _extract_from_nodes_chunked(nodes)
         self.assertEqual(len(vertices), 4)
         self.assertEqual(len(faces), 2)
 
@@ -525,7 +543,7 @@ class TestFbxLayerElementHole(unittest.TestCase):
         g = _geom(100, self._QUAD_VERTS, self._QUAD_TWO_TRIS_POLY, hole_layer=hole)
         nodes = [_objects([g])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_unsupported_hole_reference_type_rejected_explicitly(self):
@@ -533,7 +551,7 @@ class TestFbxLayerElementHole(unittest.TestCase):
         g = _geom(100, self._QUAD_VERTS, self._QUAD_TWO_TRIS_POLY, hole_layer=hole)
         nodes = [_objects([g])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_missing_holes_array_raises_corrupted(self):
@@ -543,7 +561,7 @@ class TestFbxLayerElementHole(unittest.TestCase):
         g = _geom(100, self._QUAD_VERTS, self._QUAD_TWO_TRIS_POLY, hole_layer=hole)
         nodes = [_objects([g])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
     def test_holes_length_mismatch_with_polygon_count_raises_corrupted(self):
@@ -553,7 +571,7 @@ class TestFbxLayerElementHole(unittest.TestCase):
         g = _geom(100, self._QUAD_VERTS, self._QUAD_TWO_TRIS_POLY, hole_layer=hole)
         nodes = [_objects([g])]
         with self.assertRaises(ConversionError) as ctx:
-            fbx._extract_from_nodes(nodes)
+            _extract_from_nodes_chunked(nodes)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
 
@@ -708,7 +726,7 @@ class TestFbxParserResourceLimits(unittest.TestCase):
         fake_stat = mock.Mock(st_size=fbx._MAX_FILE_SIZE + 1)
         with mock.patch.object(Path, "stat", return_value=fake_stat):
             with self.assertRaises(ConversionError) as ctx:
-                fbx.parse_geometry(CUBE_7400)
+                _parse_geometry_chunked(CUBE_7400)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
 
@@ -814,14 +832,14 @@ class TestFbxVertexFaceCountLimits(unittest.TestCase):
             g = _geom(100, verts, poly)
             nodes = [_objects([g])]
             with self.assertRaises(ConversionError) as ctx:
-                fbx._extract_from_nodes(nodes)
+                _extract_from_nodes_chunked(nodes)
             self.assertEqual(ctx.exception.key, "err.too_large")
 
     def test_vertex_count_within_limit_succeeds(self):
         with mock.patch.object(fbx, "_MAX_VERTEX_COUNT", 3):
             g = _geom(100, _TRI_VERTS, _TRI_POLY)  # 정점 정확히 3개(상한과 같음)
             nodes = [_objects([g])]
-            vertices, faces = fbx._extract_from_nodes(nodes)
+            vertices, faces = _extract_from_nodes_chunked(nodes)
             self.assertEqual(len(vertices), 3)
             self.assertEqual(len(faces), 1)
 
@@ -830,14 +848,14 @@ class TestFbxVertexFaceCountLimits(unittest.TestCase):
             g = _geom(100, _TRI_VERTS, _TRI_POLY)  # 삼각형 1개(상한 0 초과)
             nodes = [_objects([g])]
             with self.assertRaises(ConversionError) as ctx:
-                fbx._extract_from_nodes(nodes)
+                _extract_from_nodes_chunked(nodes)
             self.assertEqual(ctx.exception.key, "err.too_large")
 
     def test_face_count_within_limit_succeeds(self):
         with mock.patch.object(fbx, "_MAX_FACE_COUNT", 1):
             g = _geom(100, _TRI_VERTS, _TRI_POLY)  # 삼각형 정확히 1개(상한과 같음)
             nodes = [_objects([g])]
-            vertices, faces = fbx._extract_from_nodes(nodes)
+            vertices, faces = _extract_from_nodes_chunked(nodes)
             self.assertEqual(len(faces), 1)
 
 
@@ -864,7 +882,7 @@ class TestFbxFaceCountLimitBypassViaUnterminatedPolygon(unittest.TestCase):
             g = _geom(100, _TRI_VERTS, poly)
             nodes = [_objects([g])]
             with self.assertRaises(ConversionError) as ctx:
-                fbx._extract_from_nodes(nodes)
+                _extract_from_nodes_chunked(nodes)
             self.assertEqual(ctx.exception.key, "err.too_large")
             # 상한 초과가 폴리곤 인덱스 누적 단계에서 조기에 걸려야
             # 한다 — _triangulate_fan()이 아예 호출되지 않아야, "상한 검사
@@ -879,7 +897,7 @@ class TestFbxFaceCountLimitBypassViaUnterminatedPolygon(unittest.TestCase):
         with mock.patch.object(fbx, "_MAX_FACE_COUNT", 3):
             g = _geom(100, _TRI_VERTS, _TRI_POLY)  # 삼각형 1개(상한 3 이내)
             nodes = [_objects([g])]
-            vertices, faces = fbx._extract_from_nodes(nodes)
+            vertices, faces = _extract_from_nodes_chunked(nodes)
             self.assertEqual(len(faces), 1)
 
 
@@ -1020,6 +1038,93 @@ class TestFbxArrayMaterializationMemory(unittest.TestCase):
             self._RAW_BYTES * 4,
             f"파싱으로 늘어난 peak RSS가 예상보다 큼: {delta} bytes (raw={self._RAW_BYTES} bytes) "
             "— struct.unpack()+list() 이중 물질화로 되돌아갔을 수 있음",
+        )
+
+
+@unittest.skipUnless(_HAS_RESOURCE, "resource 모듈이 없는 플랫폼(Windows) — RSS 측정 불가")
+@unittest.skipIf(
+    os.environ.get("GITHUB_ACTIONS") == "true",
+    "subprocess 기반 메모리 측정이 Linux CI 러너에서 이후 Qt 테스트를 "
+    "무기한 정지시키는 현상이 확인됨(TestFbxArrayMaterializationMemory 참고) — "
+    "로컬에서만 실행",
+)
+class TestFbxVertexFaceMaterializationMemory(unittest.TestCase):
+    """review 6라운드(7daefa0, 2026-09-10) Finding 1(필수 보완) — 정점·면
+    상한(`_MAX_VERTEX_COUNT`/`_MAX_FACE_COUNT`, 각 1000만)은 그 자체로는
+    실제 피크 메모리를 안전하게 제한하지 못했다: `_extract_from_nodes`가
+    정점/면을 (x,y,z)/(i,j,k) 파이썬 튜플 리스트로 쌓으면(예전 방식)
+    원소당 파이썬 객체 오버헤드가 raw 8바이트짜리 숫자 3개(24바이트)당
+    ~150바이트를 더 잡아먹고, 그 리스트를 다시 `np.array()`로 NumPy 배열로
+    바꾸는 `load_trimesh` 단계에서 원본과 사본이 동시에 살아있는 순간이
+    더해져, 상한(1000만)까지 채운 파일 하나로 순간 메모리가 ~3GB까지
+    치솟을 수 있었다(정상적인 대형 photogrammetry 모델도 상한에 도달하기
+    훨씬 전에 프로세스가 OOM으로 죽을 위험).
+
+    `_extract_from_nodes`를 평탄(flat) `array.array`(정점 `'d'`, 면 `'q'`)로
+    바꾼 뒤에는(`_MAX_VERTEX_COUNT` 주석 참고) 원소당 파이썬 객체가 생기지
+    않으므로, 같은 지오메트리를 추출할 때 늘어나는 peak RSS가 결과
+    `array.array`의 raw 바이트 수(정점 3N*8바이트 + 면 3M*8바이트) 근처에
+    머물러야 한다 — 예전 튜플 방식이라면 raw의 ~6배 이상으로 치솟았을
+    것과 비교된다. `TestFbxArrayMaterializationMemory`와 동일하게, 이미
+    만들어둔 입력 노드 트리(정점/면 원본 float·int 리스트 포함)를 공통
+    베이스라인으로 두고, 거기서 `_extract_from_nodes` 호출 하나만 더한
+    뒤의 delta를 측정한다 — 이렇게 하면 입력 리스트 자체의 메모리는
+    베이스라인에 이미 포함돼 delta에서 상쇄되고, `_extract_from_nodes`가
+    새로 추가하는 메모리만 순수하게 드러난다.
+
+    반드시 `fbx._extract_from_nodes`를 직접 호출해야 한다(테스트 파일의
+    `_extract_from_nodes_chunked` 래퍼를 쓰면 안 됨) — 그 래퍼는 결과를
+    다시 튜플 리스트로 묶어주는데, 그러면 이 테스트가 검증하려는 바로 그
+    개선(튜플 리스트 미materialization)이 래퍼 안에서 재현돼버려 측정
+    자체가 무의미해진다.
+
+    **CI(Linux)에서는 스킵된다** — 이유는
+    `TestFbxArrayMaterializationMemory`와 동일(Qt 초기화 프로세스에서
+    subprocess.run() fork 시 이후 테스트가 무기한 정지하는 현상이 확인됨).
+    """
+
+    _VERTEX_COUNT = 3_000_000  # 3의 배수 — 정점 300만개 = 삼각형 100만개(1정점당 1좌표씩 독립된 삼각형)
+
+    @classmethod
+    def _build_geometry_code(cls) -> str:
+        return (
+            f"n = {cls._VERTEX_COUNT}\n"
+            "verts = [float(i % 1000) for i in range(n * 3)]\n"
+            "poly = []\n"
+            "for i in range(0, n, 3):\n"
+            "    poly.extend([i, i + 1, ~(i + 2)])\n"
+            "g = fbx._FbxNode('Geometry', [100, 'Geometry', 'Mesh'])\n"
+            "vnode = fbx._FbxNode('Vertices', [verts])\n"
+            "pnode = fbx._FbxNode('PolygonVertexIndex', [poly])\n"
+            "g.children = [vnode, pnode]\n"
+            "objs = fbx._FbxNode('Objects', [])\n"
+            "objs.children = [g]\n"
+            "nodes = [objs]\n"
+        )
+
+    def test_extract_from_nodes_stays_within_a_few_times_flat_array_bytes(self):
+        setup_code = self._build_geometry_code()
+        extract_code = setup_code + "fbx._extract_from_nodes(nodes)\n"
+
+        baseline_rss = _child_peak_rss_bytes(setup_code)
+        extract_rss = _child_peak_rss_bytes(extract_code)
+        delta = extract_rss - baseline_rss
+
+        triangle_count = self._VERTEX_COUNT // 3
+        expected_flat_bytes = self._VERTEX_COUNT * 3 * 8 + triangle_count * 3 * 8
+
+        # 예전 튜플 리스트 방식이었다면 정점 튜플(~150바이트/개)+면
+        # 튜플(~150바이트/개)이 flat 배열 바이트 수 위에 추가로 얹혀 delta가
+        # flat 바이트의 ~6배를 넘었다. flat 배열 경로는 원소당 파이썬
+        # 객체가 없으므로 raw 바이트 근처(프로세스 노이즈 감안 몇 배 이내)에
+        # 머물러야 한다 — TestFbxArrayMaterializationMemory와 동일하게
+        # 여유를 두어 4배를 회귀 상한으로 둔다.
+        self.assertLess(
+            delta,
+            expected_flat_bytes * 4,
+            f"_extract_from_nodes로 늘어난 peak RSS가 예상보다 큼: {delta} bytes "
+            f"(flat array 기대치={expected_flat_bytes} bytes) — 정점/면을 다시 튜플 "
+            "리스트로 쌓는 방식으로 되돌아갔을 수 있음",
         )
 
 

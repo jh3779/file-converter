@@ -12,14 +12,15 @@
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
-전체 328개 중 8개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
+전체 329개 중 8개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
 CI(`test` job, `.github/workflows/build.yml`)는 매 push/PR마다 이 명령을
 그대로 실행한다 — Java/LibreOffice/FFmpeg가 없는 가벼운 러너라 사이드카
 필요 테스트는 CI에서도 스킵되고, 그 부분은 `build-windows`/`build-macos`/
 `build-linux` job의 **엔진 스모크**(사이드카를 실제로 빌드해 직접 실행)가
 대신 게이트한다 — 이 문서 마지막 "자동 테스트가 못 잡는 것" 절 참고.
-CI에서는 `TestFbxArrayMaterializationMemory`(1건)가 추가로 스킵돼 총
-9개가 스킵된다 — 아래 "실행 조건" 범례의 "로컬 전용(CI 제외)" 참고.
+CI에서는 `TestFbxArrayMaterializationMemory`·`TestFbxVertexFaceMaterializationMemory`
+(각 1건, 총 2건)가 추가로 스킵돼 총 10개가 스킵된다 — 아래 "실행 조건"
+범례의 "로컬 전용(CI 제외)" 참고.
 
 ## 실행 조건 범례
 
@@ -57,7 +58,7 @@ REQ-F ID·DEC는 `docs/01_requirements.md`·`docs/06_open_questions.md` 참고.
 | 위 감지를 백그라운드로 미뤄 UI 스레드를 안 막는지(DEC-067) | REQ-F-002, REQ-F-014, REQ-NF-006 | `test_file_detection_async.py` | 항상(모킹) |
 | 이미지↔이미지 | REQ-F-015, DEC-025 | `test_image.py::TestImageConversion` | 항상(Pillow) |
 | 3D 모델↔3D 모델(OBJ/STL/PLY/GLB/GLTF) | DEC-050 | `test_model3d.py::TestModel3DConversion` | 항상(trimesh) |
-| FBX→3D 모델(OBJ/STL/PLY/GLB/GLTF, 읽기 전용 단방향) — 비압축/압축 파싱(압축 해제 크기 상한·비압축 배열 절단 검증 포함), 좌표축 정규화(축·부호 값 자체 검증 포함), Connections 필터링, FBX 6.x 거부, Geometry별 인덱스 범위 방어(다중 Geometry 교차 오염 방지), LayerElementHole 처리, 파일/배열/노드/정점/면 자원 상한(면 상한은 종결자 없는 단일 폴리곤의 triangulation 우회까지 방어), 노드 end_offset의 부모/파일 경계 검증, 배열 property 자료구조(이중 물질화 방지, 메모리 사용량 실측 검증 포함), 파이프라인 왕복 | REQ-F-020, DEC-069 | `test_fbx.py`(`TestFbxParsing`·`TestFbxConvertPipeline`·`TestFbxRegistry`·`TestFbxRobustness`·`TestFbxLayerElementHole`·`TestFbxParserResourceLimits`·`TestFbxCompressedArrayBounds`·`TestFbxUncompressedArrayTruncation`·`TestFbxVertexFaceCountLimits`·`TestFbxFaceCountLimitBypassViaUnterminatedPolygon`·`TestFbxArrayMaterialization`·`TestFbxArrayMaterializationMemory`, 62건) | 항상(순수 Python + trimesh, 메모리 실측 테스트는 resource 모듈 필요 — Windows는 스킵. `TestFbxArrayMaterializationMemory`는 추가로 로컬 전용(CI 제외) — subprocess 기반 RSS 측정이 Linux CI 러너에서 이후 무관한 Qt 테스트를 무기한 정지시키는 현상이 확인돼 CI에서는 스킵) |
+| FBX→3D 모델(OBJ/STL/PLY/GLB/GLTF, 읽기 전용 단방향) — 비압축/압축 파싱(압축 해제 크기 상한·비압축 배열 절단 검증 포함), 좌표축 정규화(축·부호 값 자체 검증 포함), Connections 필터링, FBX 6.x 거부, Geometry별 인덱스 범위 방어(다중 Geometry 교차 오염 방지), LayerElementHole 처리, 파일/배열/노드/정점/면 자원 상한(면 상한은 종결자 없는 단일 폴리곤의 triangulation 우회까지 방어), 노드 end_offset의 부모/파일 경계 검증, 배열 property 자료구조(이중 물질화 방지, 메모리 사용량 실측 검증 포함), 정점·면 출력 자료구조(평탄 array.array 전환에 따른 피크 메모리 감소 실측 검증 포함), 파이프라인 왕복 | REQ-F-020, DEC-069 | `test_fbx.py`(`TestFbxParsing`·`TestFbxConvertPipeline`·`TestFbxRegistry`·`TestFbxRobustness`·`TestFbxLayerElementHole`·`TestFbxParserResourceLimits`·`TestFbxCompressedArrayBounds`·`TestFbxUncompressedArrayTruncation`·`TestFbxVertexFaceCountLimits`·`TestFbxFaceCountLimitBypassViaUnterminatedPolygon`·`TestFbxArrayMaterialization`·`TestFbxArrayMaterializationMemory`·`TestFbxVertexFaceMaterializationMemory`, 63건) | 항상(순수 Python + trimesh, 메모리 실측 테스트는 resource 모듈 필요 — Windows는 스킵. `TestFbxArrayMaterializationMemory`·`TestFbxVertexFaceMaterializationMemory`는 추가로 로컬 전용(CI 제외) — subprocess 기반 RSS 측정이 Linux CI 러너에서 이후 무관한 Qt 테스트를 무기한 정지시키는 현상이 확인돼 CI에서는 스킵) |
 | TXT/MD/HTML 상호 변환(6방향) | REQ-F-018, DEC-061 | `test_markup.py::TestMarkupConversion` | 항상(순수 Python) |
 
 ## UI·플랫폼·부가 기능 커버리지

@@ -130,21 +130,36 @@ _MAX_NODE_COUNT = 2_000_000  # 파일 전체 노드 개수 상한
 _MAX_NODE_DEPTH = 128  # 노드 트리 재귀 깊이 상한(스택 오버플로 방어 겸용)
 
 # 위 배열 상한들은 입력 단계(array.array로 압축 저장된 원시 배열)만
-# 지킨다 — `_extract_from_nodes`가 이 원시 배열을 (x, y, z)/(i, j, k)
-# 파이썬 튜플의 리스트로 다시 전개하는 순간, 원소 하나당 다시 개별 객체가
-# 생겨(위 _MAX_ARRAY_BYTES 주석과 같은 종류의 배율 문제) 입력 배열보다
-# 훨씬 큰 메모리를 쓰게 된다(4라운드 review 지적). 실측(CPython 3.x,
-# 64비트, sys.getsizeof 기준): (float,float,float) 튜플 하나는 튜플
-# 자체(72바이트) + float 객체 3개(24바이트씩, 72바이트) = 144바이트, 여기에
-# 리스트 슬롯 포인터(8바이트)를 더하면 정점 하나당 약 152바이트다. 면
-# (삼각형) 인덱스 튜플도 정수 객체 크기(캐싱 안 되는 큰 값 기준 28바이트씩)
-# 로 비슷하게 계산하면 약 164바이트다. 아래 상한(정점·면 각 1000만 개)은
-# 정점·면 리스트 각각 최대 약 1.4~1.5GiB로 순간 메모리를 고정 상한 안에
-# 묶어두면서도, 이 프로젝트의 실사용 범위(3D 프린팅용 단일 메시 — 보통
-# 수십만~수백만 삼각형, 사진측량 스캔 등 극단적 사례도 수백만~천만
-# 단위)에는 여유 있게 맞춘 값이다.
+# 지킨다 — 이후 `_extract_from_nodes`가 정점·면을 조립하는 단계에도 별도
+# 상한이 필요하다. 예전에는 이 단계에서 정점·면을 (x, y, z)/(i, j, k)
+# 파이썬 튜플의 리스트로 전개했는데, 원소 하나당 개별 객체가 생겨(튜플
+# 자체 72바이트 + float/int 객체당 24~28바이트 + 리스트 슬롯 포인터
+# 8바이트, 정점 하나당 약 152바이트) 입력 배열보다 훨씬 큰 메모리를 쓰게
+# 됐고(4라운드 review 지적), 거기에 더해 `load_trimesh`가 그 튜플 리스트를
+# NumPy 배열로 다시 한번 복제하면서 둘이 동시에 살아있는 순간, 정점·면
+# 각 1000만 개(아래 상한) 기준 순간 메모리가 약 3GiB까지 치솟을 수 있었다
+# (6라운드 review 지적 — 상한 자체는 있었지만 상한이 지키려던 "실제 순간
+# 메모리"와 상한이 표현하는 "정점·면 개수" 사이의 배율이 너무 컸던 것이
+# 문제. 필수 보완). 지금은 정점·면을 파이썬 객체 리스트가 아니라
+# `array.array('d')`(정점, x0,y0,z0,x1,... 평탄 배열)/`array.array('q')`
+# (면, i0,j0,k0,i1,... 평탄 배열)에 직접 기록한다 — 원소 하나당 정확히
+# 8바이트(파이썬 객체 헤더 없음)만 쓰고, `load_trimesh`도 이 평탄 배열을
+# NumPy로 버퍼 복사 1회에 옮긴다(_OUTPUT_VERTEX_TYPECODE/
+# _OUTPUT_FACE_TYPECODE, `load_trimesh` 참고 — 튜플 리스트 단계 자체가
+# 없어짐). 같은 상한(정점·면 각 1000만 개) 기준 순간 메모리는 이제 정점·면
+# 평탄 배열 각각 최대 약 240MiB(1000만 × 3 × 8바이트) 수준으로 억제된다.
 _MAX_VERTEX_COUNT = 10_000_000  # 전체 Geometry 누적 정점 개수 상한
 _MAX_FACE_COUNT = 10_000_000  # 전체 Geometry 누적 면(삼각형) 개수 상한
+
+# `_extract_from_nodes`가 정점·면을 기록하는 평탄(flat) 출력 배열의
+# typecode — 입력 파싱 경로의 `_ARRAY_TYPECODE`와 같은 이유로 'l'이 아니라
+# 'd'/'q'를 쓴다: 'd'(C double)는 IEEE 754 8바이트가 사실상 보편적이고,
+# 'q'(C long long)는 array 모듈 문서상 최소 8바이트가 보장된다(반대로
+# 'l'은 Windows 64비트에서 4바이트일 수 있어 위험). `load_trimesh`가 이
+# 값을 NumPy dtype(np.float64/np.int64)과 짝지어 쓴다 — 둘 다 8바이트라
+# `np.array()`가 원소별 파이썬 객체 변환 없이 버퍼를 통째로 복사할 수 있다.
+_OUTPUT_VERTEX_TYPECODE = "d"
+_OUTPUT_FACE_TYPECODE = "q"
 
 # 파싱 중 던져질 수 있는, "손상되거나 지원 범위 밖"으로 뭉뚱그려도 되는
 # 저수준 예외 — 전부 err.corrupted로 통일한다(model3d.py의 기존 관례와
@@ -462,13 +477,20 @@ def _polygon_holes(geom: "_FbxNode", polygon_count: int):
     return holes
 
 
-def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
+def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple["array.array", "array.array"]:
     """이미 파싱된 최상위 노드 목록에서 Geometry를 뽑아 Y-up 정규화·
     삼각형화한 (vertices, faces)를 만든다. `parse_geometry`(파일 IO+바이너리
     파싱)에서 이 부분만 분리해뒀다 — 노드 트리 레벨의 엣지 케이스(Objects
     없음·Connections 없음·빈 프로퍼티 배열 등)를 직접 만든 `_FbxNode` 트리로
     바이너리를 새로 인코딩하지 않고도 단위 테스트할 수 있게 하기 위함
-    (tests/test_fbx.py 참고)."""
+    (tests/test_fbx.py 참고).
+
+    반환값은 (x, y, z)/(i, j, k) 튜플의 리스트가 아니라 평탄(flat)
+    `array.array`다 — 정점 N개면 길이 3N짜리 `array.array('d')`
+    (x0,y0,z0,x1,y1,z1,...), 면 M개면 길이 3M짜리 `array.array('q')`
+    (i0,j0,k0,i1,...)다. 이유는 `_MAX_VERTEX_COUNT`/`_MAX_FACE_COUNT`
+    주석 참고(6라운드 review 지적 — 튜플 리스트로 만들면 원소 하나당
+    별도 파이썬 객체가 생겨 순간 메모리가 몇 배로 불어남)."""
     objs = next((n for n in nodes if n.name == "Objects"), None)
     if objs is None:
         raise ConversionError("err.corrupted", "fbx: Objects 노드가 없음(지원 범위 밖 FBX 버전일 수 있음)")
@@ -486,8 +508,8 @@ def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, floa
     flip_winding = det < 0
     connected_ids = _connected_geometry_ids(nodes)
 
-    all_vertices: list[tuple[float, float, float]] = []
-    all_faces: list[tuple[int, int, int]] = []
+    all_vertices = array.array(_OUTPUT_VERTEX_TYPECODE)
+    all_faces = array.array(_OUTPUT_FACE_TYPECODE)
     try:
         for geom in objs.find_all("Geometry"):
             if geom.properties and geom.properties[0] not in connected_ids:
@@ -503,16 +525,22 @@ def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, floa
             # 지적). 여기서 명확히 실패시킨다.
             if len(flat) % 3 != 0:
                 raise ConversionError("err.corrupted", "fbx: Vertices 배열 길이가 3의 배수가 아님")
-            base = len(all_vertices)
+            base = len(all_vertices) // 3  # all_vertices는 평탄 배열이라 정점 개수 = len//3
             local_vertex_count = len(flat) // 3
-            # 정점을 (x, y, z) 파이썬 튜플로 전개하며 누적하는 매 순간
-            # _MAX_VERTEX_COUNT를 확인한다 — 전개가 끝난 뒤에야 확인하면
-            # 이미 상한을 훨씬 넘는 튜플들이 다 만들어진 뒤라 상한을 둔
-            # 의미가 없어진다(_MAX_VERTEX_COUNT 주석 참고).
+            # 정점을 평탄 배열에 전개하며 누적하는 매 순간 _MAX_VERTEX_COUNT를
+            # 확인한다 — 전개가 끝난 뒤에야 확인하면 이미 상한을 훨씬 넘는
+            # 만큼 다 써넣은 뒤라 상한을 둔 의미가 없어진다.
             if base + local_vertex_count > _MAX_VERTEX_COUNT:
                 raise ConversionError("err.too_large", "fbx: 정점 개수가 허용 한도를 초과함")
             for i in range(0, len(flat), 3):
-                all_vertices.append(_apply_axis(matrix, flat[i], flat[i + 1], flat[i + 2]))
+                # _apply_axis()가 돌려주는 (x, y, z) 튜플은 즉시 풀어서
+                # (unpack) 평탄 배열에 원소 3개로 흘려넣고 버린다 — 이
+                # 튜플을 그대로 리스트에 쌓으면(예전 방식) 정점마다 파이썬
+                # 객체가 계속 살아남아 누적된다(_MAX_VERTEX_COUNT 주석 참고).
+                ax, ay, az = _apply_axis(matrix, flat[i], flat[i + 1], flat[i + 2])
+                all_vertices.append(ax)
+                all_vertices.append(ay)
+                all_vertices.append(az)
             poly_indices = poly_idx_node.properties[0]
             polygon_count = sum(1 for idx in poly_indices if idx < 0)
             holes = _polygon_holes(geom, polygon_count)
@@ -543,7 +571,8 @@ def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, floa
                 # "이 폴리곤이 지금 당장 끝난다면 남은 예산을 넘는가"를 먼저
                 # 확인해 조기에 끊는다(5라운드 review 지적 — 상한 검사가
                 # triangulation 결과 물질화 이후에 실행되던 문제의 근본 원인).
-                if len(polygon) - 2 > _MAX_FACE_COUNT - len(all_faces):
+                current_face_count = len(all_faces) // 3  # all_faces도 평탄 배열이라 면 개수 = len//3
+                if len(polygon) - 2 > _MAX_FACE_COUNT - current_face_count:
                     raise ConversionError("err.too_large", "fbx: 면(삼각형) 개수가 허용 한도를 초과함")
                 if is_last:
                     # 종결된 폴리곤의 정점이 3개 미만(0~2정점)이면 삼각형을
@@ -553,18 +582,24 @@ def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, floa
                     if len(polygon) < 3:
                         raise ConversionError("err.corrupted", "fbx: 폴리곤의 정점 수가 3 미만")
                     if holes is None or not holes[polygon_index]:
-                        # list(_triangulate_fan(polygon))로 실제 물질화하기
-                        # 전에 먼저 몇 개가 나올지(len(polygon)-2)만 계산해
-                        # 상한 초과 여부를 확인한다 — 위 누적 단계 방어와
-                        # 별개의 방어선으로, _triangulate_fan()을 호출하지도
-                        # 않고 막는다(5라운드 review 지적, 두 방어 모두 적용).
+                        # 실제 삼각형화(_triangulate_fan)를 부르기 전에 먼저
+                        # 몇 개가 나올지(len(polygon)-2)만 계산해 상한 초과
+                        # 여부를 확인한다 — 위 누적 단계 방어와 별개의
+                        # 방어선(5라운드 review 지적, 두 방어 모두 적용).
                         expected_tri_count = len(polygon) - 2
-                        if len(all_faces) + expected_tri_count > _MAX_FACE_COUNT:
+                        if current_face_count + expected_tri_count > _MAX_FACE_COUNT:
                             raise ConversionError("err.too_large", "fbx: 면(삼각형) 개수가 허용 한도를 초과함")
-                        tris = list(_triangulate_fan(polygon))
-                        if flip_winding:
-                            tris = [(c, b, a) for (a, b, c) in tris]
-                        all_faces.extend(tris)
+                        # _triangulate_fan()이 매번 새로 만들어 내놓는 (a,b,c)
+                        # 튜플도 즉시 풀어서 평탄 배열에 흘려넣고 버린다 —
+                        # `list(_triangulate_fan(...))`로 전체를 리스트에
+                        # 모아뒀다가 넣는(예전 방식) 대신, 삼각형 하나당
+                        # 튜플 하나만 잠깐 살아있게 한다.
+                        for a, b, c in _triangulate_fan(polygon):
+                            if flip_winding:
+                                a, b, c = c, b, a
+                            all_faces.append(a)
+                            all_faces.append(b)
+                            all_faces.append(c)
                     polygon_index += 1
                     polygon = []
             if polygon:
@@ -576,7 +611,7 @@ def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, floa
     except _LOW_LEVEL_ERRORS as e:
         raise ConversionError("err.corrupted", str(e))
 
-    if not all_vertices or not all_faces:
+    if len(all_vertices) == 0 or len(all_faces) == 0:
         raise ConversionError("err.corrupted", "fbx: 변환 가능한 지오메트리를 찾지 못함(FBX 6.x는 미지원)")
     # 방어적 경계 검증 — PolygonVertexIndex가 같은 Geometry의 Vertices
     # 개수보다 큰 인덱스를 담고 있는(손상된) 파일이면, 뒤 파이프라인
@@ -584,17 +619,19 @@ def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, floa
     # trimesh에 넘기므로(load_trimesh) trimesh 쪽 자체 검증에 기대지 않는다 —
     # 검증 없이 넘기면 인덱스가 배열 범위를 벗어난 채로 조용히 내보내져
     # 깨진 출력 파일이 될 위험이 있다(이 프로젝트의 "정직한 실패" 원칙).
-    vertex_count = len(all_vertices)
-    if any(i < 0 or i >= vertex_count for tri in all_faces for i in tri):
+    vertex_count = len(all_vertices) // 3
+    if any(i < 0 or i >= vertex_count for i in all_faces):
         raise ConversionError("err.corrupted", "fbx: PolygonVertexIndex가 정점 범위를 벗어남")
     return all_vertices, all_faces
 
 
-def parse_geometry(src: Path) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
+def parse_geometry(src: Path) -> tuple["array.array", "array.array"]:
     """FBX 파일에서 Connections로 Model에 실제 연결된 Geometry를 전부 읽어
     Y-up으로 정규화·삼각형화한 (vertices, faces)를 반환한다. 여러
     Geometry가 있으면 하나의 정점/면 목록으로 합친다(trimesh.load의
-    force="mesh"와 같은 관례, model3d.py 참고)."""
+    force="mesh"와 같은 관례, model3d.py 참고). 반환값은 평탄(flat)
+    `array.array`다 — `_extract_from_nodes` docstring과
+    `_MAX_VERTEX_COUNT` 주석 참고."""
     try:
         # 파일 전체를 메모리로 읽기 전에 먼저 크기부터 확인한다 — read_bytes()
         # 뒤에 검사하면 거대한 파일이 거부되기 전에 이미 다 메모리에 올라가
@@ -617,13 +654,22 @@ def parse_geometry(src: Path) -> tuple[list[tuple[float, float, float]], list[tu
 def load_trimesh(src: Path):
     """FBX를 읽어 trimesh.Trimesh로 반환한다 — model3d.py의 convert_3d()가
     trimesh.load() 대신 이 함수를 호출한다(FBX는 trimesh가 자체 지원하지
-    않는 포맷)."""
+    않는 포맷).
+
+    `parse_geometry()`가 돌려주는 평탄(flat) `array.array`를 `np.array()`로
+    (N, 3) 형태 NumPy 배열로 바꾼다 — `array.array`는 버퍼 프로토콜을
+    지원해 NumPy가 원소별로 파이썬 객체를 만들지 않고 버퍼를 통째로 복사할
+    수 있다(파이썬 튜플 리스트를 거치던 예전 경로보다 훨씬 적은 메모리,
+    `_MAX_VERTEX_COUNT` 주석 참고). `np.frombuffer()`(진짜 zero-copy)
+    대신 `np.array()`(항상 복사)를 쓰는 이유는, 복사본이라야 반환된
+    NumPy 배열이 always-writable임이 보장되기 때문이다 — trimesh가 내부적으로
+    배열에 쓰기를 시도할 수 있는데, zero-copy 뷰는 원본 `array.array`의
+    쓰기 가능 여부·NumPy/플랫폼 버전에 따라 read-only가 될 수 있어(문서화된
+    보장이 아님) 여기서는 안전한 쪽(복사)을 택한다."""
     import numpy as np
     import trimesh
 
     vertices, faces = parse_geometry(src)
-    return trimesh.Trimesh(
-        vertices=np.array(vertices, dtype=float),
-        faces=np.array(faces, dtype=int),
-        process=False,
-    )
+    v = np.array(vertices, dtype=np.float64).reshape(-1, 3)
+    f = np.array(faces, dtype=np.int64).reshape(-1, 3)
+    return trimesh.Trimesh(vertices=v, faces=f, process=False)
