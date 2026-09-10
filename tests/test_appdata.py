@@ -23,6 +23,22 @@ _app = QApplication.instance() or QApplication([])
 
 
 class TestAppDataResolveTimeout(unittest.TestCase):
+    def setUp(self):
+        # resolve()는 프로세스 생애 동안 결과를 캐시한다(MainWindow를
+        # 대량으로 만드는 테스트 스위트에서 매번 새 스레드를 스폰하다가
+        # CI에서 스레드 생성 자체가 멈추는 문제가 있었음) — 이 클래스는
+        # 매 테스트마다 다른 mkdir 동작을 흉내내 실제 로직을 검증해야
+        # 하므로, 캐시가 이전 테스트 결과를 들고 있지 않도록 초기화한다.
+        appdata._reset_cache_for_tests()
+
+    def tearDown(self):
+        # 이 클래스의 테스트들은 실제 AppData가 아니라 임시 디렉터리로
+        # 캐시를 채운다 — 그 디렉터리는 테스트가 끝나면(tempfile 컨텍스트
+        # 종료) 삭제되므로, 캐시에 남겨두면 이후 다른 테스트 파일의
+        # History()가 이미 지워진 경로로 sqlite3.connect()를 시도해 실패한다.
+        # 다음 테스트가 진짜 AppData를 다시 해석하도록 캐시를 비운다.
+        appdata._reset_cache_for_tests()
+
     def test_resolve_returns_path_quickly_on_local_disk(self):
         with tempfile.TemporaryDirectory() as tmp:
             fake = Path(tmp) / "AppData"
@@ -55,6 +71,24 @@ class TestAppDataResolveTimeout(unittest.TestCase):
         with patch("app.appdata.Path.mkdir", side_effect=PermissionError("denied")):
             result = appdata.resolve(timeout=1.0)
         self.assertIsNone(result)
+
+    def test_second_call_reuses_cached_result_without_spawning_new_thread(self):
+        """CI에서 실제로 재현된 문제: MainWindow를 대량으로 생성하는
+        테스트 스위트에서 매번 resolve()가 새 스레드를 스폰하면, 그
+        스레드 생성 누적이 결국 CPython 내부 스레드 상태 락 경합으로
+        스레드 생성 자체가 멈추는 지점까지 갈 수 있다(faulthandler로
+        확보한 실제 CI 스택 트레이스로 확인). 첫 호출 뒤에는 스레드를
+        새로 스폰하지 않고 캐시를 그대로 반환해야 한다."""
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "AppData"
+            with patch("app.appdata.QStandardPaths.writableLocation", return_value=str(fake)):
+                first = appdata.resolve(timeout=2.0)
+            self.assertEqual(first, fake)
+
+            with patch("app.appdata.threading.Thread") as mock_thread:
+                second = appdata.resolve(timeout=2.0)
+            mock_thread.assert_not_called()
+        self.assertEqual(second, first)
 
 
 class TestHistoryAndLoggingFallback(unittest.TestCase):
