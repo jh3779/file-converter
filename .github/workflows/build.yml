@@ -9,12 +9,12 @@ on:
 
 jobs:
   test:
-    # ubuntu-latest가 아니라 22.04로 고정 — 2026-09-10에 ubuntu-latest 기본
-    # 이미지가 바뀐 뒤로 이 잡만 test_ui_min_size.py의 폰트 메트릭 계산에서
-    # 무기한 멈추는 현상이 4회 연속 재현됐다(FBX 관련 코드 변경과 무관 —
-    # subprocess 스폰 테스트를 CI에서 스킵해도 재발함, 원인은 fontconfig/Qt
-    # 오프스크린 플러그인의 이미지별 차이로 추정). 같은 워크플로우의
-    # build-linux 잡은 이미 ubuntu-22.04로 고정돼 있고 매번 정상 통과해왔다.
+    # ubuntu-22.04로 고정(원래 ubuntu-latest) — 2026-09-10부터 이 잡만
+    # test_ui_min_size.py의 폰트 메트릭 계산에서 무기한 멈추는 현상이
+    # 5회 연속 재현됐다(FBX 관련 코드 변경·subprocess 스폰 테스트 CI
+    # 스킵·이 러너 버전 고정 전부 무관하게 재발 확인). 정확한 행 지점을
+    # 알아내기 위해 아래 테스트 스텝에 faulthandler+timeout을 계측해뒀다
+    # — 다음 CI 실행에서 실제 스택 트레이스로 원인을 특정할 것.
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +27,12 @@ jobs:
       - name: Run tests (offscreen)
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m unittest discover tests -v
+          # 정상 실행은 40초 안팎인데 5회 연속 무기한 멈추는 현상이 있어,
+          # 120초를 넘기면 SIGABRT를 보내 그 순간의 전체 스레드 스택을
+          # faulthandler로 로그에 찍은 뒤 강제 종료한다(원인 파악용
+          # 임시 계측 — 원인이 확정되면 제거할 것).
+          PYTHONFAULTHANDLER: "1"
+        run: timeout --signal=ABRT --kill-after=10 120 python -m unittest discover tests -v
 
   build-windows:
     # Windows 배포 잡(REQ-NF-001 — Windows·macOS·Linux 모두 배포 대상, 아래
