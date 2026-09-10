@@ -20,6 +20,8 @@
 """
 import shutil
 import struct
+import subprocess
+import sys
 import tempfile
 import unittest
 import zlib
@@ -29,6 +31,12 @@ from unittest import mock
 from app import converters
 from app.converters import fbx
 from app.converters.base import ConversionError
+
+try:
+    import resource
+    _HAS_RESOURCE = True
+except ImportError:  # pragma: no cover - Windows에는 resource 모듈이 없음
+    _HAS_RESOURCE = False
 
 try:
     import trimesh
@@ -681,6 +689,123 @@ class TestFbxCompressedArrayBounds(unittest.TestCase):
         for got, want in zip(props[0], floats):
             self.assertAlmostEqual(got, want, places=5)
         self.assertEqual(pos, len(buf))
+
+
+class TestFbxArrayMaterialization(unittest.TestCase):
+    """배열 property의 자료구조를 `struct.unpack()`+`list()` 이중 물질화에서
+    `array.array`로 바꾼 것(3라운드 review 지적 Finding 1)이 값·인덱싱
+    동작을 그대로 유지하는지 검증한다 — 실제 메모리 개선 측정은
+    `TestFbxArrayMaterializationMemory`에서 별도로 한다."""
+
+    def test_uncompressed_array_property_values_match_expected(self):
+        """빠른 경로(`array.array`)로 읽은 값이 원래 값과 정확히 같아야
+        한다 — 자료구조만 바뀌고 값은 그대로여야 한다."""
+        floats = [1.5, -2.25, 3.0, 0.0, 1e10]
+        buf = bytearray()
+        buf.append(ord("f"))
+        buf += struct.pack("<III", len(floats), 0, 0)
+        buf += struct.pack(f"<{len(floats)}f", *floats)
+        props, pos = fbx._read_properties(bytes(buf), 0, 1)
+        self.assertEqual(list(props[0]), floats)
+        self.assertEqual(len(props[0]), len(floats))
+        self.assertEqual(pos, len(buf))
+
+    def test_array_typecode_int64_roundtrips_full_range(self):
+        """FBX 'l'(64비트 정수)은 `array` 모듈 typecode 'l'(플랫폼에 따라
+        4바이트일 수 있는 C `long`)이 아니라 'q'(사실상 항상 8바이트인
+        C `long long`)로 매핑돼야 한다 — 32비트로는 못 담는 큰 값이
+        실제로 안 잘리고 왕복되는지 확인한다."""
+        values = [2**40, -(2**40), 2**62]
+        buf = bytearray()
+        buf.append(ord("l"))
+        buf += struct.pack("<III", len(values), 0, 0)
+        buf += struct.pack(f"<{len(values)}q", *values)
+        props, _ = fbx._read_properties(bytes(buf), 0, 1)
+        self.assertEqual(list(props[0]), values)
+
+    def test_array_property_indexing_and_len_behave_like_list(self):
+        """하위 코드(`_extract_from_nodes` 등)가 `flat[i]`/`flat[i+1]`/
+        `flat[i+2]`·`len(flat)`으로 접근하는 패턴이 `array.array`에서도
+        list와 동일하게 동작해야 한다(회귀 없음 확인)."""
+        floats = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        buf = bytearray()
+        buf.append(ord("f"))
+        buf += struct.pack("<III", len(floats), 0, 0)
+        buf += struct.pack(f"<{len(floats)}f", *floats)
+        props, _ = fbx._read_properties(bytes(buf), 0, 1)
+        flat = props[0]
+        self.assertEqual(len(flat), 6)
+        for i in range(0, len(flat), 3):
+            self.assertEqual((flat[i], flat[i + 1], flat[i + 2]), tuple(floats[i : i + 3]))
+
+
+def _child_peak_rss_bytes(code: str) -> int:
+    """`code`를 별도 자식 프로세스에서 실행하고 그 프로세스의 peak RSS를
+    바이트 단위로 정규화해 반환한다(Linux `ru_maxrss`는 KB, macOS는
+    바이트 — 단위가 다르다). 같은 테스트 프로세스 안에서 재면 다른
+    테스트들이 이미 올려둔 peak RSS에 섞여 신호가 묻힐 수 있어(peak는
+    프로세스 생애 동안 단조 증가라 이전 테스트가 더 큰 피크를 만들어두면
+    이번 측정의 delta가 0에 가깝게 나올 수 있음), 매번 새 자식 프로세스에서
+    측정해 이 문제를 없앤다."""
+    script = (
+        "import resource, struct, sys\n"
+        f"sys.path.insert(0, {str(REPO)!r})\n"
+        "from app.converters import fbx\n"
+        f"{code}\n"
+        "rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss\n"
+        "print(rss * 1024 if sys.platform != 'darwin' else rss)\n"
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        raise RuntimeError(f"RSS 측정용 자식 프로세스가 실패함: {result.stderr}")
+    return int(result.stdout.strip().splitlines()[-1])
+
+
+@unittest.skipUnless(_HAS_RESOURCE, "resource 모듈이 없는 플랫폼(Windows) — RSS 측정 불가")
+class TestFbxArrayMaterializationMemory(unittest.TestCase):
+    """review 3라운드 지적 Finding 1 — `_MAX_ARRAY_BYTES`(256MiB)는 "해제된
+    raw bytes" 기준 상한인데, 예전 `struct.unpack()`+`list()` 이중
+    물질화 때문에 실제 순간 메모리는 그보다 10배 이상(약 2.7GB) 치솟을 수
+    있었다. `array.array`로 바꾼 뒤에는 원소별 파이썬 객체를 만들지 않으니
+    raw bytes 사본 1회 정도로 억제돼야 한다 — 각각 별도 자식 프로세스에서
+    (1) 큰 배열 property를 실제로 파싱한 경우와 (2) 같은 크기의 raw bytes만
+    들고 있는 경우(파싱 없음, 베이스라인)의 peak RSS를 재 그 차이를
+    비교한다."""
+
+    _N = 20_000_000  # float 2000만개 = raw 80MB(_MAX_ARRAY_BYTES=256MiB 이내)
+    _ELEM_SIZE = 4
+    _RAW_BYTES = _N * _ELEM_SIZE
+
+    @classmethod
+    def _build_uncompressed_float_array_buf_code(cls) -> str:
+        return (
+            f"n = {cls._N}\n"
+            "buf = bytearray()\n"
+            "buf.append(ord('f'))\n"
+            "buf += struct.pack('<III', n, 0, 0)\n"
+            f"buf += b'\\x00' * (n * {cls._ELEM_SIZE})\n"
+            "buf = bytes(buf)\n"
+        )
+
+    def test_parsing_large_array_stays_within_a_few_times_raw_bytes(self):
+        baseline_code = self._build_uncompressed_float_array_buf_code()
+        parse_code = baseline_code + "fbx._read_properties(buf, 0, 1)\n"
+
+        baseline_rss = _child_peak_rss_bytes(baseline_code)
+        parsed_rss = _child_peak_rss_bytes(parse_code)
+        delta = parsed_rss - baseline_rss
+
+        # 이전 list() 경로였다면 raw(80MB) 위에 튜플(~640MB)+list
+        # 포인터배열(~160MB)이 더 얹혀 delta가 raw의 ~10배(800MB+)에
+        # 달했다. array 경로는 raw 사본 1회 정도(최대 raw의 2배 이내)만
+        # 추가돼야 한다 — 프로세스 노이즈 여유를 감안해 raw의 4배를 회귀
+        # 상한으로 둔다(그래도 예전 수준의 폭증은 확실히 잡아낸다).
+        self.assertLess(
+            delta,
+            self._RAW_BYTES * 4,
+            f"파싱으로 늘어난 peak RSS가 예상보다 큼: {delta} bytes (raw={self._RAW_BYTES} bytes) "
+            "— struct.unpack()+list() 이중 물질화로 되돌아갔을 수 있음",
+        )
 
 
 if __name__ == "__main__":

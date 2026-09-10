@@ -59,7 +59,9 @@ Suzanne, 실사용 압축 파일 최초 검증)·Z-up→Y-up 축 정규화(실�
 Z-up 씬)·여러 오브젝트가 있는 씬에서 Connections로 실제 연결된 Geometry만
 선별하는 것까지 전부 실제 파일로 확인했다.
 """
+import array
 import struct
+import sys
 import zlib
 from pathlib import Path
 
@@ -70,6 +72,49 @@ _SCALAR_FMT = {"Y": "<h", "C": "<?", "I": "<i", "F": "<f", "D": "<d", "L": "<q"}
 _SCALAR_SIZE = {"Y": 2, "C": 1, "I": 4, "F": 4, "D": 8, "L": 8}
 _ARRAY_ELEM_FMT = {"f": "f", "d": "d", "l": "q", "i": "i", "b": "b"}
 _ARRAY_ELEM_SIZE = {"f": 4, "d": 8, "l": 8, "i": 4, "b": 1}
+
+# 배열 property를 `struct.unpack()` 뒤 `list(...)`로 이중 물질화하면(원소
+# 하나당 별도 파이썬 객체 + 그 객체들을 담는 리스트 포인터 배열이 한 번 더
+# 생김) 256MiB 배열(float 6700만 개) 기준 실제 순간 메모리가 raw
+# bytes(256MB) + 튜플(원소당 32바이트 상당, ~2.1GB) + list 포인터 배열
+# (~536MB)로 겹쳐 ~2.7GB까지 치솟는다 — `_MAX_ARRAY_BYTES`라는 이름이
+# 약속하는 상한과 실제 순간 메모리가 10배 이상 벌어진다(3라운드 review
+# 지적). `array` 모듈은 원소를 개별 파이썬 객체로 만들지 않고 C 배열처럼
+# 압축 저장해(예: float 배열이면 원소당 정확히 4바이트, 객체 헤더 오버헤드
+# 없음) 이 간극을 없앤다.
+#
+# 다만 `array` 모듈의 typecode는 struct의 `<`/`>` 같은 명시적 크기 지정이
+# 없고 C 컴파일러의 네이티브 타입 크기를 그대로 쓴다 — 특히 FBX의
+# 'l'(64비트 정수)은 array 모듈 typecode 'l'(C `long`)에 매핑하면 안 된다.
+# `long`은 LP64(대부분의 64비트 macOS/Linux)에서는 8바이트지만 LLP64
+# (Windows 64비트)에서는 4바이트라 플랫폼에 따라 데이터가 반으로 잘려
+# 조용히 틀린 값을 읽게 된다. 대신 'q'(C `long long`)를 쓴다 — C 표준상
+# long long은 최소 64비트가 보장되고, 사실상 모든 실사용 컴파일러가
+# 정확히 8바이트로 구현한다.
+_ARRAY_TYPECODE = {"f": "f", "d": "d", "l": "q", "i": "i", "b": "b"}
+
+
+def _array_fast_path_typecodes() -> dict:
+    """이 플랫폼에서 실제로 안전하게 쓸 수 있는 `array` typecode만 골라
+    반환한다 — (1) `array` 모듈은 항상 네이티브 바이트 순서를 쓰는데 FBX
+    바이너리 포맷 자체는 리틀엔디안으로 고정이라, 빅엔디안 플랫폼에서는
+    바이트가 뒤집혀 읽힌다. (2) typecode의 실제 itemsize가 위에서 가정한
+    바이트 크기와 다른(이론상으로만 존재하는) 플랫폼도 있을 수 있다. 두
+    조건 중 하나라도 안 맞으면 그 타입은 빼서, 호출자가 느리지만 항상
+    정확한 `struct.unpack()` 경로로 조용히 폴백하게 한다."""
+    if sys.byteorder != "little":
+        return {}
+    safe = {}
+    for type_code, typecode in _ARRAY_TYPECODE.items():
+        try:
+            if array.array(typecode).itemsize == _ARRAY_ELEM_SIZE[type_code]:
+                safe[type_code] = typecode
+        except ValueError:
+            pass
+    return safe
+
+
+_ARRAY_FAST_PATH_TYPECODE = _array_fast_path_typecodes()
 
 # 파일 하나가 프로세스를 종료시키지 않도록 두는, 입력이 아니라 이
 # 애플리케이션이 정한 고정 상한 — 이전에는 압축 해제 상한이 입력 파일 자체가
@@ -170,7 +215,17 @@ def _read_properties(buf: bytes, pos: int, num_properties: int, budget: "_ParseB
                     raise ConversionError("err.corrupted", "fbx: 압축 해제 크기 불일치")
             else:
                 raise ConversionError("err.corrupted", f"fbx: 알 수 없는 배열 인코딩 {encoding}")
-            props.append(list(struct.unpack(f"<{array_length}{elem_fmt}", raw)))
+            fast_typecode = _ARRAY_FAST_PATH_TYPECODE.get(type_code)
+            if fast_typecode is not None:
+                # array.array(typecode, raw)는 raw의 바이트를 그대로 C
+                # 배열처럼 재해석만 할 뿐 원소별 파이썬 객체를 새로 만들지
+                # 않는다 — 아래 struct.unpack()+list() 경로보다 메모리를
+                # 훨씬 적게 쓴다. 인덱싱(`flat[i]`)·len()·iteration은 일반
+                # list와 동일하게 동작해 하위 코드(_extract_from_nodes 등)를
+                # 바꿀 필요가 없다.
+                props.append(array.array(fast_typecode, raw))
+            else:
+                props.append(list(struct.unpack(f"<{array_length}{elem_fmt}", raw)))
         elif type_code in ("S", "R"):
             (length,) = struct.unpack_from("<I", buf, pos)
             pos += 4
