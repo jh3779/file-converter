@@ -16,8 +16,8 @@
 
 **프로세스당 1회만 실제로 스레드를 스폰**(아래 `_cache`) — AppData 경로의
 네트워크 리다이렉트 여부는 프로세스가 살아있는 동안 바뀌지 않으므로,
-`History()`가 생성될 때마다(테스트 스위트처럼 `MainWindow`를 수백 번 만드는
-경우 포함) 매번 새로 스레드를 스폰할 이유가 없다. 실제로 CI(Linux)에서
+`History()`가 생성될 때마다(테스트 스위트처럼 `MainWindow`를 반복해서
+만드는 경우 포함) 매번 새로 스레드를 스폰할 이유가 없다. 실제로 CI(Linux)에서
 `unittest discover`가 `MainWindow`를 대량으로 생성하는 테스트들을 거치며
 이 함수가 반복 호출되자, 누적된 스레드 생성이 결국 `pthread_create`/CPython
 내부 스레드 상태 락 경합으로 스레드 생성 자체가 멈추는 지점까지 가서 전체
@@ -25,7 +25,7 @@
 스택 트레이스가 `threading.Thread.start()` → `_bootstrap_inner` →
 `_set_tstate_lock`에서 멈춰 있음을 보여줬다, FBX 작업과는 무관 — 이
 모듈 자체의 "매번 새 스레드" 설계가 원인). 캐싱으로 프로세스 생애 동안
-많아야 1개의 진단용 스레드만 만들도록 고쳤다.
+많아야 1개의 스레드만 만들도록 고쳤다.
 """
 import threading
 from pathlib import Path
