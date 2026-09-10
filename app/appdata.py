@@ -47,7 +47,7 @@ _DEFAULT_TIMEOUT = 2.0
 _UNRESOLVED = object()
 _cache = _UNRESOLVED  # 확정된 결과(Path 또는 None) 또는 아직 _UNRESOLVED
 _thread: threading.Thread | None = None
-_result: dict[str, Path] = {}
+_thread_result: dict[str, Path] = {}  # 현재 _thread와 짝을 이루는 결과 그릇
 _cache_lock = threading.Lock()
 
 
@@ -61,17 +61,28 @@ def resolve(timeout: float = _DEFAULT_TIMEOUT) -> Path | None:
     호출이 타임아웃된 경우는 캐시를 확정하지 않는다 — 다음 호출에서 새
     스레드를 스폰하지 않고 같은 스레드를 이어서 기다린다(그 사이 스레드가
     끝났으면 바로 확정, 아직이면 다시 대기)."""
-    global _cache, _thread
+    global _cache, _thread, _thread_result
     with _cache_lock:
         if _cache is not _UNRESOLVED:
             return _cache
 
         if _thread is None:
+            # 이 스레드 전용 결과 그릇을 클로저로 캡처한다(모듈 전역
+            # 이름으로 참조하지 않음) — `_reset_cache_for_tests()`가 나중에
+            # `_thread_result`를 새 dict로 갈아치워도, 이 스레드가 뒤늦게
+            # 끝나면서 쓰는 곳은 항상 자기 생성 시점에 캡처한 이 dict
+            # 그대로다. 모듈 전역 이름으로 썼다면, 테스트에서 타임아웃으로
+            # 살아남은 좀비 스레드가 한참 뒤(몇 테스트 지나서) 깨어나
+            # 그 시점에 바인딩된 `_thread_result`(다른 테스트가 쓰고 있는
+            # 그릇)에 잘못 써버릴 수 있었다(review 지적).
+            result: dict[str, Path] = {}
+            _thread_result = result
+
             def _resolve():
                 try:
                     base = Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
                     base.mkdir(parents=True, exist_ok=True)
-                    _result["path"] = base
+                    result["path"] = base
                 except OSError:
                     pass
 
@@ -84,16 +95,19 @@ def resolve(timeout: float = _DEFAULT_TIMEOUT) -> Path | None:
             # 확정 짓지 않는다. 같은 스레드가 백그라운드에서 계속 돌고
             # 있으니 다음 호출이 다시 join해서 그 사이 끝났는지 확인한다.
             return None
-        _cache = _result.get("path")
+        _cache = _thread_result.get("path")
         return _cache
 
 
 def _reset_cache_for_tests() -> None:
     """테스트 전용 — 캐시·스레드 참조를 초기화해 다음 `resolve()` 호출이
     실제로 다시 스레드를 스폰하도록 되돌린다. 프로덕션 코드에서는 호출하지
-    않는다."""
-    global _cache, _thread, _result
+    않는다. 직전 테스트가 남긴 스레드가 아직 살아있어도(예: 타임아웃
+    재현용으로 일부러 오래 재우는 mock), 그 스레드는 자기 생성 시점에
+    캡처한 결과 그릇에만 쓰므로 여기서 만드는 새 `_thread_result`를
+    건드리지 못한다."""
+    global _cache, _thread, _thread_result
     with _cache_lock:
         _cache = _UNRESOLVED
         _thread = None
-        _result = {}
+        _thread_result = {}
