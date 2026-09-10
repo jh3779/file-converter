@@ -271,9 +271,22 @@ def _read_properties(buf: bytes, pos: int, num_properties: int, budget: "_ParseB
     return props, pos
 
 
-def _read_node(buf: bytes, pos: int, use_64bit: bool, budget: "_ParseBudget | None" = None, depth: int = 0):
+def _read_node(
+    buf: bytes,
+    pos: int,
+    use_64bit: bool,
+    budget: "_ParseBudget | None" = None,
+    depth: int = 0,
+    parent_end: "int | None" = None,
+):
     if budget is None:
         budget = _ParseBudget()
+    # 이 노드가 속할 수 있는 최대 끝 위치 — 최상위 호출(_parse)은 파일
+    # 전체 길이를, 재귀 호출은 부모 노드의 end_offset을 물려준다(아래
+    # 재귀 호출부). 명시적으로 안 주면(예: 이 함수를 단독 호출하는 테스트)
+    # 안전하게 파일 전체 길이로 취급한다.
+    if parent_end is None:
+        parent_end = len(buf)
     # 노드 개수·재귀 깊이 둘 다 입력이 아니라 이 애플리케이션이 정한 고정
     # 상한과 비교한다 — 개수는 (자식이 아주 많은) 넓은 트리, 깊이는 (중첩이
     # 아주 깊은) 좁은 트리 형태의 자원 고갈을 각각 막는다(review 지적).
@@ -290,6 +303,14 @@ def _read_node(buf: bytes, pos: int, use_64bit: bool, budget: "_ParseBudget | No
         pos += 12
     if end_offset == 0:
         return None, pos + 1  # 널 레코드(자식 목록 종료) — name_len(=0) 1바이트만 남음
+    # 헤더에서 읽은 end_offset을 곧바로 신뢰해 그 위치까지 재귀 파싱을
+    # 계속하기 전에, 먼저 이 노드가 속한 유효 범위(현재 위치 이후 & 부모
+    # end_offset/파일 길이 이내) 안에 있는지부터 검증한다 — 검증 없이
+    # 그대로 진행해도 결국 struct.unpack_from/인덱싱에서 예외가 나 최종적
+    # 으로는 err.corrupted로 잡히지만(우연히), 그 사이 잘못된 위치를 계속
+    # 파싱하려 시도하는 불명확한 경로를 남겨둔다(5라운드 review 지적).
+    if not (pos <= end_offset <= parent_end):
+        raise ConversionError("err.corrupted", "fbx: 노드 end_offset이 부모/파일 경계를 벗어남")
     name_len = buf[pos]
     pos += 1
     name = buf[pos : pos + name_len].decode("utf-8", errors="replace")
@@ -298,7 +319,7 @@ def _read_node(buf: bytes, pos: int, use_64bit: bool, budget: "_ParseBudget | No
     node = _FbxNode(name, props)
     if pos < end_offset:
         while pos < end_offset:
-            child, pos = _read_node(buf, pos, use_64bit, budget, depth + 1)
+            child, pos = _read_node(buf, pos, use_64bit, budget, depth + 1, end_offset)
             if child is None:
                 break
             node.children.append(child)
@@ -317,7 +338,7 @@ def _parse(data: bytes) -> tuple[list["_FbxNode"], int]:
     n = len(data)
     budget = _ParseBudget()
     while pos < n:
-        node, pos = _read_node(data, pos, use_64bit, budget)
+        node, pos = _read_node(data, pos, use_64bit, budget, parent_end=n)
         if node is None:
             break
         nodes.append(node)
@@ -511,6 +532,19 @@ def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, floa
                     raise ConversionError("err.corrupted", "fbx: PolygonVertexIndex가 정점 범위를 벗어남")
                 real_idx = local_idx + base
                 polygon.append(real_idx)
+                # 폴리곤 하나를 이루는 인덱스 누적(종결자가 나올 때까지
+                # 계속되는 이 리스트) 자체에는 원래 개수 제한이 없었다 —
+                # 정점은 몇 개 안 되더라도(_MAX_VERTEX_COUNT 통과),
+                # PolygonVertexIndex가 그 정점들을 종결자 없이 아주 많이
+                # 반복 참조하는 손상된 파일이면, 아래 종결(is_last) 시점의
+                # 상한 검사에 도달하기도 전에 이미 거대한 폴리곤 리스트가
+                # 만들어져 버린다. fan triangulation은 (len(polygon)-2)개의
+                # 삼각형을 만드므로, 종결자를 기다리지 않고 매 인덱스 추가마다
+                # "이 폴리곤이 지금 당장 끝난다면 남은 예산을 넘는가"를 먼저
+                # 확인해 조기에 끊는다(5라운드 review 지적 — 상한 검사가
+                # triangulation 결과 물질화 이후에 실행되던 문제의 근본 원인).
+                if len(polygon) - 2 > _MAX_FACE_COUNT - len(all_faces):
+                    raise ConversionError("err.too_large", "fbx: 면(삼각형) 개수가 허용 한도를 초과함")
                 if is_last:
                     # 종결된 폴리곤의 정점이 3개 미만(0~2정점)이면 삼각형을
                     # 만들 수 없는 손상된 데이터다 — 예전에는 fan
@@ -519,14 +553,15 @@ def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, floa
                     if len(polygon) < 3:
                         raise ConversionError("err.corrupted", "fbx: 폴리곤의 정점 수가 3 미만")
                     if holes is None or not holes[polygon_index]:
-                        tris = list(_triangulate_fan(polygon))
-                        # 면을 (i, j, k) 파이썬 튜플로 만들어 누적하기
-                        # 직전에 확인한다 — 정점 상한과 같은 이유로, 이
-                        # 폴리곤의 삼각형들을 실제로 만들기 전에 확인해야
-                        # 상한을 넘는 만큼의 튜플이 먼저 만들어지는 것을
-                        # 막는다(_MAX_FACE_COUNT 주석 참고).
-                        if len(all_faces) + len(tris) > _MAX_FACE_COUNT:
+                        # list(_triangulate_fan(polygon))로 실제 물질화하기
+                        # 전에 먼저 몇 개가 나올지(len(polygon)-2)만 계산해
+                        # 상한 초과 여부를 확인한다 — 위 누적 단계 방어와
+                        # 별개의 방어선으로, _triangulate_fan()을 호출하지도
+                        # 않고 막는다(5라운드 review 지적, 두 방어 모두 적용).
+                        expected_tri_count = len(polygon) - 2
+                        if len(all_faces) + expected_tri_count > _MAX_FACE_COUNT:
                             raise ConversionError("err.too_large", "fbx: 면(삼각형) 개수가 허용 한도를 초과함")
+                        tris = list(_triangulate_fan(polygon))
                         if flip_winding:
                             tris = [(c, b, a) for (a, b, c) in tris]
                         all_faces.extend(tris)

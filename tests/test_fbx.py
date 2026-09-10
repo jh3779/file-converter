@@ -626,6 +626,80 @@ class TestFbxParserResourceLimits(unittest.TestCase):
             fbx._read_node(buf, 0, False, None, fbx._MAX_NODE_DEPTH + 1)
         self.assertEqual(ctx.exception.key, "err.corrupted")
 
+    def test_end_offset_within_parent_end_parses_correctly(self):
+        """대조군 — end_offset이 parent_end(부모 노드 end_offset/최상위는
+        파일 전체 길이) 이내면 정상적으로 파싱돼야 한다(5라운드 review
+        지적 Finding 2 — 경계 검증을 추가해도 정상 케이스는 그대로
+        통과해야 함, 회귀 방지)."""
+        buf = self._leaf_node_bytes()
+        node, pos = fbx._read_node(buf, 0, False, parent_end=len(buf))
+        self.assertEqual(node.name, "N")
+        self.assertEqual(pos, len(buf))
+
+    def test_end_offset_exceeding_parent_end_raises_corrupted(self):
+        """end_offset 자체는 buf 물리 범위 안의 값이어도, 이 노드를 담고
+        있어야 할 부모 노드의 end_offset(parent_end)보다 크면 — 즉 부모
+        경계를 침범하면 — 명확히 실패해야 한다."""
+        buf = self._leaf_node_bytes()
+        smaller_parent_end = len(buf) - 1  # 실제 end_offset(len(buf))보다 1 작게 제한
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._read_node(buf, 0, False, parent_end=smaller_parent_end)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_end_offset_exceeding_file_length_raises_corrupted(self):
+        """헤더의 end_offset이 버퍼(파일) 전체 길이보다 큰 손상된 값이면
+        — 최상위 호출이라 parent_end를 명시하지 않아 기본값인 len(buf)가
+        쓰이는 경우 — 명확히 실패해야 한다. 노드 본문은 그대로 두고
+        헤더의 end_offset 필드만 바이트 조작으로 부풀린다."""
+        correct = bytearray(self._leaf_node_bytes())
+        struct.pack_into("<I", correct, 0, len(correct) + 100)  # end_offset을 buf 길이 밖으로 부풀림
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._read_node(bytes(correct), 0, False)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_nested_child_end_offset_within_parent_parses_via_recursive_call(self):
+        """실제 중첩 구조(부모 노드 하나 + 자식 노드 하나)를 바이너리로
+        직접 구성해, 재귀 호출이 자식에게 parent_end(=부모의 end_offset)를
+        물려주는 실제 경로까지 검증한다."""
+        child_start = 14  # 부모 header(12) + name_len(1) + name(1글자 'P')
+        child_name = b"Child"
+        child_body = bytes([len(child_name)]) + child_name
+        child_end_offset = child_start + 12 + len(child_body)
+        child_bytes = struct.pack("<III", child_end_offset, 0, 0) + child_body
+
+        parent_body = bytes([1]) + b"P" + child_bytes
+        parent_end_offset = 12 + len(parent_body)
+        buf = struct.pack("<III", parent_end_offset, 0, 0) + parent_body
+
+        node, pos = fbx._read_node(buf, 0, False)
+        self.assertEqual(node.name, "P")
+        self.assertEqual(len(node.children), 1)
+        self.assertEqual(node.children[0].name, "Child")
+        self.assertEqual(pos, len(buf))
+
+    def test_nested_child_end_offset_exceeding_parent_raises_corrupted(self):
+        """중첩 구조에서 자식 노드 자체는 유효한 end_offset을 가져도(자식만
+        따로 보면 정상), 그 값이 부모가 재귀 호출에 물려준 parent_end(부모
+        자신의 end_offset)보다 크면 — 즉 부모가 선언한 것보다 자식이 더
+        멀리까지 뻗어나가면 — 명확히 실패해야 한다."""
+        child_start = 14  # 부모 header(12) + name_len(1) + name(1글자 'P')
+        child_name = b"Child"
+        child_body = bytes([len(child_name)]) + child_name
+        real_child_end_offset = child_start + 12 + len(child_body)  # 32(자식만 보면 유효)
+        child_bytes = struct.pack("<III", real_child_end_offset, 0, 0) + child_body
+
+        # 부모의 end_offset을 자식의 end_offset(32)보다 작게(20) 선언한다 —
+        # 부모 헤더 파싱 자체(pos=14 < 20)는 통과하지만, 자식을 재귀
+        # 파싱하며 parent_end=20을 물려주는 순간 자식의 end_offset(32)이
+        # 그 범위를 벗어나 명확히 실패해야 한다.
+        bogus_parent_end_offset = 20
+        parent_body = bytes([1]) + b"P" + child_bytes
+        buf = struct.pack("<III", bogus_parent_end_offset, 0, 0) + parent_body
+
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._read_node(buf, 0, False)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
     def test_file_size_over_limit_rejected_before_reading_whole_file(self):
         """파일 크기 자체가 `_MAX_FILE_SIZE`를 넘으면 `read_bytes()`로 전체를
         메모리에 올리기 전에 거부해야 한다 — `Path.stat()`만 가짜로 큰 값을
@@ -762,6 +836,48 @@ class TestFbxVertexFaceCountLimits(unittest.TestCase):
     def test_face_count_within_limit_succeeds(self):
         with mock.patch.object(fbx, "_MAX_FACE_COUNT", 1):
             g = _geom(100, _TRI_VERTS, _TRI_POLY)  # 삼각형 정확히 1개(상한과 같음)
+            nodes = [_objects([g])]
+            vertices, faces = fbx._extract_from_nodes(nodes)
+            self.assertEqual(len(faces), 1)
+
+
+class TestFbxFaceCountLimitBypassViaUnterminatedPolygon(unittest.TestCase):
+    """5라운드 review 지적 — 위 `TestFbxVertexFaceCountLimits`의 면 상한
+    검사는 `list(_triangulate_fan(polygon))`으로 폴리곤 전체를 이미
+    삼각형 튜플 리스트로 물질화한 "뒤"에야 실행됐다. 정점은 몇 개 안
+    되더라도(`_MAX_VERTEX_COUNT` 통과), `PolygonVertexIndex`가 종결자
+    (음수 인덱스) 없이 같은 정점 인덱스를 아주 많이 반복 참조하면, 하나의
+    거대한 "폴리곤"이 만들어지고 `_triangulate_fan()`이 상한 검사보다
+    먼저 전체를 물질화해버려 상한이 사실상 무력화됐다. 수정 후에는 (1)
+    폴리곤 인덱스를 누적하는 매 단계, (2) `_triangulate_fan()` 호출 직전
+    두 지점 모두에서 물질화 전에 먼저 상한을 확인해야 한다."""
+
+    def test_unterminated_repeated_index_polygon_raises_too_large_without_triangulating(self):
+        with mock.patch.object(fbx, "_MAX_FACE_COUNT", 3), mock.patch.object(
+            fbx, "_triangulate_fan"
+        ) as mock_triangulate_fan:
+            # 종결자(비트 NOT 인덱스)가 나오기 전까지 같은 정점(인덱스 0)을
+            # 상한(3)보다 훨씬 많이 반복 참조하는 단일 폴리곤 — 실제
+            # 수천만 번까지 만들 필요 없이, 상한을 작게 낮춰 같은 로직을
+            # 빠르게 검증한다(4라운드 테스트 스타일과 동일).
+            poly = (0,) * 19 + (~0,)  # 정점 20개짜리 폴리곤 하나(상한 3 초과)
+            g = _geom(100, _TRI_VERTS, poly)
+            nodes = [_objects([g])]
+            with self.assertRaises(ConversionError) as ctx:
+                fbx._extract_from_nodes(nodes)
+            self.assertEqual(ctx.exception.key, "err.too_large")
+            # 상한 초과가 폴리곤 인덱스 누적 단계에서 조기에 걸려야
+            # 한다 — _triangulate_fan()이 아예 호출되지 않아야, "상한 검사
+            # 전에 전체가 이미 물질화됐다"는 원래 버그가 재발하지 않았음을
+            # 보장한다.
+            mock_triangulate_fan.assert_not_called()
+
+    def test_terminated_polygon_within_limit_still_triangulates_correctly(self):
+        """대조군 — 종결자가 정상적으로 있고 삼각형 개수가 상한 이내면
+        평소처럼 `_triangulate_fan()`이 호출되고 정상 파싱돼야 한다(회귀
+        방지)."""
+        with mock.patch.object(fbx, "_MAX_FACE_COUNT", 3):
+            g = _geom(100, _TRI_VERTS, _TRI_POLY)  # 삼각형 1개(상한 3 이내)
             nodes = [_objects([g])]
             vertices, faces = fbx._extract_from_nodes(nodes)
             self.assertEqual(len(faces), 1)

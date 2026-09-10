@@ -1,18 +1,20 @@
 # fbx.py — FBX(Autodesk) 읽기 전용 파서
 
-원본: `app/converters/fbx.py` (594줄)
+원본: `app/converters/fbx.py` (629줄)
 
 이 프로젝트에서 유일하게 "서드파티 3D 라이브러리에 안 기대고 바이너리
 포맷을 직접 파싱하는" 파일이다. `model3d.py`가 trimesh 하나로 5개
 포맷을 다 처리하는 것과 대조적으로, FBX는 trimesh가 아예 지원하지
 않는 포맷이라 `struct`·`zlib` 표준 라이브러리만으로 바이너리 트리
 파서를 새로 만들었다. 왜 그래야 했는지(ufbx 세그폴트)와 무엇을
-검증했는지가 이 파일의 핵심 서사다. 코드 리뷰를 네 차례 거치며
+검증했는지가 이 파일의 핵심 서사다. 코드 리뷰를 다섯 차례 거치며
 `LayerElementHole`(숨긴 면) 처리, 애플리케이션 기준 자원 한도,
 Geometry 구조 잔여 검증(2차), 배열 property 자료구조를
 `struct.unpack()+list()`에서 `array.array`로 교체한 메모리 최적화(3차),
 그 전환이 남긴 배열 길이 미검증 회귀 수정과 정점·면 전개 단계의
-별도 상한(4차)이 차례로 추가됐다 — 아래 각 절에서 다룬다.
+별도 상한(4차), 그 면 상한 검사 자체가 triangulation 물질화 이후에야
+실행되던 우회 경로 차단과 노드 `end_offset`의 부모/파일 경계 사전
+검증(5차)이 차례로 추가됐다 — 아래 각 절에서 다룬다.
 
 ---
 
@@ -213,30 +215,48 @@ FBX 바이너리는 재귀적인 노드 트리 구조다(이름 + 프로퍼티 �
 
 알 수 없는 타입 코드(L269-270)는 명확한 `ConversionError`.
 
-## L274-307: `_read_node` — 노드 하나(헤더+프로퍼티+자식) 재귀 파싱
+## L274-328: `_read_node` — 노드 하나(헤더+프로퍼티+자식) 재귀 파싱
 
-**노드 개수·재귀 깊이 상한(L277-284, 2차 리뷰 반영)**: 헤더를 읽기도
+**노드 개수·재귀 깊이 상한(L293-297, 2차 리뷰 반영)**: 헤더를 읽기도
 전에 가장 먼저 `budget.node_count`를 올리고 `_MAX_NODE_COUNT`와,
 `depth`를 `_MAX_NODE_DEPTH`와 비교한다 — 노드 개수는 (자식이 아주
 많은) 넓은 트리, 깊이는 (중첩이 아주 깊은) 좁은 트리 형태의 자원
-고갈을 각각 막는다. 자식을 재귀 호출할 때(L301) `depth + 1`을 넘겨
+고갈을 각각 막는다. 자식을 재귀 호출할 때(L322) `depth + 1`을 넘겨
 깊이가 누적되게 한다.
 
 가장 까다로운 부분은 **버전에 따라 헤더 필드 크기가 다르다**는 점
-(L285-290) — FBX 7500부터 `EndOffset`/`NumProperties`/
+(L298-303) — FBX 7500부터 `EndOffset`/`NumProperties`/
 `PropertyListLen`이 uint32(4바이트씩, 총 12바이트)에서 uint64(8바이트씩,
 총 24바이트)로 바뀐다. `use_64bit` 플래그 하나로 `struct` 포맷
 문자열만 바꿔 전체 파싱 로직을 그대로 재사용한다.
 
-**널 레코드 처리(L291-292)**: `end_offset == 0`이면 이 위치는 자식
+**널 레코드 처리(L304-305)**: `end_offset == 0`이면 이 위치는 자식
 목록의 끝을 알리는 13/25바이트짜리 특수 레코드다 — 이름도 프로퍼티도
 없이 헤더 뒤에 `name_len(=0)` 1바이트만 더 있다.
 
-**자식 파싱의 미묘한 분기(L299-304)**:
+**`end_offset`의 부모/파일 경계 사전 검증(L280·284-289·306-313, 5차
+리뷰 지적)**: 예전에는 헤더에서 읽은 `end_offset`을 곧바로 신뢰해 그
+위치까지 재귀 파싱을 계속한 뒤, 끝나고 나서야(L326-327)
+`pos != end_offset`인지 사후 검사했다 — `end_offset` 자체가 버퍼
+길이나 부모 노드의 `end_offset`을 넘는 값이어도 그 사실 자체를
+미리 걸러내지 않았다(결국은 `struct.unpack_from`/인덱싱에서
+`struct.error`/`IndexError`가 나서 `_LOW_LEVEL_ERRORS`로 잡혀
+`err.corrupted`가 되긴 했지만, 명시적인 방어가 아니라 우연한
+결과였다). 이제는 `parent_end`라는 새 인자(부모 노드의 `end_offset`,
+최상위 호출은 파일 전체 길이)를 받아, 헤더에서 `end_offset`을 읽은
+직후 `pos <= end_offset <= parent_end`를 확인하고 위반하면 즉시
+`err.corrupted`로 실패시킨다. 재귀 호출(L322)이 자식에게 물려주는
+`parent_end`는 현재 노드 자신의 `end_offset`이다 — 이렇게 하면 각
+노드가 "내 부모가 허용한 범위 안에서만" 존재할 수 있다는 불변식이
+트리 전체에 재귀적으로 유지된다. `parent_end`가 안 주어지면(예: 이
+함수를 단독 호출하는 기존 테스트들, L288-289) `len(buf)`로 안전하게
+기본값 처리해 하위 호환을 유지한다.
+
+**자식 파싱의 미묘한 분기(L320-325)**:
 ```python
 if pos < end_offset:
     while pos < end_offset:
-        child, pos = _read_node(buf, pos, use_64bit, budget, depth + 1)
+        child, pos = _read_node(buf, pos, use_64bit, budget, depth + 1, end_offset)
         if child is None:
             break
         node.children.append(child)
@@ -250,21 +270,26 @@ FBX 바이너리는 **자식이 없는 리프 노드는 널 레코드 자체를 
 그렇지 않으면(자식이 있음, 마지막엔 널 레코드로 끝남) 루프를 돈다.
 마지막 `if pos != end_offset`은 이 두 경우 모두를 소화한 뒤 그래도
 위치가 안 맞으면 파싱 자체가 잘못됐다는 뜻이라 명확히 실패시키는
-전체 파일의 정합성 체크다.
+전체 파일의 정합성 체크다 — 위 `parent_end` 사전 검증과는 별개의
+안전망으로 남겨둔다(사전 검증은 "이 노드가 허용된 범위 밖으로
+뻗어나가려 하는가"를, 이 사후 검사는 "실제로 다 읽고 나니 선언한
+위치와 정확히 맞아떨어지는가"를 확인한다).
 
-## L310-324: `_parse` — 파일 전체 진입점
+## L331-345: `_parse` — 파일 전체 진입점
 
 매직 헤더 23바이트(`_MAGIC`) 확인 → 4바이트 버전 → `use_64bit` 결정
 → `pos=27`부터 최상위 노드를 반복해서 읽는다. `_ParseBudget()`을
-여기서 파일 하나당 하나만 만들어(L318) 모든 최상위 노드의 `_read_node`
+여기서 파일 하나당 하나만 만들어(L339) 모든 최상위 노드의 `_read_node`
 호출에 그대로 넘긴다 — 이 인스턴스가 파일 전체의 노드 개수·배열
-바이트 누적치를 들고 있다. 최상위에서도 널 레코드를 만나면
-(`node is None`) 바로 멈추는데, 이건 실제 FBX 파일에는 최상위 널
-레코드 뒤에 썸네일·푸터 같은 노드 트리가 아닌 잡다한 바이너리가 더
-있기 때문 — 이 파일은 그 뒤를 아예 안 본다(형태 데이터는 이미 다
+바이트 누적치를 들고 있다. 각 최상위 호출에 `parent_end=n`(파일 전체
+길이)을 명시적으로 넘겨(L341, 5차 리뷰 지적) 최상위 노드의
+`end_offset`도 파일 길이를 넘지 못하게 한다. 최상위에서도 널 레코드를
+만나면(`node is None`) 바로 멈추는데, 이건 실제 FBX 파일에는 최상위
+널 레코드 뒤에 썸네일·푸터 같은 노드 트리가 아닌 잡다한 바이너리가
+더 있기 때문 — 이 파일은 그 뒤를 아예 안 본다(형태 데이터는 이미 다
 읽었으므로 필요 없음).
 
-## L327-370: `_axis_matrix` — 좌표축 정규화 행렬 계산
+## L348-391: `_axis_matrix` — 좌표축 정규화 행렬 계산
 
 알려진 한계 목록에는 없지만(오히려 "해결한" 부분) 이 파일에서 가장
 수학적인 함수다. FBX의 `GlobalSettings/Properties70`에서
@@ -292,12 +317,12 @@ matrix[2][front_axis] = float(front_sign)
 `flip_winding` 플래그로 삼각형의 두 번째·세 번째 정점을 맞바꾼다
 (`_extract_from_nodes` 절 참고).
 
-## L373-379: `_apply_axis` — 행렬-벡터 곱
+## L394-400: `_apply_axis` — 행렬-벡터 곱
 
 `_axis_matrix`가 만든 3×3 행렬을 정점 하나(x, y, z)에 적용하는 순수
 함수. 딱 행렬-벡터 곱 공식 그대로라 특별한 트릭은 없다.
 
-## L382-402: `_connected_geometry_ids` — Connections 기반 필터링
+## L403-423: `_connected_geometry_ids` — Connections 기반 필터링
 
 FBX 씬은 `Objects` 아래 여러 `Geometry`가 있을 수 있는데, 그중
 일부는 실제로 화면에 보이는 Model에 연결 안 된 "고아" 데이터일 수
@@ -316,7 +341,7 @@ ID 집합을 만든다.
    안전하다는 이 프로젝트 전반의 원칙(TARGETS의 "가능한 것만
    노출"과는 반대 방향이지만 같은 "조용한 유실 방지" 철학).
 
-## L405-409: `_triangulate_fan` — 다각형 삼각형화
+## L426-430: `_triangulate_fan` — 다각형 삼각형화
 
 ```python
 def _triangulate_fan(polygon: list[int]):
@@ -335,7 +360,7 @@ FBX의 `PolygonVertexIndex`는 4각형 이상의 폴리곤을 그대로 담을 �
 검증해준다고 가정한다(정점 0~2개인 입력은 빈 제너레이터를 내놓을 뿐
 에러를 내지 않는다 — 그 검증은 호출자 책임).
 
-## L412-441: `_HOLE_MAPPING_DIRECT`·`_polygon_holes` — 숨긴 면 처리(2차 리뷰 반영)
+## L433-462: `_HOLE_MAPPING_DIRECT`·`_polygon_holes` — 숨긴 면 처리(2차 리뷰 반영)
 
 FBX의 `LayerElementHole`은 `Geometry`마다 폴리곤별로 "이 면은 숨김"
 여부를 담을 수 있는 레이어다(Maya의 홀(hole) 폴리곤 기능). 예전
@@ -361,7 +386,7 @@ _HOLE_MAPPING_DIRECT = ("ByPolygon", "Direct")
 3. `Holes` 배열이 없거나 길이가 실제 폴리곤 개수와 다르면 손상된
    파일로 보고 거부한다.
 
-## L444-555: `_extract_from_nodes` — 이 파일의 핵심 로직
+## L465-590: `_extract_from_nodes` — 이 파일의 핵심 로직
 
 `parse_geometry`(파일 IO)와 분리된 이유부터 짚을 만하다 — **테스트
 용이성 때문에 리팩터링된 함수**다. 노드 트리 레벨의 엣지 케이스
@@ -386,49 +411,51 @@ _HOLE_MAPPING_DIRECT = ("ByPolygon", "Direct")
    0이 아니면 (x, y, z) 세 값씩 안 묶이는 손상된 배열이라 즉시 실패한다
    — 예전엔 `range(0, len(flat) - 2, 3)`로 남는 좌표 1~2개를 그냥
    버려 손상을 조용히 가려버렸다.
-6. **정점 상한 검사 후 축 변환 적용(L485-494, 4차 리뷰 지적 Finding
+6. **정점 상한 검사 후 축 변환 적용(L506-515, 4차 리뷰 지적 Finding
    2)**: `base + local_vertex_count > _MAX_VERTEX_COUNT`면 이 Geometry의
    정점을 튜플로 전개하기 **전에** `err.too_large`로 실패한다 —
    전개가 끝난 뒤에야 확인하면 이미 상한을 훨씬 넘는 튜플들이 다
    만들어진 뒤라 상한을 둔 의미가 없어진다. 통과하면 정점 좌표를
-   3개씩 끊어 축 변환 적용 후 누적 리스트에 추가한다 — `base`(L485)는
+   3개씩 끊어 축 변환 적용 후 누적 리스트에 추가한다 — `base`(L506)는
    여러 Geometry를 하나의 정점/면 리스트로 합칠 때 인덱스가 겹치지
    않게 하는 오프셋.
-7. **숨긴 면 조회(L495-497)**: `PolygonVertexIndex`의 음수(폴리곤
+7. **숨긴 면 조회(L516-518)**: `PolygonVertexIndex`의 음수(폴리곤
    종결자) 개수로 이 Geometry의 폴리곤 총 개수를 미리 세고,
    `_polygon_holes`로 폴리곤별 숨김 플래그(`holes`, 없으면 `None`)를
    가져온다.
-8. `PolygonVertexIndex`를 순회하며(L500-534) 음수(비트 NOT으로
+8. `PolygonVertexIndex`를 순회하며(L521-569) 음수(비트 NOT으로
    인코딩된 폴리곤 마지막 정점, `~idx`)를 만나면 그 폴리곤이 끝난
    것으로 본다:
-   - **로컬 범위 검증(L503-511)**: `base`를 더하기 전에 이 Geometry
+   - **로컬 범위 검증(L524-532)**: `base`를 더하기 전에 이 Geometry
      안에서의 로컬 인덱스부터 범위를 검증한다 — base를 더한 뒤(전역
      인덱스)에만 검증하면, 앞쪽 Geometry의 범위 초과 로컬 인덱스가
      뒤쪽 Geometry들이 늘려준 전체 정점 수 안에 우연히 들어와 검증을
      통과해버릴 수 있다(서로 무관한 Geometry의 정점을 잇는 삼각형이
      조용히 생성되는 위험 — review 지적).
-   - **폴리곤 정점 수 검증(L514-520, 2차 리뷰 반영)**: 종결된 폴리곤의
+   - **폴리곤 인덱스 누적 단계의 조기 면 상한 검사(L534-547, 5차 리뷰
+     지적 — 아래 별도 절에서 상세히 다룸)**: `polygon.append(real_idx)`
+     직후, 종결자(`is_last`)를 기다리지 않고 매 인덱스 추가마다
+     `len(polygon) - 2 > _MAX_FACE_COUNT - len(all_faces)`를 확인해
+     초과하면 즉시 `err.too_large`로 실패한다.
+   - **폴리곤 정점 수 검증(L548-554, 2차 리뷰 반영)**: 종결된 폴리곤의
      정점이 3개 미만이면 삼각형을 만들 수 없는 손상된 데이터인데,
      예전에는 `_triangulate_fan`이 삼각형 0개를 내놓는 것으로 조용히
      흡수해버렸다 — 여기서 명확히 실패시킨다.
-   - **숨긴 면이 아니면 면 상한 검사 후 삼각형화(L521-532, 4차 리뷰
-     지적 Finding 2)**: `holes`가 `None`이거나 이 폴리곤의 플래그가
-     거짓이면(보임) `_triangulate_fan`으로 이 폴리곤의 삼각형 튜플을
-     실제로 만든 뒤, `len(all_faces) + len(tris) > _MAX_FACE_COUNT`면
-     `all_faces`에 누적하기 **전에** `err.too_large`로 실패한다(폴리곤
-     하나 분량의 튜플만 미리 만들어두고 확인하므로 정점 상한과 달리
-     "매 폴리곤 삼각형화 직후"가 자연스러운 체크 지점이다 — 폴리곤
-     하나가 만드는 삼각형 개수는 정점 개수-2로 작아서 먼저 만들어도
-     상한을 크게 넘어서지 않는다). 통과하면 (필요하면 winding
-     뒤집기) → `all_faces`에 누적. 숨긴 면이어도 **정점 자체는 이미
-     6번에서 추가돼 남아있다** — 숨김은 "이 면을 그리지 않는다"는
+   - **숨긴 면이 아니면 물질화 전 면 상한 재검사 후 삼각형화(L555-567,
+     4차 리뷰 지적 Finding 2 + 5차 리뷰 지적 — 아래 별도 절 참고)**:
+     `holes`가 `None`이거나 이 폴리곤의 플래그가 거짓이면(보임)
+     `list(_triangulate_fan(polygon))`로 실제 물질화하기 **전에** 먼저
+     `expected_tri_count = len(polygon) - 2`만 계산해 상한 초과 여부를
+     확인한다. 통과하면 그제서야 삼각형 튜플을 실제로 만들고(필요하면
+     winding 뒤집기) → `all_faces`에 누적. 숨긴 면이어도 **정점 자체는
+     이미 6번에서 추가돼 남아있다** — 숨김은 "이 면을 그리지 않는다"는
      뜻이지 "이 정점이 없다"는 뜻이 아니기 때문(다른 폴리곤이 같은
      정점을 쓸 수도 있음).
-9. **폴리곤 종결자 누락 검증(L535-540, 2차 리뷰 반영)**: 루프가 끝난
+9. **폴리곤 종결자 누락 검증(L570-575, 2차 리뷰 반영)**: 루프가 끝난
    뒤에도 `polygon` 버퍼가 비어있지 않으면, `PolygonVertexIndex` 끝에
    음수 종결자가 없어 마지막 폴리곤이 잘린 것이다 — 예전에는 이
    잔여 정점들이 조용히 버려졌다.
-10. **경계 검증(L544-554, 코드 리뷰 중 추가)**: 최종적으로 정점·면이
+10. **경계 검증(L579-589, 코드 리뷰 중 추가)**: 최종적으로 정점·면이
     하나도 없으면 실패(FBX 6.x·빈 파일·모든 폴리곤이 숨김인 경우
     등), 그리고 신규로 추가된 방어 — 폴리곤 인덱스가 실제 정점 개수
     범위를 벗어나면(손상된 파일) 여기서 명확히 실패시킨다. 이 검증이
@@ -437,29 +464,66 @@ _HOLE_MAPPING_DIRECT = ("ByPolygon", "Direct")
     인덱스가 그대로 export 단계까지 흘러가 알 수 없는 방식으로
     망가진 출력 파일이 나올 위험이 있었다.
 
+**면 상한 검사가 triangulation 물질화 "뒤"에야 실행되던 우회 경로와
+그 수정(5차 리뷰 지적)**: 4차에서 추가한 면 상한 검사는
+`tris = list(_triangulate_fan(polygon))`로 폴리곤 전체를 이미 삼각형
+튜플 리스트로 물질화한 뒤에야 `len(all_faces) + len(tris) >
+_MAX_FACE_COUNT`를 확인했다. `polygon`은 종결자(음수 인덱스)가
+나오기 전까지 `PolygonVertexIndex`의 인덱스를 계속 누적한 것인데, 이
+누적 자체에는 개수 제한이 없었다 — `PolygonVertexIndex` 배열
+property 자체의 상한(`_MAX_ARRAY_BYTES`, uint32 기준 약 6700만 개)
+까지는 허용됐다. 즉 정점은 몇 개 안 되더라도(`_MAX_VERTEX_COUNT`
+통과), `PolygonVertexIndex`가 그 몇 안 되는 정점 인덱스들을 종결자
+없이 수천만 번 반복 참조하는 손상된 파일이면, 하나의 거대한
+"폴리곤"이 만들어지고 `_triangulate_fan()`이 fan triangulation으로
+즉시 (그 폴리곤 길이-2)개의 삼각형 튜플을 `list()`로 한 번에
+물질화해버려 — 상한 검사보다 이 물질화가 먼저 일어나므로 상한이
+사실상 무력화됐다(실측: 종결자 없이 정점 200만 개를 반복 참조하는
+폴리곤 하나로, 수정 전 코드는 peak 메모리 약 178MB·0.45초를 쓴 뒤에야
+`err.too_large`를 던졌다). 수정은 **두 지점에 방어를 겹쳐 둔다**:
+1. **폴리곤 인덱스 누적 단계(L534-547)**: 종결자를 기다리지 않고,
+   `polygon.append(real_idx)` 직후 매번 "이 폴리곤이 지금 당장
+   끝난다면(`len(polygon) - 2`개의 삼각형) 남은 예산
+   (`_MAX_FACE_COUNT - len(all_faces)`)을 넘는가"를 확인해 초과 즉시
+   실패시킨다 — 폴리곤 리스트 자체가 무한정 자라는 것을 막는 주된
+   방어선.
+2. **`_triangulate_fan()` 호출 직전(L561-563)**: `list(...)`로
+   물질화하기 전에 `len(polygon) - 2`(예상 삼각형 개수)만 먼저 계산해
+   재검사한다 — 1번 방어와 별개의 방어선으로, `_triangulate_fan()`
+   자체를 호출하지 않고 막는다.
+
+수정 후 같은 재현 시나리오(정점 200만 개 반복 참조)는
+`_triangulate_fan()`이 아예 호출되지 않고 peak 메모리 약 1.75KB·
+0.009초 만에 `err.too_large`를 던진다(실측 비교, git stash로 수정
+전/후 코드를 오가며 직접 측정). `tests/test_fbx.py::
+TestFbxFaceCountLimitBypassViaUnterminatedPolygon`이 `_MAX_FACE_COUNT`를
+작게 낮춰 같은 로직을 빠르게 검증하고, `_triangulate_fan`을
+`mock.patch.object`로 감싸 실제로 호출되지 않았음을 `assert_not_called()`
+로 직접 확인한다.
+
 **정점·면 상한(6·8번)은 `err.too_large`를, 나머지는 전부
 `err.corrupted`를 쓴다** — 상한 초과는 "파일이 손상됨"이 아니라
 "이 앱이 처리하기엔 너무 큼"이라 사용자에게 다른 메시지를 보여줘야
 하기 때문(`app/i18n.py`의 `err.too_large` 키 참고, `err.corrupted`
 문구 그대로 쓰면 사용자가 파일이 깨졌다고 오인할 수 있음). 이
 두 예외는 `_LOW_LEVEL_ERRORS` 튜플에 없는 `ConversionError`를 직접
-던지므로 L541의 `except _LOW_LEVEL_ERRORS`에 잡히지 않고 그대로
+던지므로 L576의 `except _LOW_LEVEL_ERRORS`에 잡히지 않고 그대로
 전파된다(다른 `ConversionError` raise들과 동일한 패턴).
 
-## L558-579: `parse_geometry` — 공개 API 1 (파일 → 정점/면)
+## L593-614: `parse_geometry` — 공개 API 1 (파일 → 정점/면)
 
-**파일 크기 선(先)검사(L564-569, 2차 리뷰 반영)**: `read_bytes()`로
+**파일 크기 선(先)검사(L599-604, 2차 리뷰 반영)**: `read_bytes()`로
 파일 전체를 메모리에 올리기 전에 `src.stat().st_size`부터
 `_MAX_FILE_SIZE`와 비교한다 — 읽은 "뒤"에 검사하면 거대한 파일이
 거부되기도 전에 이미 다 메모리에 올라가 버려 방어 의미가 없어진다.
 그 다음 파일을 바이트로 읽고(`OSError`는 `err.disk` — `stat()`도
 `read_bytes()`도 둘 다 여기서 잡힌다) `_parse()`로 노드 트리를 만든
 뒤(저수준 파싱 오류는 `err.corrupted`) `_extract_from_nodes`로
-위임한다. `ConversionError`는 그대로 다시 던진다(L572-573) — `_parse`
+위임한다. `ConversionError`는 그대로 다시 던진다(L607-608) — `_parse`
 내부나 파일 크기 검사에서 이미 의미 있는 메시지를 담아 던진 것을
 여기서 뭉개면 안 되기 때문(다른 저수준 예외만 새로 감싼다).
 
-## L582-594: `load_trimesh` — 공개 API 2 (파일 → Trimesh 객체)
+## L617-629: `load_trimesh` — 공개 API 2 (파일 → Trimesh 객체)
 
 `model3d.py`의 `convert_3d()`가 소스 확장자가 `.fbx`일 때 호출하는
 진입점. `parse_geometry`로 얻은 (vertices, faces)를 numpy 배열로
@@ -511,3 +575,20 @@ trimesh가 그 시점의 기본 `process=True`로 근접 좌표를 병합해 정
 - `_MAX_VERTEX_COUNT`/`_MAX_FACE_COUNT` 위반을 `err.corrupted`가
   아니라 `err.too_large`라는 새 코드로 나눈 이유는? 사용자 관점에서
   두 실패가 왜 다른 메시지를 받아야 하는가?
+- 4차에서 추가한 면 상한 검사(`len(all_faces) + len(tris) >
+  _MAX_FACE_COUNT`)는 왜 "검사가 있다"는 사실만으로는 충분하지
+  않았는가? `list(_triangulate_fan(polygon))`가 이미 호출된 "뒤"에
+  검사가 실행되면 구체적으로 어떤 입력이 그 검사를 무력화시키는가?
+- 5차 수정은 폴리곤 인덱스 누적 단계(L534-547)와
+  `_triangulate_fan()` 호출 직전(L561-563) 두 곳에 방어를 겹쳐
+  뒀다. 앞쪽 방어 하나만으로 이미 충분해 보이는데, 뒤쪽 방어를
+  "죽은 코드"로 남겨둔 이유는 무엇인가?
+- `_read_node`가 `parent_end`를 받기 전에는 헤더의 `end_offset`이
+  버퍼 범위를 벗어나도 결국 `_LOW_LEVEL_ERRORS`로 잡혀
+  `err.corrupted`가 됐다. 그런데도 명시적인 `parent_end` 검증을 왜
+  추가해야 했는가 — "결과적으로 같은 에러가 난다"는 것만으로 왜
+  충분하지 않은가?
+- `_read_node`의 재귀 호출이 자식에게 물려주는 `parent_end`는 왜
+  파일 전체 길이(`len(buf)`)가 아니라 "현재 노드 자신의
+  `end_offset`"이어야 하는가? 만약 모든 재귀 호출에 파일 전체
+  길이를 그대로 물려줬다면 어떤 손상 파일 패턴을 놓쳤을까?
