@@ -24,6 +24,7 @@ import tempfile
 import unittest
 import zlib
 from pathlib import Path
+from unittest import mock
 
 from app import converters
 from app.converters import fbx
@@ -55,15 +56,32 @@ def _read_obj_vertices(path: Path):
     return verts
 
 
-def _geom(node_id, flat_vertices, poly_indices):
+def _geom(node_id, flat_vertices, poly_indices, hole_layer=None):
     """테스트용 최소 Geometry 노드 트리(`_extract_from_nodes`가 보는
     모양만 흉내낸다 — Vertices/PolygonVertexIndex 프로퍼티는 실제 파서가
-    이미 배열을 다 풀어놓은 뒤의 형태(파이썬 list)와 동일)."""
+    이미 배열을 다 풀어놓은 뒤의 형태(파이썬 list)와 동일). `hole_layer`를
+    주면 `LayerElementHole` 자식으로 붙인다(`_hole_layer` 참고)."""
     g = fbx._FbxNode("Geometry", [node_id, "Geometry", "Mesh"])
     vertices_node = fbx._FbxNode("Vertices", [list(flat_vertices)])
     poly_node = fbx._FbxNode("PolygonVertexIndex", [list(poly_indices)])
     g.children = [vertices_node, poly_node]
+    if hole_layer is not None:
+        g.children.append(hole_layer)
     return g
+
+
+def _hole_layer(mapping="ByPolygon", reference="Direct", holes=None):
+    """`LayerElementHole` 노드 트리를 만든다(실제 Maya export 기준 —
+    폴리곤 하나당 bool 하나를 ByPolygon/Direct로 참조). `holes`가 None이면
+    `Holes` 배열 자체를 생략해 "배열 누락" 손상 케이스를 표현한다."""
+    node = fbx._FbxNode("LayerElementHole", [])
+    node.children = [
+        fbx._FbxNode("MappingInformationType", [mapping]),
+        fbx._FbxNode("ReferenceInformationType", [reference]),
+    ]
+    if holes is not None:
+        node.children.append(fbx._FbxNode("Holes", [list(holes)]))
+    return node
 
 
 def _model(node_id):
@@ -425,6 +443,190 @@ class TestFbxRobustness(unittest.TestCase):
         vertices, faces = fbx._extract_from_nodes(nodes)
         self.assertEqual(len(vertices), 3)
         self.assertEqual(len(faces), 1)
+
+    def test_vertices_length_not_multiple_of_3_raises_corrupted(self):
+        """Vertices가 (x, y, z) 세 값씩 안 묶이는(3의 배수가 아닌) 손상된
+        배열이면, 예전처럼 남는 좌표 1~2개를 조용히 버리지 않고 명확히
+        실패해야 한다(review 지적 Finding 3)."""
+        bad_verts = (0.0, 0.0, 0.0, 1.0, 0.0)  # 5개 — 3의 배수가 아님
+        g = _geom(100, bad_verts, (0, ~1))
+        nodes = [_objects([g])]
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._extract_from_nodes(nodes)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_polygon_with_fewer_than_3_vertices_raises_corrupted(self):
+        """종결된 폴리곤의 정점이 2개뿐이면 삼각형을 만들 수 없는 손상된
+        데이터다 — 예전에는 fan triangulation이 삼각형 0개로 조용히
+        흡수했다(review 지적 Finding 3)."""
+        g = _geom(100, _TRI_VERTS, (0, ~1))  # 정점 2개짜리 폴리곤 하나뿐
+        nodes = [_objects([g])]
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._extract_from_nodes(nodes)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_missing_polygon_terminator_raises_corrupted(self):
+        """PolygonVertexIndex 끝에 음수(비트 NOT) 종결자가 없으면 마지막
+        폴리곤이 잘린 것이다 — 예전에는 이 잔여 정점들이 조용히
+        버려졌다(review 지적 Finding 3)."""
+        g = _geom(100, _TRI_VERTS, (0, 1, 2))  # 마지막 인덱스가 양수(종결자 없음)
+        nodes = [_objects([g])]
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._extract_from_nodes(nodes)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+
+class TestFbxLayerElementHole(unittest.TestCase):
+    """`LayerElementHole`로 숨겨진 면을 처리하는 로직 검증(review 지적
+    Finding 1) — 실제 ufbx hole fixture(`maya_polygon_hole_7700_binary.fbx`)는
+    이 작업 환경에서 네트워크 접근이 막혀 받아올 수 없었다(`tests/fixtures/fbx/README.md`
+    갱신 필요 — 후속 과제). 대신 다른 재현 어려운 손상 케이스와 같은 패턴으로
+    `_FbxNode` 트리를 직접 구성해 검증한다."""
+
+    # 정점 4개짜리 사각형을 삼각형 2개(폴리곤 2개)로 쪼갠 지오메트리.
+    _QUAD_VERTS = (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0)
+    _QUAD_TWO_TRIS_POLY = (0, 1, ~2, 1, 3, ~2)
+
+    def test_hidden_polygon_excluded_but_vertices_kept(self):
+        """`Holes=[1, 0]`이면 첫 번째 폴리곤만 숨겨져야 한다 — 정점 4개는
+        그대로 남고(숨긴 면도 정점 자체는 유효한 형태 데이터), 면은 2개가
+        아니라 1개만 나와야 한다."""
+        hole = _hole_layer(holes=[1, 0])
+        g = _geom(100, self._QUAD_VERTS, self._QUAD_TWO_TRIS_POLY, hole_layer=hole)
+        nodes = [_objects([g])]
+        vertices, faces = fbx._extract_from_nodes(nodes)
+        self.assertEqual(len(vertices), 4)
+        self.assertEqual(len(faces), 1)
+
+    def test_no_hidden_polygon_includes_all_faces(self):
+        """대조군 — `Holes=[0, 0]`이면 숨긴 면이 없으므로 폴리곤 2개
+        전부 삼각형으로 나와야 한다."""
+        hole = _hole_layer(holes=[0, 0])
+        g = _geom(100, self._QUAD_VERTS, self._QUAD_TWO_TRIS_POLY, hole_layer=hole)
+        nodes = [_objects([g])]
+        vertices, faces = fbx._extract_from_nodes(nodes)
+        self.assertEqual(len(vertices), 4)
+        self.assertEqual(len(faces), 2)
+
+    def test_unsupported_hole_mapping_type_rejected_explicitly(self):
+        """이 모듈이 해석 방법을 모르는 매핑 방식(예: ByVertice)은 조용히
+        무시해 면을 그대로 살려내면 안 되고, 명시적으로 거부해야 한다
+        (review 지적 — 유효한 FBX 기능을 조용히 무시하면 안 됨)."""
+        hole = _hole_layer(mapping="ByVertice", holes=[1, 0])
+        g = _geom(100, self._QUAD_VERTS, self._QUAD_TWO_TRIS_POLY, hole_layer=hole)
+        nodes = [_objects([g])]
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._extract_from_nodes(nodes)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_unsupported_hole_reference_type_rejected_explicitly(self):
+        hole = _hole_layer(reference="IndexToDirect", holes=[1, 0])
+        g = _geom(100, self._QUAD_VERTS, self._QUAD_TWO_TRIS_POLY, hole_layer=hole)
+        nodes = [_objects([g])]
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._extract_from_nodes(nodes)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_missing_holes_array_raises_corrupted(self):
+        """`LayerElementHole` 노드는 있는데 실제 `Holes` 배열 자식이
+        없는(손상된) 경우도 명확히 실패해야 한다."""
+        hole = _hole_layer(holes=None)
+        g = _geom(100, self._QUAD_VERTS, self._QUAD_TWO_TRIS_POLY, hole_layer=hole)
+        nodes = [_objects([g])]
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._extract_from_nodes(nodes)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_holes_length_mismatch_with_polygon_count_raises_corrupted(self):
+        """`Holes` 배열 길이가 이 Geometry의 실제 폴리곤 개수(2개)와 다르면
+        (여기서는 1개) 손상된 파일이다."""
+        hole = _hole_layer(holes=[1])
+        g = _geom(100, self._QUAD_VERTS, self._QUAD_TWO_TRIS_POLY, hole_layer=hole)
+        nodes = [_objects([g])]
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._extract_from_nodes(nodes)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+
+class TestFbxParserResourceLimits(unittest.TestCase):
+    """파일 하나가 프로세스를 종료시키지 않도록 두는 애플리케이션 기준
+    자원 한도 검증(review 지적 Finding 2) — 입력이 선언한 값이 아니라
+    이 모듈이 정한 고정 상한(`_MAX_*`)과 비교해야 한다. 한도를 넘기는
+    실제 크기의 버퍼를 통째로 만들지 않고, 한도 자체를 넘는 "선언값"만
+    담은 최소 버퍼나 미리 채워둔 `_ParseBudget`으로 검증한다(이미 있는
+    `TestFbxCompressedArrayBounds`와 같은 방식)."""
+
+    @staticmethod
+    def _array_header(type_char: str, array_length: int, encoding: int = 0, compressed_length: int = 0) -> bytes:
+        buf = bytearray()
+        buf.append(ord(type_char))
+        buf += struct.pack("<III", array_length, encoding, compressed_length)
+        return bytes(buf)
+
+    @staticmethod
+    def _leaf_node_bytes(name: str = "N") -> bytes:
+        """자식·프로퍼티가 없는 최소 FBX 노드(32비트 헤더) 바이너리 —
+        리프 노드는 널 레코드를 생략한다는 실제 포맷 관례를 그대로 쓴다."""
+        name_b = name.encode()
+        body = bytes([len(name_b)]) + name_b
+        end_offset = 12 + len(body)
+        return struct.pack("<III", end_offset, 0, 0) + body
+
+    def test_declared_array_byte_size_over_limit_raises_before_reading(self):
+        """array_length*elem_size가 애플리케이션 상한(`_MAX_ARRAY_BYTES`)을
+        넘으면, 실제로 그만큼의 데이터가 버퍼에 없어도(=압축 해제/슬라이싱을
+        시도하기 전에) 즉시 명확히 실패해야 한다."""
+        huge_length = (fbx._MAX_ARRAY_BYTES // 4) + 1  # type 'f'(4바이트) 기준 초과
+        buf = self._array_header("f", huge_length)
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._read_properties(buf, 0, 1)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_declared_array_element_count_over_limit_raises(self):
+        """바이트로는 상한 밑이어도(type 'b' 1바이트) 원소 개수 자체가
+        `_MAX_ARRAY_ELEMENTS`를 넘으면 거부해야 한다."""
+        huge_count = fbx._MAX_ARRAY_ELEMENTS + 1
+        self.assertLess(huge_count, fbx._MAX_ARRAY_BYTES)  # 바이트 상한은 안 넘는 값임을 전제
+        buf = self._array_header("b", huge_count)
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._read_properties(buf, 0, 1)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_cumulative_array_bytes_budget_exceeded_raises(self):
+        """개별 배열 하나는 한도 안에 들어도, 파일 전체에서 누적된 배열
+        바이트가 `_MAX_TOTAL_ARRAY_BYTES`를 넘기면(작은 배열이 아주 많이
+        반복되는 형태의 자원 고갈) 명확히 실패해야 한다."""
+        budget = fbx._ParseBudget()
+        budget.total_array_bytes = fbx._MAX_TOTAL_ARRAY_BYTES  # 이미 상한에 도달한 상태
+        buf = self._array_header("f", 1) + struct.pack("<f", 1.0)
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._read_properties(buf, 0, 1, budget)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_node_count_budget_exceeded_raises(self):
+        budget = fbx._ParseBudget()
+        budget.node_count = fbx._MAX_NODE_COUNT
+        buf = self._leaf_node_bytes()
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._read_node(buf, 0, False, budget)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_node_depth_budget_exceeded_raises(self):
+        buf = self._leaf_node_bytes()
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._read_node(buf, 0, False, None, fbx._MAX_NODE_DEPTH + 1)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_file_size_over_limit_rejected_before_reading_whole_file(self):
+        """파일 크기 자체가 `_MAX_FILE_SIZE`를 넘으면 `read_bytes()`로 전체를
+        메모리에 올리기 전에 거부해야 한다 — `Path.stat()`만 가짜로 큰 값을
+        주고 실제로는 작은 fixture 파일을 그대로 써서, read_bytes() 호출
+        여부와 무관하게 크기 검사 자체가 먼저 일어남을 확인한다."""
+        fake_stat = mock.Mock(st_size=fbx._MAX_FILE_SIZE + 1)
+        with mock.patch.object(Path, "stat", return_value=fake_stat):
+            with self.assertRaises(ConversionError) as ctx:
+                fbx.parse_geometry(CUBE_7400)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
 
 
 class TestFbxCompressedArrayBounds(unittest.TestCase):

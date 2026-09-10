@@ -71,6 +71,19 @@ _SCALAR_SIZE = {"Y": 2, "C": 1, "I": 4, "F": 4, "D": 8, "L": 8}
 _ARRAY_ELEM_FMT = {"f": "f", "d": "d", "l": "q", "i": "i", "b": "b"}
 _ARRAY_ELEM_SIZE = {"f": 4, "d": 8, "l": 8, "i": 4, "b": 1}
 
+# 파일 하나가 프로세스를 종료시키지 않도록 두는, 입력이 아니라 이
+# 애플리케이션이 정한 고정 상한 — 이전에는 압축 해제 상한이 입력 파일 자체가
+# 선언한 array_length*elem_size였다(uint32라 최대 약 32GiB까지 허용). 그
+# 값을 그대로 신뢰하면 "선언 크기만큼만 푼다"는 방어가 무력화된다(review
+# 지적). 아래 상한은 이 프로젝트의 실사용 범위(3D 프린팅용 단일 메시 등,
+# 모듈 docstring 참고)에 여유 있게 맞춘 값이다.
+_MAX_FILE_SIZE = 512 * 1024 * 1024  # 입력 파일 자체 크기 상한
+_MAX_ARRAY_ELEMENTS = 100_000_000  # 배열 property 하나의 최대 원소 개수
+_MAX_ARRAY_BYTES = 256 * 1024 * 1024  # 배열 property 하나의 최대 바이트(해제 후 기준)
+_MAX_TOTAL_ARRAY_BYTES = 512 * 1024 * 1024  # 파일 전체에서 누적되는 배열 바이트 상한
+_MAX_NODE_COUNT = 2_000_000  # 파일 전체 노드 개수 상한
+_MAX_NODE_DEPTH = 128  # 노드 트리 재귀 깊이 상한(스택 오버플로 방어 겸용)
+
 # 파싱 중 던져질 수 있는, "손상되거나 지원 범위 밖"으로 뭉뚱그려도 되는
 # 저수준 예외 — 전부 err.corrupted로 통일한다(model3d.py의 기존 관례와
 # 동일: trimesh.load() 실패도 broad except로 err.corrupted). TypeError도
@@ -78,6 +91,18 @@ _ARRAY_ELEM_SIZE = {"f": 4, "d": 8, "l": 8, "i": 4, "b": 1}
 # 저장된(비정상적으로 손상된) 파일에서 `len(flat)` 등이 TypeError를
 # 던질 수 있어, 이런 경우에도 크래시 대신 err.corrupted로 정직하게 실패한다.
 _LOW_LEVEL_ERRORS = (struct.error, zlib.error, UnicodeDecodeError, IndexError, ValueError, TypeError)
+
+
+class _ParseBudget:
+    """파싱 전체에서 공유하는 누적 자원 카운터 — 노드 개수·배열 바이트
+    누적치를 여기 모아 개별 property/노드 하나만 봐서는 못 잡는 "작은
+    제한 안의 값이 아주 많이 반복되는" 형태의 자원 고갈도 막는다."""
+
+    __slots__ = ("node_count", "total_array_bytes")
+
+    def __init__(self):
+        self.node_count = 0
+        self.total_array_bytes = 0
 
 
 class _FbxNode:
@@ -98,7 +123,9 @@ class _FbxNode:
         return [c for c in self.children if c.name == name]
 
 
-def _read_properties(buf: bytes, pos: int, num_properties: int) -> tuple[list, int]:
+def _read_properties(buf: bytes, pos: int, num_properties: int, budget: "_ParseBudget | None" = None) -> tuple[list, int]:
+    if budget is None:
+        budget = _ParseBudget()
     props = []
     for _ in range(num_properties):
         type_code = chr(buf[pos])
@@ -112,6 +139,16 @@ def _read_properties(buf: bytes, pos: int, num_properties: int) -> tuple[list, i
             pos += 12
             elem_size = _ARRAY_ELEM_SIZE[type_code]
             elem_fmt = _ARRAY_ELEM_FMT[type_code]
+            # 입력이 선언한 array_length(uint32, 최대 약 32GiB 상당)를 그대로
+            # 압축 해제 상한으로 쓰면 방어가 완성되지 않는다(review 지적) —
+            # 압축 해제를 시도하기 전에, 이 애플리케이션이 정한 고정 상한과
+            # 먼저 비교해 명확히 거부한다.
+            declared_bytes = array_length * elem_size
+            if array_length > _MAX_ARRAY_ELEMENTS or declared_bytes > _MAX_ARRAY_BYTES:
+                raise ConversionError("err.corrupted", "fbx: 배열 property 선언 크기가 허용 한도를 초과함")
+            budget.total_array_bytes += declared_bytes
+            if budget.total_array_bytes > _MAX_TOTAL_ARRAY_BYTES:
+                raise ConversionError("err.corrupted", "fbx: 파일 전체 배열 누적 크기가 허용 한도를 초과함")
             if encoding == 0:
                 raw = buf[pos : pos + array_length * elem_size]
                 pos += array_length * elem_size
@@ -145,7 +182,17 @@ def _read_properties(buf: bytes, pos: int, num_properties: int) -> tuple[list, i
     return props, pos
 
 
-def _read_node(buf: bytes, pos: int, use_64bit: bool):
+def _read_node(buf: bytes, pos: int, use_64bit: bool, budget: "_ParseBudget | None" = None, depth: int = 0):
+    if budget is None:
+        budget = _ParseBudget()
+    # 노드 개수·재귀 깊이 둘 다 입력이 아니라 이 애플리케이션이 정한 고정
+    # 상한과 비교한다 — 개수는 (자식이 아주 많은) 넓은 트리, 깊이는 (중첩이
+    # 아주 깊은) 좁은 트리 형태의 자원 고갈을 각각 막는다(review 지적).
+    budget.node_count += 1
+    if budget.node_count > _MAX_NODE_COUNT:
+        raise ConversionError("err.corrupted", "fbx: 노드 개수가 허용 한도를 초과함")
+    if depth > _MAX_NODE_DEPTH:
+        raise ConversionError("err.corrupted", "fbx: 노드 중첩 깊이가 허용 한도를 초과함")
     if use_64bit:
         end_offset, num_properties, _ = struct.unpack_from("<QQQ", buf, pos)
         pos += 24
@@ -158,11 +205,11 @@ def _read_node(buf: bytes, pos: int, use_64bit: bool):
     pos += 1
     name = buf[pos : pos + name_len].decode("utf-8", errors="replace")
     pos += name_len
-    props, pos = _read_properties(buf, pos, num_properties)
+    props, pos = _read_properties(buf, pos, num_properties, budget)
     node = _FbxNode(name, props)
     if pos < end_offset:
         while pos < end_offset:
-            child, pos = _read_node(buf, pos, use_64bit)
+            child, pos = _read_node(buf, pos, use_64bit, budget, depth + 1)
             if child is None:
                 break
             node.children.append(child)
@@ -179,8 +226,9 @@ def _parse(data: bytes) -> tuple[list["_FbxNode"], int]:
     pos = 27
     nodes = []
     n = len(data)
+    budget = _ParseBudget()
     while pos < n:
-        node, pos = _read_node(data, pos, use_64bit)
+        node, pos = _read_node(data, pos, use_64bit, budget)
         if node is None:
             break
         nodes.append(node)
@@ -272,6 +320,38 @@ def _triangulate_fan(polygon: list[int]):
         yield (polygon[0], polygon[i], polygon[i + 1])
 
 
+# LayerElementHole이 실제로 관찰되는 조합(Maya export 기준) — 폴리곤 하나당
+# bool 하나(ByPolygon)를 그 값 그대로 참조(Direct)한다. 이 조합 밖의
+# MappingInformationType/ReferenceInformationType(예: ByVertice·IndexToDirect)은
+# 이 모듈이 해석 방법을 모르므로 조용히 무시하지 않고 명시적으로 거부한다
+# (review 지적 — 유효한 FBX 기능을 조용히 무시해 숨긴 면을 살려내면 안 됨).
+_HOLE_MAPPING_DIRECT = ("ByPolygon", "Direct")
+
+
+def _polygon_holes(geom: "_FbxNode", polygon_count: int):
+    """Geometry의 `LayerElementHole`에서 폴리곤별 숨김 여부를 읽는다.
+    LayerElementHole 자체가 없으면 모든 면이 보인다는 뜻이라 None을
+    반환해 호출자가 필터링을 건너뛰게 한다."""
+    hole_node = geom.find("LayerElementHole")
+    if hole_node is None:
+        return None
+    mapping_node = hole_node.find("MappingInformationType")
+    ref_node = hole_node.find("ReferenceInformationType")
+    mapping = mapping_node.properties[0] if mapping_node and mapping_node.properties else None
+    reference = ref_node.properties[0] if ref_node and ref_node.properties else None
+    if (mapping, reference) != _HOLE_MAPPING_DIRECT:
+        raise ConversionError(
+            "err.corrupted", f"fbx: 지원하지 않는 LayerElementHole 매핑 방식({mapping!r}/{reference!r})"
+        )
+    holes_node = hole_node.find("Holes")
+    if holes_node is None or not holes_node.properties:
+        raise ConversionError("err.corrupted", "fbx: LayerElementHole에 Holes 배열이 없음")
+    holes = holes_node.properties[0]
+    if len(holes) != polygon_count:
+        raise ConversionError("err.corrupted", "fbx: LayerElementHole의 Holes 배열 길이가 폴리곤 개수와 다름")
+    return holes
+
+
 def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
     """이미 파싱된 최상위 노드 목록에서 Geometry를 뽑아 Y-up 정규화·
     삼각형화한 (vertices, faces)를 만든다. `parse_geometry`(파일 IO+바이너리
@@ -307,12 +387,22 @@ def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, floa
             if vertices_node is None or poly_idx_node is None:
                 continue
             flat = vertices_node.properties[0]
+            # Vertices는 (x, y, z) 세 값씩 묶인 배열이어야 한다 — 3의 배수가
+            # 아니면 손상된 파일인데, 예전에는 `range(0, len(flat) - 2, 3)`로
+            # 남는 좌표 1~2개를 그냥 버려 손상을 조용히 가려버렸다(review
+            # 지적). 여기서 명확히 실패시킨다.
+            if len(flat) % 3 != 0:
+                raise ConversionError("err.corrupted", "fbx: Vertices 배열 길이가 3의 배수가 아님")
             base = len(all_vertices)
             local_vertex_count = len(flat) // 3
-            for i in range(0, len(flat) - 2, 3):
+            for i in range(0, len(flat), 3):
                 all_vertices.append(_apply_axis(matrix, flat[i], flat[i + 1], flat[i + 2]))
+            poly_indices = poly_idx_node.properties[0]
+            polygon_count = sum(1 for idx in poly_indices if idx < 0)
+            holes = _polygon_holes(geom, polygon_count)
             polygon: list[int] = []
-            for idx in poly_idx_node.properties[0]:
+            polygon_index = 0
+            for idx in poly_indices:
                 is_last = idx < 0
                 local_idx = ~idx if is_last else idx
                 # base를 더하기 전에 이 Geometry 안에서의 로컬 범위부터
@@ -320,18 +410,32 @@ def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, floa
                 # Geometry의 범위 초과 로컬 인덱스가 뒤쪽 Geometry들이 늘려준
                 # 전체 정점 수 안에 우연히 들어와 검증을 통과해버릴 수 있다
                 # (서로 무관한 Geometry의 정점을 잇는 삼각형이 조용히 생성되는
-                # 위험 — review 지적 반영). 아래 최종 전역 검증(298번 줄
-                # 근처)은 다른 방식의 손상에 대한 안전망으로 남겨둔다.
+                # 위험 — review 지적 반영). 이 함수 끝의 최종 전역 검증은
+                # 다른 방식의 손상에 대한 안전망으로 남겨둔다.
                 if local_idx < 0 or local_idx >= local_vertex_count:
                     raise ConversionError("err.corrupted", "fbx: PolygonVertexIndex가 정점 범위를 벗어남")
                 real_idx = local_idx + base
                 polygon.append(real_idx)
                 if is_last:
-                    tris = list(_triangulate_fan(polygon))
-                    if flip_winding:
-                        tris = [(c, b, a) for (a, b, c) in tris]
-                    all_faces.extend(tris)
+                    # 종결된 폴리곤의 정점이 3개 미만(0~2정점)이면 삼각형을
+                    # 만들 수 없는 손상된 데이터다 — 예전에는 fan
+                    # triangulation이 삼각형 0개를 내놓는 것으로 조용히
+                    # 흡수해버렸다(review 지적).
+                    if len(polygon) < 3:
+                        raise ConversionError("err.corrupted", "fbx: 폴리곤의 정점 수가 3 미만")
+                    if holes is None or not holes[polygon_index]:
+                        tris = list(_triangulate_fan(polygon))
+                        if flip_winding:
+                            tris = [(c, b, a) for (a, b, c) in tris]
+                        all_faces.extend(tris)
+                    polygon_index += 1
                     polygon = []
+            if polygon:
+                # 루프가 끝났는데 마지막 폴리곤이 종결(음수 인덱스)되지
+                # 않은 채 남아있다 — PolygonVertexIndex 끝에 종결자가
+                # 누락된 손상 파일이다(review 지적, 예전에는 이 잔여
+                # 정점들이 조용히 버려졌다).
+                raise ConversionError("err.corrupted", "fbx: PolygonVertexIndex에 폴리곤 종결자가 없음")
     except _LOW_LEVEL_ERRORS as e:
         raise ConversionError("err.corrupted", str(e))
 
@@ -355,6 +459,12 @@ def parse_geometry(src: Path) -> tuple[list[tuple[float, float, float]], list[tu
     Geometry가 있으면 하나의 정점/면 목록으로 합친다(trimesh.load의
     force="mesh"와 같은 관례, model3d.py 참고)."""
     try:
+        # 파일 전체를 메모리로 읽기 전에 먼저 크기부터 확인한다 — read_bytes()
+        # 뒤에 검사하면 거대한 파일이 거부되기 전에 이미 다 메모리에 올라가
+        # 버려 방어 의미가 없어진다(review 지적).
+        size = src.stat().st_size
+        if size > _MAX_FILE_SIZE:
+            raise ConversionError("err.corrupted", "fbx: 파일 크기가 허용 한도를 초과함")
         data = src.read_bytes()
         nodes, _version = _parse(data)
     except ConversionError:
