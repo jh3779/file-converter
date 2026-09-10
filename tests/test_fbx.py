@@ -18,6 +18,7 @@
 검증한다 — 이런 조건의 손상 파일을 바이너리로 새로 인코딩하는 것보다
 훨씬 안정적이고 읽기 쉽다(`fbx.py`의 `_extract_from_nodes` docstring 참고).
 """
+import os
 import shutil
 import struct
 import subprocess
@@ -837,6 +838,12 @@ def _child_peak_rss_bytes(code: str) -> int:
 
 
 @unittest.skipUnless(_HAS_RESOURCE, "resource 모듈이 없는 플랫폼(Windows) — RSS 측정 불가")
+@unittest.skipIf(
+    os.environ.get("GITHUB_ACTIONS") == "true",
+    "subprocess 기반 메모리 측정이 Linux CI 러너에서 이후 Qt 테스트를 "
+    "무기한 정지시키는 현상이 확인됨(fork 후 Qt 내부 상태 오염 추정) — "
+    "로컬에서만 실행",
+)
 class TestFbxArrayMaterializationMemory(unittest.TestCase):
     """review 3라운드 지적 Finding 1 — `_MAX_ARRAY_BYTES`(256MiB)는 "해제된
     raw bytes" 기준 상한인데, 예전 `struct.unpack()`+`list()` 이중
@@ -845,7 +852,24 @@ class TestFbxArrayMaterializationMemory(unittest.TestCase):
     raw bytes 사본 1회 정도로 억제돼야 한다 — 각각 별도 자식 프로세스에서
     (1) 큰 배열 property를 실제로 파싱한 경우와 (2) 같은 크기의 raw bytes만
     들고 있는 경우(파싱 없음, 베이스라인)의 peak RSS를 재 그 차이를
-    비교한다."""
+    비교한다.
+
+    **CI(Linux)에서는 스킵된다**(위 `skipIf`) — 이 클래스가 `subprocess.run()`
+    으로 자식 프로세스를 스폰하는데, 이미 QApplication/Qt가 초기화된
+    프로세스(GitHub Actions Linux 러너의 `test` job) 안에서 그 fork가
+    일어난 뒤 한참 지나 실행되는 전혀 무관한 `tests/test_ui_min_size.py`의
+    `test_drop_sub_text_is_wrapped_into_multiple_lines`(MainWindow 생성+
+    폰트 메트릭 계산)에서 CI가 매번 같은 지점에 무기한 멈추는 게 실제로
+    관측됐다 — 이 테스트를 추가한 커밋(3라운드) 직후부터 CI `test` job이
+    행(hang)되기 시작했고(이전 커밋은 37초 정상 성공), 그대로 둔 이후
+    커밋들도 반복적으로 같은 지점에서 행됐다. 로컬(macOS,
+    `QT_QPA_PLATFORM=offscreen` 포함)에서는 재현되지 않아 Linux 전용
+    현상으로 보인다 — fork 후 Qt/glib 내부 락·이벤트루프 상태가 오염되는
+    잘 알려진 문제로 추정되지만 100% 확정은 아니다. 다만 이 클래스를
+    CI에서 빼는 것 자체는 안전하다(로컬 메모리 실측 가치는 그대로 유지,
+    CI 안정성 리스크만 제거) — `GITHUB_ACTIONS`는 GitHub Actions가 모든
+    job에 자동으로 `"true"`를 설정하는 공식 문서화된 환경변수라 워크플로
+    파일 수정 없이 이 가드만으로 충분하다."""
 
     _N = 20_000_000  # float 2000만개 = raw 80MB(_MAX_ARRAY_BYTES=256MiB 이내)
     _ELEM_SIZE = 4
