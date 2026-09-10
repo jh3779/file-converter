@@ -9,12 +9,13 @@ on:
 
 jobs:
   test:
-    # ubuntu-22.04로 고정(원래 ubuntu-latest) — 2026-09-10부터 이 잡만
-    # test_ui_min_size.py의 폰트 메트릭 계산에서 무기한 멈추는 현상이
-    # 5회 연속 재현됐다(FBX 관련 코드 변경·subprocess 스폰 테스트 CI
-    # 스킵·이 러너 버전 고정 전부 무관하게 재발 확인). 정확한 행 지점을
-    # 알아내기 위해 아래 테스트 스텝에 faulthandler+timeout을 계측해뒀다
-    # — 다음 CI 실행에서 실제 스택 트레이스로 원인을 특정할 것.
+    # ubuntu-22.04로 고정(원래 ubuntu-latest) — build-linux 등 다른 잡과
+    # 같은 안정적인 버전을 쓴다. 2026-09-10에 이 잡이 test_ui_min_size.py의
+    # 폰트 메트릭 계산 지점에서 5회 연속 무기한 멈춘 적이 있었는데,
+    # 이 고정 자체는 원인이 아니었다(재발 확인) — 진짜 원인은
+    # app/appdata.py의 resolve()가 History() 생성마다 매번 새 스레드를
+    # 스폰해 스레드 생성이 누적되던 것으로, DEC-070(docs/06_open_questions.md)
+    # 참고, appdata.py 캐싱으로 해결했다.
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -27,10 +28,11 @@ jobs:
       - name: Run tests (offscreen)
         env:
           QT_QPA_PLATFORM: offscreen
-          # 정상 실행은 40초 안팎인데 5회 연속 무기한 멈추는 현상이 있어,
-          # 120초를 넘기면 SIGABRT를 보내 그 순간의 전체 스레드 스택을
-          # faulthandler로 로그에 찍은 뒤 강제 종료한다(원인 파악용
-          # 임시 계측 — 원인이 확정되면 제거할 것).
+          # 정상 실행은 40초 안팎이다. 위 DEC-070 행(hang) 진단 과정에서
+          # 추가한 계측 — 120초를 넘기면 SIGABRT를 보내 그 순간의 전체
+          # 스레드 스택을 faulthandler로 로그에 찍은 뒤 강제 종료한다.
+          # 원인은 이미 확정됐지만, 정상 실행엔 영향이 없고 향후 비슷한
+          # 행이 재발하면 즉시 스택 트레이스를 얻을 수 있어 계속 유지한다.
           PYTHONFAULTHANDLER: "1"
         run: timeout --signal=ABRT --kill-after=10 120 python -m unittest discover tests -v
 

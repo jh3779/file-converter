@@ -75,7 +75,7 @@ REQ-F ID·DEC는 `docs/01_requirements.md`·`docs/06_open_questions.md` 참고.
 | 업데이트 확인 — 버전 비교·네트워크 실패 처리 | REQ-F-013, DEC-022 | `test_update_check.py` |
 | LibreOffice 번들 경로 탐색(Windows·macOS) | DEC-029 | `test_office.py` |
 | 진단 로그 초기화 실패가 앱 구동을 막지 않는지 | DEC-067 | `test_logging_setup.py` |
-| AppData 경로 해석이 응답 없는 네트워크 경로에서도 타임아웃되어 창이 뜨는지(DEC-068), 프로세스 생애 동안 결과가 캐시돼 `History()`를 반복 생성해도 스레드를 다시 스폰하지 않는지(DEC-069 관련 CI 행 완화) | REQ-NF-006 | `test_appdata.py` |
+| AppData 경로 해석이 응답 없는 네트워크 경로에서도 타임아웃되어 창이 뜨는지(DEC-068), 프로세스 생애 동안 결과가 캐시돼 `History()`를 반복 생성해도 스레드를 다시 스폰하지 않는지(DEC-070, CI 행 완화) | REQ-NF-006 | `test_appdata.py` |
 
 ## 자동 테스트가 못 잡는 것 → 다른 방법으로 게이트
 
