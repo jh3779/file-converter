@@ -90,6 +90,33 @@ class TestAppDataResolveTimeout(unittest.TestCase):
             mock_thread.assert_not_called()
         self.assertEqual(second, first)
 
+    def test_timeout_does_not_permanently_cache_failure_when_thread_later_succeeds(self):
+        """review 지적 반영 — 타임아웃(아직 안 끝남)을 "확정된 실패"로
+        영구 캐시해버리면, logging_setup.setup()이 먼저 타임아웃된 뒤
+        곧바로 History()가 호출될 때 실제로는 성공할 백그라운드 스레드의
+        결과를 영영 못 받아 해당 세션 내내 기록이 :memory:로 손실될
+        위험이 있었다. 첫 호출이 타임아웃돼도, 같은 스레드가 이어서
+        돌다가 나중에 실제로 성공하면 다음 호출은 새 스레드를 스폰하지
+        않고도 그 성공 결과를 받아야 한다."""
+        orig_mkdir = Path.mkdir
+
+        def _slow_mkdir(self, *args, **kwargs):
+            time.sleep(0.4)
+            return orig_mkdir(self, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = Path(tmp) / "AppData"
+            with patch("app.appdata.QStandardPaths.writableLocation", return_value=str(fake)), \
+                 patch("app.appdata.Path.mkdir", _slow_mkdir), \
+                 patch("app.appdata.threading.Thread", wraps=appdata.threading.Thread) as thread_spy:
+                first = appdata.resolve(timeout=0.05)
+                self.assertIsNone(first, "스레드가 아직 안 끝났으니 이번 호출은 None이어야 함")
+
+                second = appdata.resolve(timeout=1.0)
+                self.assertEqual(second, fake, "같은 스레드가 이어서 성공했으면 그 결과를 받아야 함")
+
+                thread_spy.assert_called_once()  # 스레드는 첫 호출 때 딱 1개만 스폰돼야 함
+
 
 class TestHistoryAndLoggingFallback(unittest.TestCase):
     def test_history_falls_back_to_memory_when_appdata_unavailable(self):

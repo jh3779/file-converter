@@ -14,7 +14,7 @@
 종료를 막지 않는다. 두 번째 소비자(logging_setup.py)가 생겨 공유 모듈로
 승격했다(base.py의 read_text_auto_encoding과 같은 이 프로젝트의 관례).
 
-**프로세스당 1회만 실제로 스레드를 스폰**(아래 `_cache`) — AppData 경로의
+**프로세스당 스레드는 최대 1개만 스폰**(아래 `_thread`) — AppData 경로의
 네트워크 리다이렉트 여부는 프로세스가 살아있는 동안 바뀌지 않으므로,
 `History()`가 생성될 때마다(테스트 스위트처럼 `MainWindow`를 반복해서
 만드는 경우 포함) 매번 새로 스레드를 스폰할 이유가 없다. 실제로 CI(Linux)에서
@@ -24,8 +24,18 @@
 테스트 프로세스가 무기한 정지하는 게 실제로 재현됐다(faulthandler로 확보한
 스택 트레이스가 `threading.Thread.start()` → `_bootstrap_inner` →
 `_set_tstate_lock`에서 멈춰 있음을 보여줬다, FBX 작업과는 무관 — 이
-모듈 자체의 "매번 새 스레드" 설계가 원인). 캐싱으로 프로세스 생애 동안
-많아야 1개의 스레드만 만들도록 고쳤다.
+모듈 자체의 "매번 새 스레드" 설계가 원인).
+
+**중요 — 타임아웃과 "확정된 실패"는 다르다**: 첫 버전의 캐싱은 타임아웃
+시점의 `None`을 그 자리에서 영구 캐시해버리는 실수를 했다(review 지적) —
+`logging_setup.setup()`이 먼저 호출해 타임아웃되면, 그 직후 `History()`가
+호출할 때는 백그라운드 스레드가 실제로 막 성공했더라도 이미 캐시된
+`None`을 돌려받아 해당 세션 내내 기록이 `:memory:`로 고정돼 사라지는
+결과 손실이 생길 수 있었다. 지금은 스레드가 아직 끝나지 않았으면(타임아웃)
+캐시를 확정하지 않고 그 스레드 참조만 들고 있다가, 다음 호출에서 **새
+스레드를 또 만들지 않고 같은 스레드를 다시 `join()`**한다 — 스레드가
+실제로 끝났을 때(성공이든, `OSError`로 인한 확정된 실패든)만 결과를
+영구 캐시한다.
 """
 import threading
 from pathlib import Path
@@ -35,7 +45,9 @@ from PySide6.QtCore import QStandardPaths
 _DEFAULT_TIMEOUT = 2.0
 
 _UNRESOLVED = object()
-_cache = _UNRESOLVED
+_cache = _UNRESOLVED  # 확정된 결과(Path 또는 None) 또는 아직 _UNRESOLVED
+_thread: threading.Thread | None = None
+_result: dict[str, Path] = {}
 _cache_lock = threading.Lock()
 
 
@@ -44,34 +56,44 @@ def resolve(timeout: float = _DEFAULT_TIMEOUT) -> Path | None:
     네트워크로 리다이렉트된 경로가 응답 없음) None을 반환한다 — 호출자가
     그 자리에서 알맞게 성능 저하(fallback) 처리를 해야 한다.
 
-    결과(성공한 Path든, 타임아웃으로 인한 None이든)는 프로세스 생애 동안
-    캐시된다 — 이 값은 프로세스 안에서 바뀌지 않으므로, 두 번째 호출부터는
-    스레드를 새로 스폰하지 않고 캐시를 그대로 반환한다."""
-    global _cache
+    확정된 결과(성공한 Path, 또는 스레드가 실제로 끝났는데 실패한 경우의
+    None)는 프로세스 생애 동안 캐시된다. 아직 스레드가 안 끝나서 이번
+    호출이 타임아웃된 경우는 캐시를 확정하지 않는다 — 다음 호출에서 새
+    스레드를 스폰하지 않고 같은 스레드를 이어서 기다린다(그 사이 스레드가
+    끝났으면 바로 확정, 아직이면 다시 대기)."""
+    global _cache, _thread
     with _cache_lock:
         if _cache is not _UNRESOLVED:
             return _cache
 
-        result: dict[str, Path] = {}
+        if _thread is None:
+            def _resolve():
+                try:
+                    base = Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+                    base.mkdir(parents=True, exist_ok=True)
+                    _result["path"] = base
+                except OSError:
+                    pass
 
-        def _resolve():
-            try:
-                base = Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
-                base.mkdir(parents=True, exist_ok=True)
-                result["path"] = base
-            except OSError:
-                pass
+            _thread = threading.Thread(target=_resolve, daemon=True)
+            _thread.start()
 
-        t = threading.Thread(target=_resolve, daemon=True)
-        t.start()
-        t.join(timeout)
-        _cache = result.get("path")
+        _thread.join(timeout)
+        if _thread.is_alive():
+            # 아직 안 끝남 — 이번 호출엔 성능 저하(None)로 응답하되, 결과를
+            # 확정 짓지 않는다. 같은 스레드가 백그라운드에서 계속 돌고
+            # 있으니 다음 호출이 다시 join해서 그 사이 끝났는지 확인한다.
+            return None
+        _cache = _result.get("path")
         return _cache
 
 
 def _reset_cache_for_tests() -> None:
-    """테스트 전용 — 캐시를 초기화해 다음 `resolve()` 호출이 실제로 다시
-    스레드를 스폰하도록 되돌린다. 프로덕션 코드에서는 호출하지 않는다."""
-    global _cache
+    """테스트 전용 — 캐시·스레드 참조를 초기화해 다음 `resolve()` 호출이
+    실제로 다시 스레드를 스폰하도록 되돌린다. 프로덕션 코드에서는 호출하지
+    않는다."""
+    global _cache, _thread, _result
     with _cache_lock:
         _cache = _UNRESOLVED
+        _thread = None
+        _result = {}
