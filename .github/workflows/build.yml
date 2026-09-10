@@ -9,7 +9,13 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # ubuntu-latest가 아니라 22.04로 고정 — 2026-09-10에 ubuntu-latest 기본
+    # 이미지가 바뀐 뒤로 이 잡만 test_ui_min_size.py의 폰트 메트릭 계산에서
+    # 무기한 멈추는 현상이 4회 연속 재현됐다(FBX 관련 코드 변경과 무관 —
+    # subprocess 스폰 테스트를 CI에서 스킵해도 재발함, 원인은 fontconfig/Qt
+    # 오프스크린 플러그인의 이미지별 차이로 추정). 같은 워크플로우의
+    # build-linux 잡은 이미 ubuntu-22.04로 고정돼 있고 매번 정상 통과해왔다.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
