@@ -122,15 +122,22 @@ class TestAppDataResolveTimeout(unittest.TestCase):
         """review 지적 반영 — `_resolve()` 클로저가 결과 그릇을 모듈 전역
         이름으로 참조하면, `_reset_cache_for_tests()`가 그 이름을 새 dict로
         갈아치운 뒤 이전(좀비) 스레드가 뒤늦게 끝나면서 그 시점에 바인딩된
-        dict(=다른 세대의 결과 그릇, 즉 이후 테스트가 쓰고 있는 그릇)에
-        잘못 써버릴 수 있었다. 각 스레드가 자기 생성 시점의 결과 그릇을
-        클로저로 캡처해야, 오래된 스레드가 나중에 끝나도 그 사이 시작된
-        새 세대의 결과에 영향을 주지 않는다."""
+        dict(=다른 세대의 결과 그릇)에 잘못 써버릴 수 있었다.
+
+        `_cache`는 한 번 확정되면 이후 `_result`/`_thread_result`를 다시
+        안 읽는 "래치(latch)" 구조라, `resolve()`의 반환값만으로는 이
+        오염을 안정적으로 재현하기 어렵다(타이밍 경쟁이 필요하고, 대부분의
+        경로에서 래치가 이미 우연히 막아준다 — 실제로 구버전 코드에
+        타이밍을 넉넉히 준 검증을 돌려봐도 반환값 자체는 오염되지 않는
+        것을 확인했다). 그래서 이 테스트는 반환값이 아니라 **결과 그릇
+        객체 자체가 세대마다 물리적으로 분리되는지**를 직접 확인한다 —
+        이게 바로 이 수정이 실제로 보장하는 것이고, 반환값 수준의 우연한
+        안전망에 기대지 않고 근본적으로 격리됐는지 검증하는 방법이다."""
         orig_mkdir = Path.mkdir
-        started = threading.Event()
+        zombie_entered_mkdir = threading.Event()
 
         def _slow_mkdir_wrong_dir(self, *args, **kwargs):
-            started.set()
+            zombie_entered_mkdir.set()
             time.sleep(0.3)
             return orig_mkdir(self, *args, **kwargs)
 
@@ -140,19 +147,33 @@ class TestAppDataResolveTimeout(unittest.TestCase):
                  patch("app.appdata.Path.mkdir", _slow_mkdir_wrong_dir):
                 first = appdata.resolve(timeout=0.05)
                 self.assertIsNone(first, "느린 mkdir이라 이번 호출은 None이어야 함")
-                self.assertTrue(started.wait(1.0), "좀비 스레드가 mkdir 호출까지 진행하지 못함")
+                self.assertTrue(zombie_entered_mkdir.wait(1.0), "좀비 스레드가 mkdir 호출까지 진행하지 못함")
                 # 이 시점에 좀비 스레드는 이미 stale_dir을 base로 확정하고
                 # (패치된) mkdir 안에서 잠들어 있다 — 아래에서 패치가
                 # 풀려도 이미 진행 중인 호출엔 영향 없다.
+                gen1_result = appdata._thread_result  # 좀비(1세대)가 쓸 결과 그릇을 미리 캡처
 
             appdata._reset_cache_for_tests()
 
             real_dir = Path(tmp) / "RealAppData"
             with patch("app.appdata.QStandardPaths.writableLocation", return_value=str(real_dir)):
-                # 좀비 스레드(0.3초 후 완료)가 끝날 시간을 충분히 준다.
                 second = appdata.resolve(timeout=1.0)
-            self.assertEqual(second, real_dir,
-                              "새 세대의 결과가 좀비 스레드의 stale_dir로 오염되면 안 됨")
+            self.assertEqual(second, real_dir)
+
+            gen2_result = appdata._thread_result  # 새 세대(2세대)의 결과 그릇
+            self.assertIsNot(
+                gen1_result, gen2_result,
+                "세대마다 물리적으로 다른 결과 그릇을 써야 좀비 스레드가 서로 못 건드림")
+
+            # 좀비 스레드가 실제로 완료될 때까지(0.3초+여유) 기다린 뒤,
+            # 자기 그릇(gen1_result)에만 썼는지, 2세대의 그릇(gen2_result)은
+            # 전혀 안 건드렸는지 직접 확인한다.
+            time.sleep(0.4)
+            self.assertEqual(gen1_result.get("path"), stale_dir,
+                              "좀비 스레드도 결국 완료돼 자기 그릇엔 정상적으로 씀(대조군)")
+            self.assertEqual(gen2_result.get("path"), real_dir,
+                              "좀비 스레드의 뒤늦은 쓰기가 2세대의 그릇을 건드리면 안 됨")
+            self.assertEqual(appdata.resolve(timeout=0.1), real_dir)
 
 
 class TestHistoryAndLoggingFallback(unittest.TestCase):
