@@ -691,6 +691,81 @@ class TestFbxCompressedArrayBounds(unittest.TestCase):
         self.assertEqual(pos, len(buf))
 
 
+class TestFbxUncompressedArrayTruncation(unittest.TestCase):
+    """비압축(encoding=0) 배열 property가 선언한 `array_length`보다 실제
+    buf가 짧게 잘린(파일이 중간에 끊긴) 경우를 검증한다(4라운드 review
+    지적 Finding 1) — `buf[pos:pos+n]` 슬라이싱은 buf가 그 길이를 다 못
+    채워도 예외 없이 더 짧은 bytes를 조용히 반환하는 파이썬 관용 동작이라,
+    3라운드에서 추가한 `array.array(typecode, raw)` fast path는 `len(raw)`가
+    `elem_size`의 배수이기만 하면 선언된 원소 개수보다 적어도 그냥
+    성공해버렸다(회귀). 수정 후에는 `len(raw) != declared_bytes` 검증으로
+    명확히 실패해야 한다."""
+
+    def test_uncompressed_array_truncated_buffer_raises_corrupted(self):
+        declared_length = 10  # 10개를 선언
+        actual_floats = [1.0, 2.0, 3.0, 4.0]  # 실제로는 4개뿐(파일이 잘림)
+        buf = bytearray()
+        buf.append(ord("f"))
+        buf += struct.pack("<III", declared_length, 0, 0)
+        buf += struct.pack(f"<{len(actual_floats)}f", *actual_floats)
+        with self.assertRaises(ConversionError) as ctx:
+            fbx._read_properties(bytes(buf), 0, 1)
+        self.assertEqual(ctx.exception.key, "err.corrupted")
+
+    def test_uncompressed_array_exact_length_matches_declared_parses_correctly(self):
+        """대조군 — 실제 buf 길이가 선언된 길이와 정확히 일치하면
+        정상적으로 파싱돼야 한다(회귀 방지)."""
+        floats = [1.0, 2.0, 3.0, 4.0]
+        buf = bytearray()
+        buf.append(ord("f"))
+        buf += struct.pack("<III", len(floats), 0, 0)
+        buf += struct.pack(f"<{len(floats)}f", *floats)
+        props, pos = fbx._read_properties(bytes(buf), 0, 1)
+        self.assertEqual(list(props[0]), floats)
+        self.assertEqual(pos, len(buf))
+
+
+class TestFbxVertexFaceCountLimits(unittest.TestCase):
+    """정점·면을 (x, y, z)/(i, j, k) 파이썬 튜플로 전개해 누적하는 단계에도
+    애플리케이션 기준 고정 상한이 있어야 한다(4라운드 review 지적
+    Finding 2) — 실제 `_MAX_VERTEX_COUNT`/`_MAX_FACE_COUNT`(각 1000만)
+    크기의 버퍼로 검증하면 테스트 자체가 무겁고 느려지므로, 같은 로직을
+    상한을 테스트에서만 작은 값으로 낮춰 빠르게 검증한다."""
+
+    def test_vertex_count_over_limit_raises_too_large(self):
+        with mock.patch.object(fbx, "_MAX_VERTEX_COUNT", 5):
+            verts = tuple(float(i) for i in range(6 * 3))  # 정점 6개(상한 5 초과)
+            poly = tuple(range(5)) + (~5,)  # 정점 6개짜리 폴리곤 하나
+            g = _geom(100, verts, poly)
+            nodes = [_objects([g])]
+            with self.assertRaises(ConversionError) as ctx:
+                fbx._extract_from_nodes(nodes)
+            self.assertEqual(ctx.exception.key, "err.too_large")
+
+    def test_vertex_count_within_limit_succeeds(self):
+        with mock.patch.object(fbx, "_MAX_VERTEX_COUNT", 3):
+            g = _geom(100, _TRI_VERTS, _TRI_POLY)  # 정점 정확히 3개(상한과 같음)
+            nodes = [_objects([g])]
+            vertices, faces = fbx._extract_from_nodes(nodes)
+            self.assertEqual(len(vertices), 3)
+            self.assertEqual(len(faces), 1)
+
+    def test_face_count_over_limit_raises_too_large(self):
+        with mock.patch.object(fbx, "_MAX_FACE_COUNT", 0):
+            g = _geom(100, _TRI_VERTS, _TRI_POLY)  # 삼각형 1개(상한 0 초과)
+            nodes = [_objects([g])]
+            with self.assertRaises(ConversionError) as ctx:
+                fbx._extract_from_nodes(nodes)
+            self.assertEqual(ctx.exception.key, "err.too_large")
+
+    def test_face_count_within_limit_succeeds(self):
+        with mock.patch.object(fbx, "_MAX_FACE_COUNT", 1):
+            g = _geom(100, _TRI_VERTS, _TRI_POLY)  # 삼각형 정확히 1개(상한과 같음)
+            nodes = [_objects([g])]
+            vertices, faces = fbx._extract_from_nodes(nodes)
+            self.assertEqual(len(faces), 1)
+
+
 class TestFbxArrayMaterialization(unittest.TestCase):
     """배열 property의 자료구조를 `struct.unpack()`+`list()` 이중 물질화에서
     `array.array`로 바꾼 것(3라운드 review 지적 Finding 1)이 값·인덱싱

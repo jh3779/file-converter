@@ -1,15 +1,18 @@
 # fbx.py — FBX(Autodesk) 읽기 전용 파서
 
-원본: `app/converters/fbx.py` (492줄)
+원본: `app/converters/fbx.py` (594줄)
 
 이 프로젝트에서 유일하게 "서드파티 3D 라이브러리에 안 기대고 바이너리
 포맷을 직접 파싱하는" 파일이다. `model3d.py`가 trimesh 하나로 5개
 포맷을 다 처리하는 것과 대조적으로, FBX는 trimesh가 아예 지원하지
 않는 포맷이라 `struct`·`zlib` 표준 라이브러리만으로 바이너리 트리
 파서를 새로 만들었다. 왜 그래야 했는지(ufbx 세그폴트)와 무엇을
-검증했는지가 이 파일의 핵심 서사다. 코드 리뷰를 두 차례 거치며
+검증했는지가 이 파일의 핵심 서사다. 코드 리뷰를 네 차례 거치며
 `LayerElementHole`(숨긴 면) 처리, 애플리케이션 기준 자원 한도,
-Geometry 구조 잔여 검증이 추가됐다 — 아래 각 절에서 다룬다.
+Geometry 구조 잔여 검증(2차), 배열 property 자료구조를
+`struct.unpack()+list()`에서 `array.array`로 교체한 메모리 최적화(3차),
+그 전환이 남긴 배열 길이 미검증 회귀 수정과 정점·면 전개 단계의
+별도 상한(4차)이 차례로 추가됐다 — 아래 각 절에서 다룬다.
 
 ---
 
@@ -43,18 +46,21 @@ Geometry 구조 잔여 검증이 추가됐다 — 아래 각 절에서 다룬다
    `_FbxNode` 트리를 직접 구성해 검증한다. 실제 바이너리 fixture 추가는
    후속 과제로 남아 있다.
 
-## L62-93: import·상수·저수준 예외 타입
+## L62-155: import·상수(배열 자료구조·자원 상한)·저수준 예외 타입
 
 ```python
 _MAGIC = b"Kaydara FBX Binary  \x00\x1a\x00"
 _SCALAR_FMT = {"Y": "<h", "C": "<?", "I": "<i", "F": "<f", "D": "<d", "L": "<q"}
 _ARRAY_ELEM_FMT = {"f": "f", "d": "d", "l": "q", "i": "i", "b": "b"}
+_ARRAY_TYPECODE = {"f": "f", "d": "d", "l": "q", "i": "i", "b": "b"}
 _MAX_FILE_SIZE = 512 * 1024 * 1024
 _MAX_ARRAY_ELEMENTS = 100_000_000
 _MAX_ARRAY_BYTES = 256 * 1024 * 1024
 _MAX_TOTAL_ARRAY_BYTES = 512 * 1024 * 1024
 _MAX_NODE_COUNT = 2_000_000
 _MAX_NODE_DEPTH = 128
+_MAX_VERTEX_COUNT = 10_000_000
+_MAX_FACE_COUNT = 10_000_000
 _LOW_LEVEL_ERRORS = (struct.error, zlib.error, UnicodeDecodeError, IndexError, ValueError, TypeError)
 ```
 
@@ -62,17 +68,55 @@ FBX 바이너리 포맷의 프로퍼티 타입 코드(1바이트 문자)를 파�
 `struct` 포맷 문자열로 매핑하는 테이블 — 스칼라(`Y/C/I/F/D/L`)와
 배열(`f/d/l/i/b`)이 서로 다른 테이블에 있다는 게 핵심 구조.
 
-**`_MAX_*` 상한(L74-85, 코드 리뷰 2차 지적 반영)**: 압축 해제 상한이
-예전에는 입력 파일 자체가 선언한 `array_length*elem_size`였다(그
-값 자체가 uint32라 최대 약 32GiB까지 허용 — "선언 크기만큼만 푼다"는
-방어가 사실상 무력화된 상태였다). 이제는 애플리케이션이 정한 고정
-값과 먼저 비교한다: 파일 크기(`_MAX_FILE_SIZE`), 배열 property
-하나의 원소 개수·바이트(`_MAX_ARRAY_ELEMENTS`/`_MAX_ARRAY_BYTES`),
-파일 전체에서 누적되는 배열 바이트(`_MAX_TOTAL_ARRAY_BYTES`, 작은
-배열이 아주 많이 반복되는 형태의 자원 고갈 방어), 노드 개수·재귀
-깊이(`_MAX_NODE_COUNT`/`_MAX_NODE_DEPTH`, 각각 "넓은" 트리와 "깊은"
-트리 형태의 자원 고갈 방어). 값 자체는 이 프로젝트의 실사용 범위
-(3D 프린팅용 단일 메시 등, 모듈 docstring 참고)에 여유 있게 맞췄다.
+**배열 property의 자료구조 — `array.array` fast path(L76-117, 3차 리뷰
+지적 반영)**: 배열 property를 예전처럼 `struct.unpack()` 뒤
+`list(...)`로 이중 물질화하면(원소 하나당 별도 파이썬 객체 + 그
+객체들을 담는 리스트 포인터 배열이 한 번 더 생김) 256MiB 배열(float
+6700만 개) 기준 실제 순간 메모리가 raw bytes(256MB) + 튜플(~2.1GB) +
+list 포인터 배열(~536MB)로 겹쳐 ~2.7GB까지 치솟는다 — `_MAX_ARRAY_BYTES`
+라는 이름이 약속하는 상한과 실제 순간 메모리가 10배 이상 벌어졌다.
+`array` 모듈은 원소를 개별 파이썬 객체로 만들지 않고 C 배열처럼
+압축 저장해 이 간극을 없앤다. 다만 `array` typecode는 struct의
+`<`/`>` 같은 명시적 크기 지정이 없고 C 컴파일러의 네이티브 타입
+크기를 그대로 쓴다 — 특히 FBX의 `'l'`(64비트 정수)은 `array`
+typecode `'l'`(C `long`, Windows 64비트에서는 4바이트일 수 있음)이
+아니라 `'q'`(C `long long`, 사실상 항상 8바이트)로 매핑해야 한다
+(`_ARRAY_TYPECODE`). `_array_fast_path_typecodes()`(L97-114)는 이
+플랫폼에서 (1) 리틀엔디안이고(`array`는 항상 네이티브 바이트 순서를
+쓰는데 FBX는 리틀엔디안으로 고정) (2) typecode의 실제 itemsize가
+가정한 바이트 수와 일치하는 typecode만 걸러 `_ARRAY_FAST_PATH_TYPECODE`
+로 캐싱해두고, 둘 중 하나라도 안 맞는 타입은 빼서 호출자가 느리지만
+항상 정확한 `struct.unpack()` 경로로 조용히 폴백하게 한다.
+
+**이 fast path가 4차 리뷰에서 낸 회귀와 그 수정(L132-147)**은
+`_read_properties` 절에서 다룬다.
+
+**`_MAX_*` 상한(L119-147)**: 압축 해제 상한이 예전에는 입력 파일
+자체가 선언한 `array_length*elem_size`였다(그 값 자체가 uint32라
+최대 약 32GiB까지 허용 — "선언 크기만큼만 푼다"는 방어가 사실상
+무력화된 상태였다). 이제는 애플리케이션이 정한 고정 값과 먼저
+비교한다: 파일 크기(`_MAX_FILE_SIZE`), 배열 property 하나의 원소
+개수·바이트(`_MAX_ARRAY_ELEMENTS`/`_MAX_ARRAY_BYTES`), 파일 전체에서
+누적되는 배열 바이트(`_MAX_TOTAL_ARRAY_BYTES`, 작은 배열이 아주
+많이 반복되는 형태의 자원 고갈 방어), 노드 개수·재귀 깊이
+(`_MAX_NODE_COUNT`/`_MAX_NODE_DEPTH`, 각각 "넓은" 트리와 "깊은" 트리
+형태의 자원 고갈 방어). 값 자체는 이 프로젝트의 실사용 범위(3D
+프린팅용 단일 메시 등, 모듈 docstring 참고)에 여유 있게 맞췄다.
+
+이 상한들은 입력 단계(`array.array`로 압축 저장된 원시 배열)만
+지킨다 — `_extract_from_nodes`가 이 원시 배열을 (x, y, z)/(i, j, k)
+파이썬 튜플의 리스트로 다시 전개하는 순간 원소 하나당 다시 개별
+객체가 생겨(위 `array.array` 전환으로 해결한 것과 같은 종류의 배율
+문제가 출력 단계에서 재발) 입력 배열보다 훨씬 큰 메모리를 쓰게
+된다(4차 리뷰 지적). `_MAX_VERTEX_COUNT`/`_MAX_FACE_COUNT`(L146-147)
+는 이를 막는 별도 상한 — 실측(CPython, 64비트, `sys.getsizeof`
+기준)으로 (float,float,float) 튜플 하나가 튜플 자체(72바이트)+float
+객체 3개(72바이트)+리스트 슬롯 포인터(8바이트)=약 152바이트, 면
+튜플도 약 164바이트임을 확인해, 정점·면 각 1000만 개(리스트 각각
+최대 약 1.4~1.5GiB)로 순간 메모리를 고정 상한 안에 묶었다 —
+3D 프린팅용 메시(보통 수십만~수백만 삼각형, 극단적 사례도
+수백만~천만 단위)에는 여유 있는 값이다. 적용 지점은
+`_extract_from_nodes` 절에서 다룬다.
 
 `_LOW_LEVEL_ERRORS`는 이 파일 전체의 예외 처리 철학을 담은
 튜플이다 — "파싱 중 뭐가 잘못됐든 사용자에게는 `err.corrupted`
@@ -83,9 +127,12 @@ FBX 바이너리 포맷의 프로퍼티 타입 코드(1바이트 문자)를 파�
 프로그래밍 버그(예상 못한 `AttributeError` 등)는 그대로 전파되게
 하려는 의도). `TypeError`가 포함된 이유는 코드 리뷰 중 추가된
 방어 — `Vertices`가 스칼라 타입 코드로 잘못 저장된 손상 파일에서
-`len(flat)`이 던질 수 있는 예외까지 커버한다.
+`len(flat)`이 던질 수 있는 예외까지 커버한다. `err.too_large`(새
+i18n 키, `app/i18n.py`)는 이 튜플에 없다 — 정점·면 상한 초과는
+"손상"이 아니라 "너무 큼"이라 `ConversionError`를 직접 던지고
+`_LOW_LEVEL_ERRORS`로 감싸 재포장하지 않는다.
 
-## L96-105: `_ParseBudget` — 파싱 전체에서 공유하는 자원 카운터(2차 리뷰 반영)
+## L158-167: `_ParseBudget` — 파싱 전체에서 공유하는 자원 카운터(2차 리뷰 반영)
 
 ```python
 class _ParseBudget:
@@ -95,7 +142,7 @@ class _ParseBudget:
 `node_count`(지금까지 읽은 노드 개수)와 `total_array_bytes`(지금까지
 누적된 배열 property 바이트)만 담는 아주 얇은 카운터. `_parse`가
 파일 하나당 인스턴스 하나를 만들어 `_read_node`→`_read_properties`
-재귀 호출 전체에 같은 인스턴스를 전달한다(L221-235 절 참고) — 개별
+재귀 호출 전체에 같은 인스턴스를 전달한다(`_parse` 절 참고) — 개별
 노드/배열 하나만 봐서는 못 잡는 "작은 값이 아주 많이 반복되는" 형태의
 자원 고갈까지 이 공유 카운터로 잡는다. 모든 호출부에서
 `budget: _ParseBudget | None = None` 기본값을 두고 `None`이면 함수
@@ -103,7 +150,7 @@ class _ParseBudget:
 `fbx._read_properties(buf, 0, 1)`/`fbx._parse(data)`처럼 budget 없이
 직접 호출하는 패턴을 그대로 유지하기 위해서다(하위 호환).
 
-## L108-123: `_FbxNode` — 파싱된 노드 트리의 최소 표현
+## L170-185: `_FbxNode` — 파싱된 노드 트리의 최소 표현
 
 ```python
 class _FbxNode:
@@ -117,52 +164,75 @@ FBX 바이너리는 재귀적인 노드 트리 구조다(이름 + 프로퍼티 �
 노드를 찾는 유틸 — DOM의 `querySelector`와 비슷한 역할을 아주
 단순하게 구현한 것.
 
-## L126-182: `_read_properties` — 프로퍼티 하나씩 파싱
+## L188-271: `_read_properties` — 프로퍼티 하나씩 파싱
 
 타입 코드 1바이트를 읽고 세 갈래로 분기한다:
 - **스칼라(`_SCALAR_FMT`에 있음)**: 고정 크기라 `struct.unpack_from`
   한 번으로 끝.
-- **배열(`_ARRAY_ELEM_FMT`에 있음, L137-173)**: `array_length`·
+- **배열(`_ARRAY_ELEM_FMT`에 있음, L199-262)**: `array_length`·
   `encoding`·`compressed_length` 3개의 uint32 헤더가 먼저 온다.
-  **압축 해제/슬라이싱을 시도하기 전에(L142-151, 2차 리뷰 반영)**
+  **압축 해제/슬라이싱을 시도하기 전에(L204-213, 2차 리뷰 반영)**
   `array_length`·`declared_bytes(=array_length*elem_size)`를
   `_MAX_ARRAY_ELEMENTS`/`_MAX_ARRAY_BYTES`와 먼저 비교해 명확히
   거부하고, `budget.total_array_bytes`에 누적해 파일 전체 상한
   (`_MAX_TOTAL_ARRAY_BYTES`)도 검사한다. 이 검사를 통과해야 비로소
   `encoding == 0`이면 비압축 raw bytes를 그대로 읽고, `encoding == 1`
-  이면 `zlib.decompress()`로 압축을 푼다(L155-170) — 압축 해제 결과가
+  이면 `zlib.decompress()`로 압축을 푼다(L217-234) — 압축 해제 결과가
   선언된 `array_length * elem_size`와 다르면(길이 불일치든
   `decompressor.eof`가 안 끝났든) 손상으로 간주해 즉시 실패한다.
   이 압축 경로가 바로 알려진 한계 목록에서 "실사용 검증"이 필요했던
   부분 — Blender의 Suzanne fixture로 실제 압축 배열을 직접
   디코딩해 참조 OBJ와 좌표까지 대조했다(README 참고).
+
+  **`raw` 길이 검증이 인코딩과 무관하게 공통으로 있다(L235-251, 4차
+  리뷰 지적 Finding 1)**: `raw`를 만든 직후(encoding 0/1 어느
+  쪽이든) `len(raw) != declared_bytes`면 즉시 `err.corrupted`. 왜
+  필요한가 — 비압축 분기(`encoding == 0`)의 `buf[pos:pos+n]` 슬라이싱은
+  파이썬 관용 동작상 `buf`가 그 길이를 다 못 채워도 예외 없이 더
+  짧은 `bytes`를 조용히 반환한다. 3라운드에서 추가한 fast path
+  (`array.array(typecode, raw)`, L252-262)는 `len(raw)`가 `elem_size`의
+  배수이기만 하면 선언된 원소 개수보다 적어도 그냥 성공해버려서 —
+  파일이 중간에 잘렸는데도 조용히 더 짧은 배열로 파싱되는 방어
+  공백이 새로 생겼었다(기존 `struct.unpack(f"<{array_length}{elem_fmt}",
+  raw)` 폴백 경로는 포맷 문자열이 정확한 원소 개수를 요구해 이미
+  `struct.error`로 암묵적으로 막고 있었으나, fast path는 그 보호가
+  없었다). 이 검증을 두 경로 공통으로 앞에 둬 대칭을 맞췄다 —
+  `tests/test_fbx.py::TestFbxUncompressedArrayTruncation`이 이 회귀를
+  직접 재현해 고정한다(수정 전 코드로는 조용히 통과했음을 별도
+  스크립트로 확인).
+- **fast path 자체(L252-262, 3차 리뷰 지적 Finding 1)**: `array.array(typecode,
+  raw)`는 raw의 바이트를 그대로 C 배열처럼 재해석만 할 뿐 원소별
+  파이썬 객체를 새로 만들지 않는다 — 위 상수 절에서 다룬 이중
+  물질화 문제를 없앤다. 이 플랫폼에서 안전하지 않은 typecode
+  (`_ARRAY_FAST_PATH_TYPECODE`에 없는 것, 상수 절 참고)는
+  `struct.unpack()+list()` 폴백으로 조용히 넘어간다.
 - **문자열/raw(`S`/`R`)**: 4바이트 길이 접두 + 그만큼의 바이트.
   `S`는 UTF-8 문자열로 디코딩, `R`은 원본 바이트 그대로(raw 프로퍼티,
   이 모듈에서는 실제로 쓰이지 않지만 파싱은 정상적으로 통과해야
   뒤따르는 노드 파싱이 안 깨진다).
 
-알 수 없는 타입 코드(L180-181)는 명확한 `ConversionError`.
+알 수 없는 타입 코드(L269-270)는 명확한 `ConversionError`.
 
-## L185-218: `_read_node` — 노드 하나(헤더+프로퍼티+자식) 재귀 파싱
+## L274-307: `_read_node` — 노드 하나(헤더+프로퍼티+자식) 재귀 파싱
 
-**노드 개수·재귀 깊이 상한(L188-195, 2차 리뷰 반영)**: 헤더를 읽기도
+**노드 개수·재귀 깊이 상한(L277-284, 2차 리뷰 반영)**: 헤더를 읽기도
 전에 가장 먼저 `budget.node_count`를 올리고 `_MAX_NODE_COUNT`와,
 `depth`를 `_MAX_NODE_DEPTH`와 비교한다 — 노드 개수는 (자식이 아주
 많은) 넓은 트리, 깊이는 (중첩이 아주 깊은) 좁은 트리 형태의 자원
-고갈을 각각 막는다. 자식을 재귀 호출할 때(L212) `depth + 1`을 넘겨
+고갈을 각각 막는다. 자식을 재귀 호출할 때(L301) `depth + 1`을 넘겨
 깊이가 누적되게 한다.
 
 가장 까다로운 부분은 **버전에 따라 헤더 필드 크기가 다르다**는 점
-(L196-201) — FBX 7500부터 `EndOffset`/`NumProperties`/
+(L285-290) — FBX 7500부터 `EndOffset`/`NumProperties`/
 `PropertyListLen`이 uint32(4바이트씩, 총 12바이트)에서 uint64(8바이트씩,
 총 24바이트)로 바뀐다. `use_64bit` 플래그 하나로 `struct` 포맷
 문자열만 바꿔 전체 파싱 로직을 그대로 재사용한다.
 
-**널 레코드 처리(L202-203)**: `end_offset == 0`이면 이 위치는 자식
+**널 레코드 처리(L291-292)**: `end_offset == 0`이면 이 위치는 자식
 목록의 끝을 알리는 13/25바이트짜리 특수 레코드다 — 이름도 프로퍼티도
 없이 헤더 뒤에 `name_len(=0)` 1바이트만 더 있다.
 
-**자식 파싱의 미묘한 분기(L210-216)**:
+**자식 파싱의 미묘한 분기(L299-304)**:
 ```python
 if pos < end_offset:
     while pos < end_offset:
@@ -182,11 +252,11 @@ FBX 바이너리는 **자식이 없는 리프 노드는 널 레코드 자체를 
 위치가 안 맞으면 파싱 자체가 잘못됐다는 뜻이라 명확히 실패시키는
 전체 파일의 정합성 체크다.
 
-## L221-235: `_parse` — 파일 전체 진입점
+## L310-324: `_parse` — 파일 전체 진입점
 
 매직 헤더 23바이트(`_MAGIC`) 확인 → 4바이트 버전 → `use_64bit` 결정
 → `pos=27`부터 최상위 노드를 반복해서 읽는다. `_ParseBudget()`을
-여기서 파일 하나당 하나만 만들어(L229) 모든 최상위 노드의 `_read_node`
+여기서 파일 하나당 하나만 만들어(L318) 모든 최상위 노드의 `_read_node`
 호출에 그대로 넘긴다 — 이 인스턴스가 파일 전체의 노드 개수·배열
 바이트 누적치를 들고 있다. 최상위에서도 널 레코드를 만나면
 (`node is None`) 바로 멈추는데, 이건 실제 FBX 파일에는 최상위 널
@@ -194,7 +264,7 @@ FBX 바이너리는 **자식이 없는 리프 노드는 널 레코드 자체를 
 있기 때문 — 이 파일은 그 뒤를 아예 안 본다(형태 데이터는 이미 다
 읽었으므로 필요 없음).
 
-## L238-281: `_axis_matrix` — 좌표축 정규화 행렬 계산
+## L327-370: `_axis_matrix` — 좌표축 정규화 행렬 계산
 
 알려진 한계 목록에는 없지만(오히려 "해결한" 부분) 이 파일에서 가장
 수학적인 함수다. FBX의 `GlobalSettings/Properties70`에서
@@ -216,18 +286,18 @@ matrix[2][front_axis] = float(front_sign)
 저장값과 직접 대조해서 검증한다(단순히 "정점 개수가 맞다"가 아니라
 "Z였던 값이 진짜로 Y 위치에 나타난다"까지 확인).
 
-행렬식(`det`, L276-280)이 음수면 이 변환이 반사(거울상, 오른손↔왼손
+행렬식(`det`, L365-369)이 음수면 이 변환이 반사(거울상, 오른손↔왼손
 좌표계 전환)를 포함한다는 뜻 — 이런 경우 삼각형의 정점 순서(winding)를
 그대로 두면 노멀이 뒤집힌 것처럼 보이므로, `_extract_from_nodes`에서
 `flip_winding` 플래그로 삼각형의 두 번째·세 번째 정점을 맞바꾼다
 (`_extract_from_nodes` 절 참고).
 
-## L284-290: `_apply_axis` — 행렬-벡터 곱
+## L373-379: `_apply_axis` — 행렬-벡터 곱
 
 `_axis_matrix`가 만든 3×3 행렬을 정점 하나(x, y, z)에 적용하는 순수
 함수. 딱 행렬-벡터 곱 공식 그대로라 특별한 트릭은 없다.
 
-## L293-313: `_connected_geometry_ids` — Connections 기반 필터링
+## L382-402: `_connected_geometry_ids` — Connections 기반 필터링
 
 FBX 씬은 `Objects` 아래 여러 `Geometry`가 있을 수 있는데, 그중
 일부는 실제로 화면에 보이는 Model에 연결 안 된 "고아" 데이터일 수
@@ -237,16 +307,16 @@ FBX 씬은 `Objects` 아래 여러 `Geometry`가 있을 수 있는데, 그중
 ID 집합을 만든다.
 
 **안전한 기본값이 두 겹으로 있다는 점이 중요하다**:
-1. `Connections` 노드 자체가 없으면(L303-304) 바로 모든 Geometry
+1. `Connections` 노드 자체가 없으면(L392-393) 바로 모든 Geometry
    포함.
 2. `Connections`는 있지만 실제로 Model에 연결된 게 하나도 안 잡히면
-   (L313, `connected & all_geometry_ids if connected else
+   (L402, `connected & all_geometry_ids if connected else
    all_geometry_ids`) 그래도 모든 Geometry를 포함 — "잘못 걸러내서
    조용히 데이터가 사라지는 것"보다 "약간 더 포함시키는 것"이 훨씬
    안전하다는 이 프로젝트 전반의 원칙(TARGETS의 "가능한 것만
    노출"과는 반대 방향이지만 같은 "조용한 유실 방지" 철학).
 
-## L316-320: `_triangulate_fan` — 다각형 삼각형화
+## L405-409: `_triangulate_fan` — 다각형 삼각형화
 
 ```python
 def _triangulate_fan(polygon: list[int]):
@@ -265,7 +335,7 @@ FBX의 `PolygonVertexIndex`는 4각형 이상의 폴리곤을 그대로 담을 �
 검증해준다고 가정한다(정점 0~2개인 입력은 빈 제너레이터를 내놓을 뿐
 에러를 내지 않는다 — 그 검증은 호출자 책임).
 
-## L323-352: `_HOLE_MAPPING_DIRECT`·`_polygon_holes` — 숨긴 면 처리(2차 리뷰 반영)
+## L412-441: `_HOLE_MAPPING_DIRECT`·`_polygon_holes` — 숨긴 면 처리(2차 리뷰 반영)
 
 FBX의 `LayerElementHole`은 `Geometry`마다 폴리곤별로 "이 면은 숨김"
 여부를 담을 수 있는 레이어다(Maya의 홀(hole) 폴리곤 기능). 예전
@@ -291,7 +361,7 @@ _HOLE_MAPPING_DIRECT = ("ByPolygon", "Direct")
 3. `Holes` 배열이 없거나 길이가 실제 폴리곤 개수와 다르면 손상된
    파일로 보고 거부한다.
 
-## L355-453: `_extract_from_nodes` — 이 파일의 핵심 로직
+## L444-555: `_extract_from_nodes` — 이 파일의 핵심 로직
 
 `parse_geometry`(파일 IO)와 분리된 이유부터 짚을 만하다 — **테스트
 용이성 때문에 리팩터링된 함수**다. 노드 트리 레벨의 엣지 케이스
@@ -303,50 +373,62 @@ _HOLE_MAPPING_DIRECT = ("ByPolygon", "Direct")
 `TestFbxLayerElementHole` 참고).
 
 동작 순서:
-1. `Objects` 노드가 없으면 즉시 실패(L362-364) — FBX 6.x가 여기
+1. `Objects` 노드가 없으면 즉시 실패(L451-453) — FBX 6.x가 여기
    걸린다(알려진 한계 1번).
-2. 좌표축 행렬·Connections 필터를 미리 한 번만 계산(L366-377).
-3. `Objects` 아래 모든 `Geometry`를 순회하며(L382), Connections
-   필터를 통과 못 하면 건너뛴다(L383-384) — 단, `geom.properties`가
+2. 좌표축 행렬·Connections 필터를 미리 한 번만 계산(L455-466).
+3. `Objects` 아래 모든 `Geometry`를 순회하며(L471), Connections
+   필터를 통과 못 하면 건너뛴다(L472-473) — 단, `geom.properties`가
    비어있으면(ID 자체가 없는 비정상 케이스) 단락 평가로 무조건
    포함시킨다(안전한 기본값).
 4. `Vertices`/`PolygonVertexIndex` 둘 다 있는 Geometry만 처리
-   (L385-388, 둘 중 하나라도 없으면 조용히 skip).
-5. **Vertices 3배수 검증(L390-395, 2차 리뷰 반영)**: `len(flat) % 3`이
+   (L474-477, 둘 중 하나라도 없으면 조용히 skip).
+5. **Vertices 3배수 검증(L479-484, 2차 리뷰 반영)**: `len(flat) % 3`이
    0이 아니면 (x, y, z) 세 값씩 안 묶이는 손상된 배열이라 즉시 실패한다
    — 예전엔 `range(0, len(flat) - 2, 3)`로 남는 좌표 1~2개를 그냥
    버려 손상을 조용히 가려버렸다.
-6. 정점 좌표를 3개씩 끊어 축 변환 적용 후 누적 리스트에 추가
-   (L396-399) — `base`(L396)는 여러 Geometry를 하나의 정점/면
-   리스트로 합칠 때 인덱스가 겹치지 않게 하는 오프셋.
-7. **숨긴 면 조회(L400-402)**: `PolygonVertexIndex`의 음수(폴리곤
+6. **정점 상한 검사 후 축 변환 적용(L485-494, 4차 리뷰 지적 Finding
+   2)**: `base + local_vertex_count > _MAX_VERTEX_COUNT`면 이 Geometry의
+   정점을 튜플로 전개하기 **전에** `err.too_large`로 실패한다 —
+   전개가 끝난 뒤에야 확인하면 이미 상한을 훨씬 넘는 튜플들이 다
+   만들어진 뒤라 상한을 둔 의미가 없어진다. 통과하면 정점 좌표를
+   3개씩 끊어 축 변환 적용 후 누적 리스트에 추가한다 — `base`(L485)는
+   여러 Geometry를 하나의 정점/면 리스트로 합칠 때 인덱스가 겹치지
+   않게 하는 오프셋.
+7. **숨긴 면 조회(L495-497)**: `PolygonVertexIndex`의 음수(폴리곤
    종결자) 개수로 이 Geometry의 폴리곤 총 개수를 미리 세고,
    `_polygon_holes`로 폴리곤별 숨김 플래그(`holes`, 없으면 `None`)를
    가져온다.
-8. `PolygonVertexIndex`를 순회하며(L403-438) 음수(비트 NOT으로
+8. `PolygonVertexIndex`를 순회하며(L500-534) 음수(비트 NOT으로
    인코딩된 폴리곤 마지막 정점, `~idx`)를 만나면 그 폴리곤이 끝난
    것으로 본다:
-   - **로컬 범위 검증(L408-416)**: `base`를 더하기 전에 이 Geometry
+   - **로컬 범위 검증(L503-511)**: `base`를 더하기 전에 이 Geometry
      안에서의 로컬 인덱스부터 범위를 검증한다 — base를 더한 뒤(전역
      인덱스)에만 검증하면, 앞쪽 Geometry의 범위 초과 로컬 인덱스가
      뒤쪽 Geometry들이 늘려준 전체 정점 수 안에 우연히 들어와 검증을
      통과해버릴 수 있다(서로 무관한 Geometry의 정점을 잇는 삼각형이
      조용히 생성되는 위험 — review 지적).
-   - **폴리곤 정점 수 검증(L419-425, 2차 리뷰 반영)**: 종결된 폴리곤의
+   - **폴리곤 정점 수 검증(L514-520, 2차 리뷰 반영)**: 종결된 폴리곤의
      정점이 3개 미만이면 삼각형을 만들 수 없는 손상된 데이터인데,
      예전에는 `_triangulate_fan`이 삼각형 0개를 내놓는 것으로 조용히
      흡수해버렸다 — 여기서 명확히 실패시킨다.
-   - **숨긴 면이면 삼각형화 자체를 건너뛴다(L426-430)**: `holes`가
-     `None`이거나 이 폴리곤의 플래그가 거짓이면(보임) 그대로
-     `_triangulate_fan` → (필요하면 winding 뒤집기) → `all_faces`에
-     누적. 숨긴 면이어도 **정점 자체는 이미 6번에서 추가돼 남아있다**
-     — 숨김은 "이 면을 그리지 않는다"는 뜻이지 "이 정점이 없다"는
-     뜻이 아니기 때문(다른 폴리곤이 같은 정점을 쓸 수도 있음).
-9. **폴리곤 종결자 누락 검증(L433-438, 2차 리뷰 반영)**: 루프가 끝난
+   - **숨긴 면이 아니면 면 상한 검사 후 삼각형화(L521-532, 4차 리뷰
+     지적 Finding 2)**: `holes`가 `None`이거나 이 폴리곤의 플래그가
+     거짓이면(보임) `_triangulate_fan`으로 이 폴리곤의 삼각형 튜플을
+     실제로 만든 뒤, `len(all_faces) + len(tris) > _MAX_FACE_COUNT`면
+     `all_faces`에 누적하기 **전에** `err.too_large`로 실패한다(폴리곤
+     하나 분량의 튜플만 미리 만들어두고 확인하므로 정점 상한과 달리
+     "매 폴리곤 삼각형화 직후"가 자연스러운 체크 지점이다 — 폴리곤
+     하나가 만드는 삼각형 개수는 정점 개수-2로 작아서 먼저 만들어도
+     상한을 크게 넘어서지 않는다). 통과하면 (필요하면 winding
+     뒤집기) → `all_faces`에 누적. 숨긴 면이어도 **정점 자체는 이미
+     6번에서 추가돼 남아있다** — 숨김은 "이 면을 그리지 않는다"는
+     뜻이지 "이 정점이 없다"는 뜻이 아니기 때문(다른 폴리곤이 같은
+     정점을 쓸 수도 있음).
+9. **폴리곤 종결자 누락 검증(L535-540, 2차 리뷰 반영)**: 루프가 끝난
    뒤에도 `polygon` 버퍼가 비어있지 않으면, `PolygonVertexIndex` 끝에
    음수 종결자가 없어 마지막 폴리곤이 잘린 것이다 — 예전에는 이
    잔여 정점들이 조용히 버려졌다.
-10. **경계 검증(L442-452, 코드 리뷰 중 추가)**: 최종적으로 정점·면이
+10. **경계 검증(L544-554, 코드 리뷰 중 추가)**: 최종적으로 정점·면이
     하나도 없으면 실패(FBX 6.x·빈 파일·모든 폴리곤이 숨김인 경우
     등), 그리고 신규로 추가된 방어 — 폴리곤 인덱스가 실제 정점 개수
     범위를 벗어나면(손상된 파일) 여기서 명확히 실패시킨다. 이 검증이
@@ -355,20 +437,29 @@ _HOLE_MAPPING_DIRECT = ("ByPolygon", "Direct")
     인덱스가 그대로 export 단계까지 흘러가 알 수 없는 방식으로
     망가진 출력 파일이 나올 위험이 있었다.
 
-## L456-477: `parse_geometry` — 공개 API 1 (파일 → 정점/면)
+**정점·면 상한(6·8번)은 `err.too_large`를, 나머지는 전부
+`err.corrupted`를 쓴다** — 상한 초과는 "파일이 손상됨"이 아니라
+"이 앱이 처리하기엔 너무 큼"이라 사용자에게 다른 메시지를 보여줘야
+하기 때문(`app/i18n.py`의 `err.too_large` 키 참고, `err.corrupted`
+문구 그대로 쓰면 사용자가 파일이 깨졌다고 오인할 수 있음). 이
+두 예외는 `_LOW_LEVEL_ERRORS` 튜플에 없는 `ConversionError`를 직접
+던지므로 L541의 `except _LOW_LEVEL_ERRORS`에 잡히지 않고 그대로
+전파된다(다른 `ConversionError` raise들과 동일한 패턴).
 
-**파일 크기 선(先)검사(L462-467, 2차 리뷰 반영)**: `read_bytes()`로
+## L558-579: `parse_geometry` — 공개 API 1 (파일 → 정점/면)
+
+**파일 크기 선(先)검사(L564-569, 2차 리뷰 반영)**: `read_bytes()`로
 파일 전체를 메모리에 올리기 전에 `src.stat().st_size`부터
 `_MAX_FILE_SIZE`와 비교한다 — 읽은 "뒤"에 검사하면 거대한 파일이
 거부되기도 전에 이미 다 메모리에 올라가 버려 방어 의미가 없어진다.
 그 다음 파일을 바이트로 읽고(`OSError`는 `err.disk` — `stat()`도
 `read_bytes()`도 둘 다 여기서 잡힌다) `_parse()`로 노드 트리를 만든
 뒤(저수준 파싱 오류는 `err.corrupted`) `_extract_from_nodes`로
-위임한다. `ConversionError`는 그대로 다시 던진다(L470-471) — `_parse`
+위임한다. `ConversionError`는 그대로 다시 던진다(L572-573) — `_parse`
 내부나 파일 크기 검사에서 이미 의미 있는 메시지를 담아 던진 것을
 여기서 뭉개면 안 되기 때문(다른 저수준 예외만 새로 감싼다).
 
-## L480-492: `load_trimesh` — 공개 API 2 (파일 → Trimesh 객체)
+## L582-594: `load_trimesh` — 공개 API 2 (파일 → Trimesh 객체)
 
 `model3d.py`의 `convert_3d()`가 소스 확장자가 `.fbx`일 때 호출하는
 진입점. `parse_geometry`로 얻은 (vertices, faces)를 numpy 배열로
@@ -409,3 +500,14 @@ trimesh가 그 시점의 기본 `process=True`로 근접 좌표를 병합해 정
   `_MAX_ARRAY_BYTES` 같은 애플리케이션 고정값으로 바꾼 이유는?
   `_ParseBudget`의 `total_array_bytes`는 개별 배열 상한만으로는
   왜 부족한 어떤 공격/손상 시나리오를 추가로 막는가?
+- `array.array` fast path(3차 리뷰 최적화)가 왜 비압축(`encoding == 0`)
+  배열에서만 배열 길이 미검증 회귀를 냈는가? 압축(`encoding == 1`)
+  분기는 왜 같은 문제가 원래부터 없었는가? 이 회귀를 고치는 검증을
+  압축 분기에도 굳이 (중복으로) 넣은 이유는?
+- 입력 배열은 `_MAX_ARRAY_BYTES`로 이미 상한이 있는데,
+  `_MAX_VERTEX_COUNT`/`_MAX_FACE_COUNT`라는 별도 상한이 왜 추가로
+  필요했는가? "입력 바이트가 상한 안"이라는 사실이 "출력 메모리도
+  상한 안"이라는 결론으로 이어지지 않는 이유는?
+- `_MAX_VERTEX_COUNT`/`_MAX_FACE_COUNT` 위반을 `err.corrupted`가
+  아니라 `err.too_large`라는 새 코드로 나눈 이유는? 사용자 관점에서
+  두 실패가 왜 다른 메시지를 받아야 하는가?

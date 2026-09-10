@@ -133,6 +133,14 @@ _S = {
                                     "Please convert it with another tool first."),
     "err.jsonshape": ("이 JSON은 표로 바꿀 수 없는 구조입니다. 목록 형태의 JSON만 지원해요.",
                       "This JSON has no tabular shape. Only list-style JSON is supported."),
+    # 3D 모델의 정점·면(삼각형) 개수가 이 앱이 정한 처리 한도(fbx.py의
+    # _MAX_VERTEX_COUNT/_MAX_FACE_COUNT)를 넘을 때 — "손상"이 아니라 "너무
+    # 큼"이라 err.corrupted 문구를 그대로 쓰면 사용자가 파일이 깨졌다고
+    # 오인할 수 있어 별도 문구를 둔다.
+    "err.too_large": ("이 파일의 모양(정점·면) 개수가 처리 한도를 초과해 변환을 멈췄습니다. "
+                      "더 단순한 모델로 다시 시도해 주세요.",
+                      "This file's shape (vertices/faces) exceeds the processing limit, "
+                      "so conversion was stopped. Please try a simpler model."),
     "err.cancelled": ("취소되었습니다", "Cancelled"),
     "note.simplified": ("레이아웃이 단순화될 수 있어요 — 텍스트·표 내용은 유지됩니다",
                         "Layout may be simplified — text and table contents are kept"),

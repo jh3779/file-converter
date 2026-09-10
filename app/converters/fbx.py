@@ -129,6 +129,23 @@ _MAX_TOTAL_ARRAY_BYTES = 512 * 1024 * 1024  # 파일 전체에서 누적되는 �
 _MAX_NODE_COUNT = 2_000_000  # 파일 전체 노드 개수 상한
 _MAX_NODE_DEPTH = 128  # 노드 트리 재귀 깊이 상한(스택 오버플로 방어 겸용)
 
+# 위 배열 상한들은 입력 단계(array.array로 압축 저장된 원시 배열)만
+# 지킨다 — `_extract_from_nodes`가 이 원시 배열을 (x, y, z)/(i, j, k)
+# 파이썬 튜플의 리스트로 다시 전개하는 순간, 원소 하나당 다시 개별 객체가
+# 생겨(위 _MAX_ARRAY_BYTES 주석과 같은 종류의 배율 문제) 입력 배열보다
+# 훨씬 큰 메모리를 쓰게 된다(4라운드 review 지적). 실측(CPython 3.x,
+# 64비트, sys.getsizeof 기준): (float,float,float) 튜플 하나는 튜플
+# 자체(72바이트) + float 객체 3개(24바이트씩, 72바이트) = 144바이트, 여기에
+# 리스트 슬롯 포인터(8바이트)를 더하면 정점 하나당 약 152바이트다. 면
+# (삼각형) 인덱스 튜플도 정수 객체 크기(캐싱 안 되는 큰 값 기준 28바이트씩)
+# 로 비슷하게 계산하면 약 164바이트다. 아래 상한(정점·면 각 1000만 개)은
+# 정점·면 리스트 각각 최대 약 1.4~1.5GiB로 순간 메모리를 고정 상한 안에
+# 묶어두면서도, 이 프로젝트의 실사용 범위(3D 프린팅용 단일 메시 — 보통
+# 수십만~수백만 삼각형, 사진측량 스캔 등 극단적 사례도 수백만~천만
+# 단위)에는 여유 있게 맞춘 값이다.
+_MAX_VERTEX_COUNT = 10_000_000  # 전체 Geometry 누적 정점 개수 상한
+_MAX_FACE_COUNT = 10_000_000  # 전체 Geometry 누적 면(삼각형) 개수 상한
+
 # 파싱 중 던져질 수 있는, "손상되거나 지원 범위 밖"으로 뭉뚱그려도 되는
 # 저수준 예외 — 전부 err.corrupted로 통일한다(model3d.py의 기존 관례와
 # 동일: trimesh.load() 실패도 broad except로 err.corrupted). TypeError도
@@ -215,6 +232,23 @@ def _read_properties(buf: bytes, pos: int, num_properties: int, budget: "_ParseB
                     raise ConversionError("err.corrupted", "fbx: 압축 해제 크기 불일치")
             else:
                 raise ConversionError("err.corrupted", f"fbx: 알 수 없는 배열 인코딩 {encoding}")
+            # raw의 실제 바이트 길이가 선언된 크기(declared_bytes)와 정확히
+            # 같은지 인코딩과 무관하게 공통으로 검증한다. 압축 분기(encoding==1)는
+            # 위에서 이미 같은 값을 확인했으니 여기선 중복 검증이라 괜찮다.
+            # 비압축 분기(encoding==0)는 `buf[pos:pos+n]` 슬라이싱이 buf가
+            # 그 길이를 다 못 채워도 예외 없이 더 짧은 bytes를 조용히
+            # 반환하기 때문에(파이썬 슬라이싱의 관용적 동작), 아래 fast path
+            # (`array.array(typecode, raw)`)는 len(raw)가 elem_size의
+            # 배수이기만 하면 선언된 원소 개수보다 적어도 그냥 성공해버린다
+            # — 파일이 중간에 잘렸는데도 조용히 더 짧은 배열로 파싱되는
+            # 방어 공백이었다(4라운드 review 지적). struct.unpack() 폴백
+            # 경로는 포맷 문자열이 정확한 원소 개수를 요구해 이미 암묵적으로
+            # 같은 역할을 하지만, 이 검증을 두 경로 공통으로 앞에 둬 대칭을
+            # 명확히 한다.
+            if len(raw) != declared_bytes:
+                raise ConversionError(
+                    "err.corrupted", "fbx: 배열 property의 실제 바이트 크기가 선언된 크기와 다름(파일이 잘렸을 수 있음)"
+                )
             fast_typecode = _ARRAY_FAST_PATH_TYPECODE.get(type_code)
             if fast_typecode is not None:
                 # array.array(typecode, raw)는 raw의 바이트를 그대로 C
@@ -450,6 +484,12 @@ def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, floa
                 raise ConversionError("err.corrupted", "fbx: Vertices 배열 길이가 3의 배수가 아님")
             base = len(all_vertices)
             local_vertex_count = len(flat) // 3
+            # 정점을 (x, y, z) 파이썬 튜플로 전개하며 누적하는 매 순간
+            # _MAX_VERTEX_COUNT를 확인한다 — 전개가 끝난 뒤에야 확인하면
+            # 이미 상한을 훨씬 넘는 튜플들이 다 만들어진 뒤라 상한을 둔
+            # 의미가 없어진다(_MAX_VERTEX_COUNT 주석 참고).
+            if base + local_vertex_count > _MAX_VERTEX_COUNT:
+                raise ConversionError("err.too_large", "fbx: 정점 개수가 허용 한도를 초과함")
             for i in range(0, len(flat), 3):
                 all_vertices.append(_apply_axis(matrix, flat[i], flat[i + 1], flat[i + 2]))
             poly_indices = poly_idx_node.properties[0]
@@ -480,6 +520,13 @@ def _extract_from_nodes(nodes: list["_FbxNode"]) -> tuple[list[tuple[float, floa
                         raise ConversionError("err.corrupted", "fbx: 폴리곤의 정점 수가 3 미만")
                     if holes is None or not holes[polygon_index]:
                         tris = list(_triangulate_fan(polygon))
+                        # 면을 (i, j, k) 파이썬 튜플로 만들어 누적하기
+                        # 직전에 확인한다 — 정점 상한과 같은 이유로, 이
+                        # 폴리곤의 삼각형들을 실제로 만들기 전에 확인해야
+                        # 상한을 넘는 만큼의 튜플이 먼저 만들어지는 것을
+                        # 막는다(_MAX_FACE_COUNT 주석 참고).
+                        if len(all_faces) + len(tris) > _MAX_FACE_COUNT:
+                            raise ConversionError("err.too_large", "fbx: 면(삼각형) 개수가 허용 한도를 초과함")
                         if flip_winding:
                             tris = [(c, b, a) for (a, b, c) in tris]
                         all_faces.extend(tris)
