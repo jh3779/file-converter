@@ -175,19 +175,29 @@ class TestFormatNote(unittest.TestCase):
     def test_fbx_to_obj_shows_local_transform_note(self):
         """DEC-069: FBX 소스는 Model 노드의 로컬 변환(위치/회전/스케일)과
         단위 배율을 적용하지 않는다는 알려진 한계를 대상 포맷과 무관하게
-        항상 고지한다."""
+        항상 고지한다. 8라운드 리뷰 지적(Medium) 반영: 머티리얼·색상·
+        텍스처는 이 파서의 범위 밖이라 아예 안 옮겨진다는 점과, 오목
+        다각형은 fan triangulation 특성상 삼각형화가 부정확할 수 있다는
+        점(알려진 한계 5번)도 같은 고지에 포함돼야 한다
+        (app/converters/fbx.py 모듈 docstring 참고)."""
         visible, text = self._note_for("fbx", "obj")
         self.assertTrue(visible)
         self.assertIn("위치", text)
+        self.assertIn("머티리얼", text)
+        self.assertIn("텍스처", text)
+        self.assertIn("오목", text)
 
-    def test_fbx_to_stl_shows_local_transform_note_not_color_note(self):
+    def test_fbx_to_stl_shows_fbx_note_not_stl_color_note(self):
         """FBX→STL은 STL 타깃 고지(note.stl_no_color)가 아니라 FBX 전용
         고지가 떠야 한다 — model3d.py의 `_update_note` STL 분기는 소스를
-        ("obj","ply","glb","gltf")로 한정해 fbx를 명시적으로 제외한다."""
+        ("obj","ply","glb","gltf")로 한정해 fbx를 명시적으로 제외한다.
+        FBX 고지 문구 자체도 이제 머티리얼·색상 손실을 언급하므로(위
+        테스트 참고) "색상"이라는 단어 유무가 아니라, STL 전용 고지
+        문자열 자체가 그대로 노출되지 않는지로 구분한다."""
         visible, text = self._note_for("fbx", "stl")
         self.assertTrue(visible)
         self.assertIn("위치", text)
-        self.assertNotIn("색상", text)
+        self.assertNotEqual(text, i18n.tr("note.stl_no_color"))
 
 
 if __name__ == "__main__":

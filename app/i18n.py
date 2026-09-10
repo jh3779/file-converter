@@ -172,17 +172,21 @@ _S = {
                              "If there's a table, cell contents are kept but "
                              "unwrapped into separate lines — column alignment "
                              "is lost since TXT can't represent tables"),
-    "note.fbx_source": ("모양(정점·면)과 좌표축은 그대로 옮겨지지만, 오브젝트의 "
+    "note.fbx_source": ("형태(정점·면)와 좌표축만 옮겨와요 — 오브젝트의 "
                         "위치·회전·크기 이동(로컬 변환)이나 씬 안의 단위 배율은 "
-                        "반영되지 않아요 — 이동·회전·크기 조정이 걸려 있지 않은 "
-                        "오브젝트만 정확하고, 이런 변환이 걸려 있으면 원점 "
-                        "근처라도 위치·회전·크기가 달라질 수 있어요",
-                        "Shape (vertices/faces) and coordinate axes carry over "
-                        "correctly, but each object's position/rotation/scale "
-                        "offset (local transform) and the scene's unit scale "
-                        "aren't applied — only objects with no such transform "
-                        "convert accurately; if position/rotation/scale is set, "
-                        "the result may differ even near the origin"),
+                        "반영되지 않고(이동·회전·크기 조정이 걸려 있지 않은 "
+                        "오브젝트만 정확, 걸려 있으면 원점 근처라도 위치·회전·"
+                        "크기가 달라질 수 있어요), 머티리얼·색상·텍스처는 아예 "
+                        "옮겨지지 않으며, 오목(안으로 파인) 다각형은 삼각형 "
+                        "분할이 부정확할 수 있어요",
+                        "Only shape (vertices/faces) and coordinate axes carry "
+                        "over — each object's position/rotation/scale offset "
+                        "(local transform) and the scene's unit scale aren't "
+                        "applied (only objects with no such transform convert "
+                        "accurately; if set, the result may differ even near "
+                        "the origin), materials/colors/textures aren't carried "
+                        "over at all, and non-convex polygons may be "
+                        "triangulated inaccurately"),
     "err.notyet": ("이 변환은 다음 버전에서 지원될 예정입니다.",
                    "This conversion is coming in a future update."),
 }
