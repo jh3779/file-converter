@@ -12,12 +12,15 @@
 python3 -m unittest discover -s tests -p "test_*.py"
 ```
 
-전체 263개 중 8개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
+전체 331개 중 8개는 로컬 환경에 따라 스킵된다(아래 "실행 조건" 참고).
 CI(`test` job, `.github/workflows/build.yml`)는 매 push/PR마다 이 명령을
 그대로 실행한다 — Java/LibreOffice/FFmpeg가 없는 가벼운 러너라 사이드카
 필요 테스트는 CI에서도 스킵되고, 그 부분은 `build-windows`/`build-macos`/
 `build-linux` job의 **엔진 스모크**(사이드카를 실제로 빌드해 직접 실행)가
 대신 게이트한다 — 이 문서 마지막 "자동 테스트가 못 잡는 것" 절 참고.
+CI에서는 `TestFbxArrayMaterializationMemory`·`TestFbxVertexFaceMaterializationMemory`
+(각 1건, 총 2건)가 추가로 스킵돼 총 10개가 스킵된다 — 아래 "실행 조건"
+범례의 "로컬 전용(CI 제외)" 참고.
 
 ## 실행 조건 범례
 
@@ -28,6 +31,7 @@ CI(`test` job, `.github/workflows/build.yml`)는 매 push/PR마다 이 명령을
 | JDK+hwpxlib | 로컬 hwpxlib 빌드 필요(위 사이드카도 함께 컴파일돼 있어야 함, `sh sidecar/hwp/build.sh`) | `spike/hwpxlib/RESULT.md` 절차 |
 | soffice | LibreOffice 설치(또는 배포판 번들) 필요 | `find_soffice()`가 찾는 경로에 설치 |
 | ffmpeg | FFmpeg 설치(또는 배포판 번들) 필요 | `find_ffmpeg()`가 찾는 경로에 설치 |
+| 로컬 전용(CI 제외) | `GITHUB_ACTIONS` 환경변수(GitHub Actions가 모든 job에 자동으로 `"true"`를 설정하는 공식 문서화된 변수)가 있으면 스킵 — 로컬 검증 가치는 유효하지만 CI에서 실행하면 안전 문제가 있는 테스트 | 로컬에서 직접 실행(CI 워크플로 수정 불필요) |
 
 ## 변환 경로별 커버리지
 
@@ -54,13 +58,14 @@ REQ-F ID·DEC는 `docs/01_requirements.md`·`docs/06_open_questions.md` 참고.
 | 위 감지를 백그라운드로 미뤄 UI 스레드를 안 막는지(DEC-067) | REQ-F-002, REQ-F-014, REQ-NF-006 | `test_file_detection_async.py` | 항상(모킹) |
 | 이미지↔이미지 | REQ-F-015, DEC-025 | `test_image.py::TestImageConversion` | 항상(Pillow) |
 | 3D 모델↔3D 모델(OBJ/STL/PLY/GLB/GLTF) | DEC-050 | `test_model3d.py::TestModel3DConversion` | 항상(trimesh) |
+| FBX→3D 모델(OBJ/STL/PLY/GLB/GLTF, 읽기 전용 단방향) — 비압축/압축 파싱(압축 해제 크기 상한·비압축 배열 절단 검증 포함), 좌표축 정규화(축·부호 값 자체 검증 포함), Connections 필터링, FBX 6.x 거부, Geometry별 인덱스 범위 방어(다중 Geometry 교차 오염 방지), LayerElementHole 처리, 파일/배열/노드/정점/면 자원 상한(면 상한은 종결자 없는 단일 폴리곤의 triangulation 우회까지 방어), 노드 end_offset의 부모/파일 경계 검증, 배열 property 자료구조(이중 물질화 방지, 메모리 사용량 실측 검증 포함), 정점·면 출력 자료구조(평탄 array.array 전환에 따른 피크 메모리 감소 실측 검증 포함), 파이프라인 왕복 | REQ-F-020, DEC-069 | `test_fbx.py`(`TestFbxParsing`·`TestFbxConvertPipeline`·`TestFbxRegistry`·`TestFbxRobustness`·`TestFbxLayerElementHole`·`TestFbxParserResourceLimits`·`TestFbxCompressedArrayBounds`·`TestFbxUncompressedArrayTruncation`·`TestFbxVertexFaceCountLimits`·`TestFbxFaceCountLimitBypassViaUnterminatedPolygon`·`TestFbxArrayMaterialization`·`TestFbxArrayMaterializationMemory`·`TestFbxVertexFaceMaterializationMemory`, 63건) | 항상(순수 Python + trimesh, 메모리 실측 테스트는 resource 모듈 필요 — Windows는 스킵. `TestFbxArrayMaterializationMemory`·`TestFbxVertexFaceMaterializationMemory`는 추가로 로컬 전용(CI 제외) — subprocess 기반 RSS 측정이 Linux CI 러너에서 이후 무관한 Qt 테스트를 무기한 정지시키는 현상이 확인돼 CI에서는 스킵) |
 | TXT/MD/HTML 상호 변환(6방향) | REQ-F-018, DEC-061 | `test_markup.py::TestMarkupConversion` | 항상(순수 Python) |
 
 ## UI·플랫폼·부가 기능 커버리지
 
 | 영역 | 관련 REQ/DEC | 테스트 파일 |
 |------|--------------|-------------|
-| 변환 전 단순화 고지 문구 | DEC-010·017·023·028·037·049·050·061 | `test_ui_notes.py::TestFormatNote`(20건, 모든 고지 키 조합) |
+| 변환 전 단순화 고지 문구 | DEC-010·017·023·028·037·049·050·061·069 | `test_ui_notes.py::TestFormatNote`(22건, 모든 고지 키 조합) |
 | 파일 목록 행(FileRow) — 미지원 형식 제거 버튼 | — | `test_ui_filerow.py` |
 | 결과 오버레이 — 저장 위치 안내 | REQ-F-008, DEC-042 | `test_ui_result_location.py` |
 | 결과 오버레이 — 저해상도 스크롤 | REQ-NF-008, DEC-045 | `test_ui_result_scroll.py` |
@@ -71,7 +76,7 @@ REQ-F ID·DEC는 `docs/01_requirements.md`·`docs/06_open_questions.md` 참고.
 | 업데이트 확인 — 버전 비교·네트워크 실패 처리 | REQ-F-013, DEC-022 | `test_update_check.py` |
 | LibreOffice 번들 경로 탐색(Windows·macOS) | DEC-029 | `test_office.py` |
 | 진단 로그 초기화 실패가 앱 구동을 막지 않는지 | DEC-067 | `test_logging_setup.py` |
-| AppData 경로 해석이 응답 없는 네트워크 경로에서도 타임아웃되어 창이 뜨는지(DEC-068) | REQ-NF-006 | `test_appdata.py` |
+| AppData 경로 해석이 응답 없는 네트워크 경로에서도 타임아웃되어 창이 뜨는지(DEC-068), 확정된 결과(성공 또는 확정된 실패)만 프로세스 생애 동안 캐시돼 `History()`를 반복 생성해도 스레드를 다시 스폰하지 않는지, 아직 안 끝난 타임아웃은 확정 캐시하지 않고 같은 스레드로 이어서 재시도하는지(DEC-070, CI 행 완화) | REQ-NF-006 | `test_appdata.py` |
 
 ## 자동 테스트가 못 잡는 것 → 다른 방법으로 게이트
 
@@ -87,6 +92,7 @@ REQ-F ID·DEC는 `docs/01_requirements.md`·`docs/06_open_questions.md` 참고.
 | `find_soffice()`의 Linux 번들 경로(`libreoffice/program/soffice`, 확장자 없음 — Windows `soffice.exe`·macOS `.app/Contents/MacOS/soffice`와 각각 다른 경로) | `test_office.py`는 Windows·macOS 경로만 테스트하고 Linux 전용 경로는 회귀 테스트가 없음(발견된 커버리지 갭) | 현재는 CI `build-linux` job의 엔진 스모크(실제 배포 레이아웃에서 실행)로만 게이트 — 유닛 테스트 추가는 별도 후속 과제 |
 | 백신 오탐(SmartScreen/Defender 격리) | 로컬·CI 환경의 백신 정책과 무관 | 실사용 중 관측 시 README/DEC로 사후 대응(DEC-033 선례) |
 | PDF→DOCX(`w:framePr` 절대 위치, DEC-037) 결과물이 실제 뷰어에서 어떻게 렌더링되는지 | python-docx는 XML 구조만 확인하지 실제 렌더링은 안 함 — DEC-055 검증 중 처음으로 `pdftoppm`+LibreOffice 렌더링을 직접 육안 확인해 글자가 잘려 보이는 결함을 발견, DEC-057로 수정 완료(fontTools로 실측한 Noto Sans KR 배율 반영). 다만 이 근본적 한계(자동 테스트는 XML 선언값만 확인, 픽셀 단위 렌더링은 못 봄) 자체는 여전함 — 이번처럼 육안 확인 없이는 유사한 결함이 또 있어도 못 잡을 수 있음 | 로컬에서 `soffice --headless --convert-to pdf`+`pdftoppm`로 재현·확인 가능(DEC-057에서 실제로 이렇게 검증) |
+| FBX 읽기(DEC-069) — 스키닝·다중 UV셋·머티리얼 등 이 파서 범위 밖 기능이 섞인 대형/복잡한 실사용 FBX(3ds Max 익스포트, 게임 에셋 등)에서의 동작 | `tests/fixtures/fbx/`는 ufbx 저장소의 단순한 Maya/Blender 샘플 7개뿐 — 이보다 훨씬 복잡한 실사용 파일의 구조적 변형(알 수 없는 노드 타입 조합 등)까지는 커버 못함 | 실사용 피드백을 받으며 발견되는 대로 fixture·파서를 확장(macOS/Windows/Linux 실기기 검증도 아직 없음, 06_open_questions.md 리스크 표 참고) |
 
 ## 새 기능을 추가할 때
 

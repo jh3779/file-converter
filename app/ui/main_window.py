@@ -27,6 +27,7 @@ _ICONS = {"docx": "📄", "pdf": "📄", "hwp": "📄", "hwpx": "📄", "txt": "
           "jpg": "🖼", "jpeg": "🖼", "png": "🖼", "bmp": "🖼", "gif": "🖼",
           "webp": "🖼", "tiff": "🖼",
           "obj": "🧊", "stl": "🧊", "ply": "🧊", "glb": "🧊", "gltf": "🧊",
+          "fbx": "🧊",  # 읽기 전용(DEC-069) — 다른 5개 3D 모델 포맷과 같은 아이콘
           converters.content_video_key(): "🎬"}
 
 
@@ -135,8 +136,14 @@ class FileRow(QFrame):
         프레임만 남는다는 고지(항상 단일 프레임으로 단순화). DEC-026: PDF →
         이미지(PNG/JPG, DEC-043) 선택 시 결과가 폴더로 저장된다는 고지.
         DEC-030: PDF → PPTX 선택 시 표 테두리·이미지는 옮겨지지 않는다는
-        고지(텍스트는 위치까지 재구성됨)."""
-        if self.item.target_fmt == "docx" and self.item.source_fmt == "pdf":
+        고지(텍스트는 위치까지 재구성됨). DEC-069: FBX 소스는 대상 포맷과
+        무관하게 항상 고지(note.fbx_source) — Model 노드의 로컬 변환
+        (위치/회전/스케일)과 단위 배율(UnitScaleFactor)을 적용하지 않는
+        알려진 한계(fbx.py 모듈 docstring 참고)를 모든 FBX 변환에 동일하게
+        보여준다(어떤 대상 포맷을 고르든 항상 같은 한계이므로)."""
+        if self.item.source_fmt == "fbx":
+            note_key = "note.fbx_source"
+        elif self.item.target_fmt == "docx" and self.item.source_fmt == "pdf":
             note_key = "note.pdf_to_docx"
         elif self.item.target_fmt == "docx" and self.item.source_fmt == "hwp":
             note_key = "note.simplified"

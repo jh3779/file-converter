@@ -1,6 +1,6 @@
 # app/converters/ 코드 노트 — 인덱스
 
-`app/converters/` 전체(16개 파일, 2642줄)에 대한 파일별 상세 설명
+`app/converters/` 전체(16개 파일, 3391줄)에 대한 파일별 상세 설명
 문서. 각 문서는 "의미 단위 블록 + 정확한 라인 번호"로 구성돼 있고,
 끝에 스스로 점검할 수 있는 질문을 붙여뒀다. 원본 코드가 바뀌면 이
 노트도 낡을 수 있으니, 실제 동작이 궁금하면 항상 `app/converters/`의
@@ -16,17 +16,18 @@
 | 4 | `markup.py` | [markup.md](markup.md) | TXT/MD/HTML 6방향 상호 변환 |
 | 5 | `image.py` | [image.md](image.md) | 이미지 상호 변환(Pillow) — EXIF·알파 합성·애니메이션 |
 | 6 | `model3d.py` | [model3d.md](model3d.md) | 3D 모델(OBJ/STL/PLY/GLB/GLTF) 상호 변환(trimesh) |
-| 7 | `video.py` | [video.md](video.md) | 영상→MP4(FFmpeg 서브프로세스) — 스트림 카피/재인코딩 |
-| 8 | `office.py` | [office.md](office.md) | DOCX/PPTX→PDF(LibreOffice 서브프로세스) |
-| 9 | `docx_build.py` | [docx_build.md](docx_build.md) | "구조 블록(blocks JSON)" → DOCX 생성 — HWP/HWPX/PDF→DOCX 공용 |
-| 10 | `hwp.py` | [hwp.md](hwp.md) | HWP 변환(Java 사이드카 호출) — `_run_sidecar`의 정본 |
-| 11 | `hwpx.py` | [hwpx.md](hwpx.md) | HWPX 변환 — hwp.py와 거의 완전 대칭 |
-| 12 | `pdf.py` | [pdf.md](pdf.md) | PDF 읽기 공유 프리미티브(정렬 추정·서식 감지·도형 추출) + PDF→TXT/이미지 |
-| 13 | `pdf_docx.py` | [pdf_docx.md](pdf_docx.md) | PDF→DOCX — 줄 단위 절대 위치(`w:framePr`) 재구성 |
-| 14 | `docx_extract.py` | [docx_extract.md](docx_extract.md) | DOCX → "구조 블록" — docx_build.py의 역방향, 번호 매기기·병합 감지 |
-| 15 | `pdf_pptx.py` | [pdf_pptx.md](pdf_pptx.md) | PDF→PPTX — python-pptx 셰이프 API로 재구성 |
+| 7 | `fbx.py` | [fbx.md](fbx.md) | FBX(Autodesk) 읽기 전용(순수 Python 자체 바이너리 파서) — model3d.py가 소스가 FBX일 때만 호출 |
+| 8 | `video.py` | [video.md](video.md) | 영상→MP4(FFmpeg 서브프로세스) — 스트림 카피/재인코딩 |
+| 9 | `office.py` | [office.md](office.md) | DOCX/PPTX→PDF(LibreOffice 서브프로세스) |
+| 10 | `docx_build.py` | [docx_build.md](docx_build.md) | "구조 블록(blocks JSON)" → DOCX 생성 — HWP/HWPX/PDF→DOCX 공용 |
+| 11 | `hwp.py` | [hwp.md](hwp.md) | HWP 변환(Java 사이드카 호출) — `_run_sidecar`의 정본 |
+| 12 | `hwpx.py` | [hwpx.md](hwpx.md) | HWPX 변환 — hwp.py와 거의 완전 대칭 |
+| 13 | `pdf.py` | [pdf.md](pdf.md) | PDF 읽기 공유 프리미티브(정렬 추정·서식 감지·도형 추출) + PDF→TXT/이미지 |
+| 14 | `pdf_docx.py` | [pdf_docx.md](pdf_docx.md) | PDF→DOCX — 줄 단위 절대 위치(`w:framePr`) 재구성 |
+| 15 | `docx_extract.py` | [docx_extract.md](docx_extract.md) | DOCX → "구조 블록" — docx_build.py의 역방향, 번호 매기기·병합 감지 |
+| 16 | `pdf_pptx.py` | [pdf_pptx.md](pdf_pptx.md) | PDF→PPTX — python-pptx 셰이프 API로 재구성 |
 
-(참고: `docx_extract.py`를 14번에 둔 이유는 `hwp.py`/`hwpx.py`의
+(참고: `docx_extract.py`를 15번에 둔 이유는 `hwp.py`/`hwpx.py`의
 `docx_to_hwp`/`docx_to_hwpx`가 이 파일을 호출한다는 걸 먼저 안 뒤에
 보는 게 맥락이 잡히기 때문. `pdf.py`→`pdf_docx.py`→`docx_extract.py`
 →`pdf_pptx.py` 순서로 읽어도 무방하다.)
@@ -35,8 +36,12 @@
 
 ```
 __init__.py (TARGETS/_DISPATCH 레지스트리)
-  ├─ data.py, markup.py, image.py, model3d.py, video.py, office.py
+  ├─ data.py, markup.py, image.py, video.py, office.py
   │    (각자 독립적으로 완결됨)
+  │
+  ├─ model3d.py (소스가 .fbx면 내부적으로 분기)
+  │    └─ fbx.py (읽기 전용, 순수 Python 바이너리 파서 — trimesh가
+  │         자체 지원 안 하는 FBX만 담당, 그 외 4개 포맷은 안 거침)
   │
   ├─ hwp.py ──┬─ docx_build.py (HWP→DOCX)
   │           ├─ docx_extract.py (DOCX→HWP)

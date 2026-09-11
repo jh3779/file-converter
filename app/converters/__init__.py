@@ -8,6 +8,8 @@ from pathlib import Path
 
 from .base import ConversionError
 from . import data, pdf, pdf_docx, pdf_pptx, office, hwp, hwpx, video, image, model3d, markup
+# fbx는 여기서 직접 참조하지 않는다 — model3d.convert_3d가 소스 확장자로
+# 내부 분기해 호출한다(model3d.py 참고), __init__.py는 dispatch만 재사용.
 
 TARGETS: dict[str, list[str]] = {
     "docx": ["pdf", "hwp", "hwpx"],  # DEC-017/DEC-028 — 표는 실제 HWP/HWPX 표로 생성됨(셀 안 서식 제외). hwpx: DEC-049
@@ -60,6 +62,16 @@ for _src in _MODEL3D_EXTS:
     TARGETS[_src] = [t for t in _MODEL3D_EXTS if t != _src]
 del _src
 
+# FBX(Autodesk) — 읽기 전용(DEC-069 · OQ-007, app/converters/fbx.py 참고).
+# `ufbx`(네이티브 확장)가 세그폴트로 채택 불가해 순수 Python 자체 파서로
+# 직접 구현했는데, 그 파서는 쓰기(export)를 아예 구현하지 않았다(`ufbx`
+# 자체도 로더 전용이었던 것과 같은 제약). 그래서 위 `_MODEL3D_EXTS`
+# 루프처럼 대칭적으로 넣지 않고, "fbx" 소스에서만 단방향으로 나머지
+# 4개 포맷을 노출한다 — 다른 4개 포맷(OBJ/STL/PLY/GLB/GLTF)의 TARGETS에는
+# "fbx"가 절대 들어가면 안 된다(대상으로 노출하면 존재하지 않는 FBX
+# 쓰기 기능을 약속하는 셈이라 TARGETS의 "가능한 것만 노출" 원칙 위반).
+TARGETS["fbx"] = list(_MODEL3D_EXTS)
+
 # TXT/MD/HTML 상호 변환(DEC-061) — 이미지·3D 모델과 같은 "포맷 집합 내
 # 전원이 서로 변환 가능" 패턴. 자기 자신으로의 "변환"은 노출하지 않는다.
 _MARKUP_EXTS = ("txt", "md", "html")
@@ -94,6 +106,11 @@ _DISPATCH = {
        for src in _IMAGE_SRC_EXTS for tgt in TARGETS[src]},
     **{(src, tgt): partial(model3d.convert_3d, target_ext=tgt)
        for src in _MODEL3D_EXTS for tgt in TARGETS[src]},
+    # FBX → 5개 포맷(단방향, 위 TARGETS["fbx"] 주석 참고) — model3d.convert_3d가
+    # 소스 확장자 ".fbx"를 보고 내부적으로 fbx.load_trimesh()로 분기한다
+    # (model3d.py 참고), 그 이후 내보내기 경로는 다른 4개 포맷과 동일해
+    # 여기 dispatch 자체는 동일한 함수를 재사용한다.
+    **{("fbx", tgt): partial(model3d.convert_3d, target_ext=tgt) for tgt in TARGETS["fbx"]},
     ("txt", "html"): markup.txt_to_html,  # DEC-061
     ("txt", "md"): markup.txt_to_md,
     ("md", "html"): markup.md_to_html,

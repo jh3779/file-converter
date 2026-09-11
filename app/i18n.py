@@ -133,6 +133,14 @@ _S = {
                                     "Please convert it with another tool first."),
     "err.jsonshape": ("이 JSON은 표로 바꿀 수 없는 구조입니다. 목록 형태의 JSON만 지원해요.",
                       "This JSON has no tabular shape. Only list-style JSON is supported."),
+    # 3D 모델의 정점·면(삼각형) 개수가 이 앱이 정한 처리 한도(fbx.py의
+    # _MAX_VERTEX_COUNT/_MAX_FACE_COUNT)를 넘을 때 — "손상"이 아니라 "너무
+    # 큼"이라 err.corrupted 문구를 그대로 쓰면 사용자가 파일이 깨졌다고
+    # 오인할 수 있어 별도 문구를 둔다.
+    "err.too_large": ("이 파일의 모양(정점·면) 개수가 처리 한도를 초과해 변환을 멈췄습니다. "
+                      "더 단순한 모델로 다시 시도해 주세요.",
+                      "This file's shape (vertices/faces) exceeds the processing limit, "
+                      "so conversion was stopped. Please try a simpler model."),
     "err.cancelled": ("취소되었습니다", "Cancelled"),
     "note.simplified": ("레이아웃이 단순화될 수 있어요 — 텍스트·표 내용은 유지됩니다",
                         "Layout may be simplified — text and table contents are kept"),
@@ -164,6 +172,21 @@ _S = {
                              "If there's a table, cell contents are kept but "
                              "unwrapped into separate lines — column alignment "
                              "is lost since TXT can't represent tables"),
+    "note.fbx_source": ("형태(정점·면)와 좌표축만 옮겨와요 — 오브젝트의 "
+                        "위치·회전·크기 이동(로컬 변환)이나 씬 안의 단위 배율은 "
+                        "반영되지 않고(이동·회전·크기 조정이 걸려 있지 않은 "
+                        "오브젝트만 정확, 걸려 있으면 원점 근처라도 위치·회전·"
+                        "크기가 달라질 수 있어요), 머티리얼·색상·텍스처는 아예 "
+                        "옮겨지지 않으며, 오목(안으로 파인) 다각형은 삼각형 "
+                        "분할이 부정확할 수 있어요",
+                        "Only shape (vertices/faces) and coordinate axes carry "
+                        "over — each object's position/rotation/scale offset "
+                        "(local transform) and the scene's unit scale aren't "
+                        "applied (only objects with no such transform convert "
+                        "accurately; if set, the result may differ even near "
+                        "the origin), materials/colors/textures aren't carried "
+                        "over at all, and non-convex polygons may be "
+                        "triangulated inaccurately"),
     "err.notyet": ("이 변환은 다음 버전에서 지원될 예정입니다.",
                    "This conversion is coming in a future update."),
 }
