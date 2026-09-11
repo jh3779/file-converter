@@ -1,0 +1,29 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  # ruff는 pyproject.toml의 dev 의존성 그룹(uv)을 그대로 쓴다 — pre-commit이
+  # 별도로 미러링한 버전을 또 관리하면 두 버전이 갈라질 수 있어(uv.lock이
+  # 이미 유일한 정본), `uv run`으로 이 저장소가 실제로 설치한 ruff를 그대로
+  # 호출하는 local 훅으로 둔다.
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]

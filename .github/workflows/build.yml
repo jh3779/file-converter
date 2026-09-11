@@ -19,12 +19,16 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install system libs for Qt (headless)
         run: sudo apt-get update && sudo apt-get install -y libegl1 libgl1
-      - run: pip install -r requirements.txt
+      - run: uv sync --locked
+      - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Run tests (offscreen)
         env:
           QT_QPA_PLATFORM: offscreen
@@ -34,7 +38,7 @@ jobs:
           # 원인은 이미 확정됐지만, 정상 실행엔 영향이 없고 향후 비슷한
           # 행이 재발하면 즉시 스택 트레이스를 얻을 수 있어 계속 유지한다.
           PYTHONFAULTHANDLER: "1"
-        run: timeout --signal=ABRT --kill-after=10 120 python -m unittest discover tests -v
+        run: timeout --signal=ABRT --kill-after=10 120 uv run python -m unittest discover tests -v
 
   build-windows:
     # Windows 배포 잡(REQ-NF-001 — Windows·macOS·Linux 모두 배포 대상, 아래
@@ -74,6 +78,9 @@ jobs:
       FFMPEG_SHA256: bc1036c74bb1f059a4cb5d08436783df32ddcf854cb11e36b9c1d7f2c3b097e0
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -81,9 +88,14 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - run: pip install -r requirements.txt pyinstaller
-        # python-pptx는 이제 requirements.txt의 실제 런타임 의존성이다
-        # (PDF→PPTX, DEC-030) — 별도로 다시 설치할 필요 없음.
+      - run: uv sync --locked
+        # pyinstaller는 pyproject.toml의 dev 의존성 그룹에 있어 uv sync가
+        # 항상 같이 설치한다(dev-dependencies도 매 릴리스 빌드에 필요하므로
+        # --no-group 등으로 뺄 이유가 없다). python-pptx도 프로덕션 의존성에
+        # 포함(PDF→PPTX, DEC-030) — 따로 설치할 필요 없음.
+      - name: Add uv venv to PATH
+        shell: pwsh
+        run: echo "$PWD\.venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - name: Build HWP engine (hwplib + hwpxlib + sidecar + jlink JRE)
         shell: pwsh
         run: |
@@ -917,6 +929,9 @@ jobs:
       NOTOKR_SHA256: ac7eeb4e2b0d41de8ff31b2d6e1e2a41caf253fd5cefb380bfa1f40f1747b612
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -924,7 +939,8 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      - run: pip install -r requirements.txt pyinstaller
+      - run: uv sync --locked
+      - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Build HWP engine (hwplib + hwpxlib + sidecar + jlink JRE)
         run: |
           git clone https://github.com/neolord0/hwplib.git hwplib-src
@@ -1664,6 +1680,9 @@ jobs:
       APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -1699,7 +1718,8 @@ jobs:
             libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-render0 \
             libxcb-shape0 libxcb-shm0 libxcb-sync1 libxcb-xfixes0 \
             libxcb-xinerama0 libxcb-xkb1 libxcb-util1
-      - run: pip install -r requirements.txt pyinstaller
+      - run: uv sync --locked
+      - run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
       - name: Build HWP engine (hwplib + hwpxlib + sidecar + jlink JRE)
         run: |
           git clone https://github.com/neolord0/hwplib.git hwplib-src
