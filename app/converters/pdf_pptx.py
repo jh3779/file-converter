@@ -4,6 +4,7 @@ python-pptx 셰이프 API로 슬라이드를 만든다. pdf_docx.py(DOCX 전용 
 작성 어댑터)와 대칭인 구조 — 구조 감사(2026-08)에서 세 관심사(공유 추출·
 DOCX 작성·PPTX 작성)가 pdf.py 한 파일에 섞여 있던 것을 분리했다.
 """
+
 from pathlib import Path
 
 from .base import ConversionError
@@ -33,8 +34,8 @@ def pdf_to_pptx(src: Path, tmpdir: Path) -> Path:
     감지되지 않는 경우가 흔함(pdf_to_docx와 동일한 제약).
     """
     from pptx import Presentation
-    from pptx.util import Emu, Pt
     from pptx.enum.text import MSO_ANCHOR
+    from pptx.util import Emu, Pt
 
     EMU_PER_PT = 12700
     image_dir = tmpdir / "_pdf_pptx_images"
@@ -106,10 +107,7 @@ def _extract_pdf_layout(src: Path, image_dir: Path) -> list[dict]:
                     runs = _container_to_runs(line)
                     if runs:
                         lines.append({"bbox": line.bbox, "runs": runs})
-            visuals = [
-                v for item in _iter_visuals(page)
-                if (v := _visual_to_dict(item, writer, image_dir)) is not None
-            ]
+            visuals = [v for item in _iter_visuals(page) if (v := _visual_to_dict(item, writer, image_dir)) is not None]
             pages.append({"width": page.width, "height": page.height, "lines": lines, "visuals": visuals})
     except PDFPasswordIncorrect:
         raise ConversionError("err.password")
@@ -144,8 +142,10 @@ def _add_visual_to_slide(slide, visual: dict, page_h: float, emu_per_pt: int):
         lx1, ly1 = visual["p1"]
         conn = slide.shapes.add_connector(
             MSO_CONNECTOR.STRAIGHT,
-            Emu(round(lx0 * emu_per_pt)), Emu(round((page_h - ly0) * emu_per_pt)),
-            Emu(round(lx1 * emu_per_pt)), Emu(round((page_h - ly1) * emu_per_pt)),
+            Emu(round(lx0 * emu_per_pt)),
+            Emu(round((page_h - ly0) * emu_per_pt)),
+            Emu(round(lx1 * emu_per_pt)),
+            Emu(round((page_h - ly1) * emu_per_pt)),
         )
         if visual["stroke"]:
             conn.line.color.rgb = RGBColor(*visual["stroke"])
@@ -164,8 +164,7 @@ def _add_visual_to_slide(slide, visual: dict, page_h: float, emu_per_pt: int):
             return
         start_x, start_y = pts[0][0] * emu_per_pt, (page_h - pts[0][1]) * emu_per_pt
         fb = slide.shapes.build_freeform(start_x=start_x, start_y=start_y, scale=1.0)
-        fb.add_line_segments(
-            [(px * emu_per_pt, (page_h - py) * emu_per_pt) for px, py in pts[1:]], close=True)
+        fb.add_line_segments([(px * emu_per_pt, (page_h - py) * emu_per_pt) for px, py in pts[1:]], close=True)
         shape = fb.convert_to_shape()
 
     if visual.get("fill"):

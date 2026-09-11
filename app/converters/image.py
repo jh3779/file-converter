@@ -10,13 +10,19 @@ EXIF 방향 정보를 반영해 회전된 사진이 옆으로 눕는 문제를 �
 조용한 유실을 막기 위해 변환 전 UI에 고지한다(main_window.py
 note.image_first_frame).
 """
+
 from pathlib import Path
 
 from .base import ConversionError
 
 _PILLOW_FORMAT = {
-    "jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "bmp": "BMP",
-    "gif": "GIF", "webp": "WEBP", "tiff": "TIFF",
+    "jpg": "JPEG",
+    "jpeg": "JPEG",
+    "png": "PNG",
+    "bmp": "BMP",
+    "gif": "GIF",
+    "webp": "WEBP",
+    "tiff": "TIFF",
 }
 _NO_ALPHA_FORMATS = {"JPEG", "BMP"}
 
@@ -25,6 +31,7 @@ def is_animated(src: Path) -> bool:
     """다중 프레임(애니메이션) 이미지인지 — UI 고지 판단용. 못 열면 False(실제
     실패는 변환 시도 시 err.corrupted로 다시 드러남)."""
     from PIL import Image
+
     try:
         with Image.open(src) as im:
             return getattr(im, "n_frames", 1) > 1
@@ -33,8 +40,7 @@ def is_animated(src: Path) -> bool:
 
 
 def convert_image(src: Path, tmpdir: Path, target_ext: str) -> Path:
-    from PIL import Image, ImageOps
-    from PIL import UnidentifiedImageError
+    from PIL import Image, ImageOps, UnidentifiedImageError
 
     fmt = _PILLOW_FORMAT[target_ext]
     try:
@@ -45,8 +51,7 @@ def convert_image(src: Path, tmpdir: Path, target_ext: str) -> Path:
     with im:
         im = ImageOps.exif_transpose(im)
         if fmt in _NO_ALPHA_FORMATS:
-            has_alpha = im.mode in ("RGBA", "LA") or (
-                im.mode == "P" and "transparency" in im.info)
+            has_alpha = im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info)
             if has_alpha:
                 im = im.convert("RGBA")
                 bg = Image.new("RGB", im.size, (255, 255, 255))

@@ -1,4 +1,5 @@
 """확장자 없는/알 수 없는 영상의 콘텐츠 기반 감지 회귀 테스트."""
+
 import shutil
 import tempfile
 import unittest
@@ -9,7 +10,6 @@ from app import converters
 from app.converters import video
 from app.models import FileItem
 from app.output import finalize
-
 
 _H264_STREAM = {
     "index": 0,
@@ -29,8 +29,10 @@ class TestContentBasedVideoDetection(unittest.TestCase):
     def test_dotted_numeric_suffix_is_detected_by_content(self):
         src = self.tmp / "26.09.06"
         src.write_bytes(b"fake")
-        with patch.object(converters, "_VIDEO_AVAILABLE", True), \
-             patch("app.converters.video.can_convert_to_mp4", return_value=True):
+        with (
+            patch.object(converters, "_VIDEO_AVAILABLE", True),
+            patch("app.converters.video.can_convert_to_mp4", return_value=True),
+        ):
             self.assertTrue(converters.is_content_detected_video(src))
             self.assertEqual(converters.targets_for_source(src), ["mp4"])
             item = FileItem(id=1, source=src, source_fmt="06")
@@ -40,16 +42,20 @@ class TestContentBasedVideoDetection(unittest.TestCase):
     def test_extensionless_file_is_detected_by_content(self):
         src = self.tmp / "recording"
         src.write_bytes(b"fake")
-        with patch.object(converters, "_VIDEO_AVAILABLE", True), \
-             patch("app.converters.video.can_convert_to_mp4", return_value=True):
+        with (
+            patch.object(converters, "_VIDEO_AVAILABLE", True),
+            patch("app.converters.video.can_convert_to_mp4", return_value=True),
+        ):
             item = FileItem(id=1, source=src, source_fmt="")
         self.assertEqual(item.source_fmt, converters.content_video_key())
 
     def test_real_dot_video_extension_does_not_bypass_content_validation(self):
         src = self.tmp / "clip.video"
         src.write_bytes(b"not-video")
-        with patch.object(converters, "_VIDEO_AVAILABLE", True), \
-             patch("app.converters.video.can_convert_to_mp4", return_value=False):
+        with (
+            patch.object(converters, "_VIDEO_AVAILABLE", True),
+            patch("app.converters.video.can_convert_to_mp4", return_value=False),
+        ):
             item = FileItem(id=1, source=src, source_fmt="video")
             self.assertFalse(converters.supported_source(src))
         self.assertEqual(item.source_fmt, "video")
@@ -88,8 +94,10 @@ class TestContentBasedVideoDetection(unittest.TestCase):
     def test_existing_mp4_is_not_exposed_as_content_detected_video(self):
         src = self.tmp / "clip.mp4"
         src.write_bytes(b"real-mp4")
-        with patch.object(converters, "_VIDEO_AVAILABLE", True), \
-             patch("app.converters.video.can_convert_to_mp4", return_value=True):
+        with (
+            patch.object(converters, "_VIDEO_AVAILABLE", True),
+            patch("app.converters.video.can_convert_to_mp4", return_value=True),
+        ):
             self.assertFalse(converters.is_content_detected_video(src))
             self.assertEqual(converters.targets_for_source(src), [])
             self.assertFalse(converters.supported_source(src))
@@ -102,9 +110,11 @@ class TestContentBasedVideoDetection(unittest.TestCase):
         src = self.tmp / "26.09.06"
         src.write_bytes(b"fake")
         produced = self.tmp / "26.09.mp4"
-        with patch.object(converters, "_VIDEO_AVAILABLE", True), \
-             patch("app.converters.video.can_convert_to_mp4", return_value=True), \
-             patch("app.converters.video.video_to_mp4", return_value=produced) as convert_mock:
+        with (
+            patch.object(converters, "_VIDEO_AVAILABLE", True),
+            patch("app.converters.video.can_convert_to_mp4", return_value=True),
+            patch("app.converters.video.video_to_mp4", return_value=produced) as convert_mock,
+        ):
             out = converters.convert(src, "mp4", self.tmp)
         self.assertEqual(out, produced)
         convert_mock.assert_called_once_with(src, self.tmp)

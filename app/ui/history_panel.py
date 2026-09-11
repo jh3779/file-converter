@@ -5,12 +5,19 @@ main_window.py에 응집돼 있던 패널 구성·렌더링을 분리했다(구�
 받아 그 위에 필요한 위젯을 속성으로 붙이거나 조작한다 — 테스트가
 `win.hist_list`처럼 직접 접근하는 기존 방식을 그대로 유지하기 위해서다.
 """
+
 from pathlib import Path
 
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ..i18n import tr
@@ -108,8 +115,7 @@ def reload(win):
         if e.success and not Path(e.output_path).exists():
             meta_text = tr("history.notfound")
         meta = QLabel(meta_text)
-        meta.setStyleSheet(
-            f'font-family:"Menlo","Consolas",monospace;font-size:9px;color:{t["onSurfaceVariant"]};')
+        meta.setStyleSheet(f'font-family:"Menlo","Consolas",monospace;font-size:9px;color:{t["onSurfaceVariant"]};')
         col.addWidget(name)
         col.addWidget(meta)
         rl.addLayout(col, 1)
@@ -120,7 +126,9 @@ def reload(win):
             # PDF→이미지(DEC-025)처럼 결과물이 폴더면 그 폴더를 직접 연다.
             open_btn.clicked.connect(
                 lambda _, p=e.output_path: QDesktopServices.openUrl(
-                    QUrl.fromLocalFile(str(Path(p) if Path(p).is_dir() else Path(p).parent))))
+                    QUrl.fromLocalFile(str(Path(p) if Path(p).is_dir() else Path(p).parent))
+                )
+            )
             rl.addWidget(open_btn)
         del_btn = QPushButton("🗑")
         del_btn.setProperty("variant", "icon")
@@ -132,7 +140,6 @@ def reload(win):
 
 
 def confirm_clear(win):
-    if win._safe_dialog(tr("dlg.clear.title"), tr("dlg.clear.body"),
-                         tr("cancel"), tr("dlg.clear.confirm")):
+    if win._safe_dialog(tr("dlg.clear.title"), tr("dlg.clear.body"), tr("cancel"), tr("dlg.clear.confirm")):
         win.history.clear()
         reload(win)

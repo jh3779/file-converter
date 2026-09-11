@@ -2,33 +2,68 @@
 
 원스크린 드롭존(DEC-006) · 결과는 오버레이(DEC-008) · 언어 ko/en(DEC-009).
 """
+
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QAction, QActionGroup, QDesktopServices
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QMainWindow, QMenu, QProgressBar, QPushButton,
-    QVBoxLayout, QWidget,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMenu,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
 
-from . import history_panel, job_controller, result_panel
 from .. import converters, i18n, update_check
 from ..history import History
 from ..i18n import tr
 from ..models import FileItem, ItemState
 from ..update_check import UpdateChecker
 from ..workers import FileDetectionSignals, Job, create_file_item_async
+from . import history_panel, job_controller, result_panel
 
-_ICONS = {"docx": "📄", "pdf": "📄", "hwp": "📄", "hwpx": "📄", "txt": "📄", "pptx": "📽",
-          "csv": "📊", "xlsx": "📊", "json": "📊",
-          "avi": "🎬", "mov": "🎬", "mkv": "🎬", "wmv": "🎬", "flv": "🎬",
-          "webm": "🎬", "m4v": "🎬",
-          "jpg": "🖼", "jpeg": "🖼", "png": "🖼", "bmp": "🖼", "gif": "🖼",
-          "webp": "🖼", "tiff": "🖼",
-          "obj": "🧊", "stl": "🧊", "ply": "🧊", "glb": "🧊", "gltf": "🧊",
-          "fbx": "🧊",  # 읽기 전용(DEC-069) — 다른 5개 3D 모델 포맷과 같은 아이콘
-          converters.content_video_key(): "🎬"}
+_ICONS = {
+    "docx": "📄",
+    "pdf": "📄",
+    "hwp": "📄",
+    "hwpx": "📄",
+    "txt": "📄",
+    "pptx": "📽",
+    "csv": "📊",
+    "xlsx": "📊",
+    "json": "📊",
+    "avi": "🎬",
+    "mov": "🎬",
+    "mkv": "🎬",
+    "wmv": "🎬",
+    "flv": "🎬",
+    "webm": "🎬",
+    "m4v": "🎬",
+    "jpg": "🖼",
+    "jpeg": "🖼",
+    "png": "🖼",
+    "bmp": "🖼",
+    "gif": "🖼",
+    "webp": "🖼",
+    "tiff": "🖼",
+    "obj": "🧊",
+    "stl": "🧊",
+    "ply": "🧊",
+    "glb": "🧊",
+    "gltf": "🧊",
+    "fbx": "🧊",  # 읽기 전용(DEC-069) — 다른 5개 3D 모델 포맷과 같은 아이콘
+    converters.content_video_key(): "🎬",
+}
 
 
 def _display_fmt(fmt: str) -> str:
@@ -36,6 +71,7 @@ def _display_fmt(fmt: str) -> str:
     if fmt == converters.content_video_key():
         return tr("fmt.detectedVideo")
     return fmt.upper()
+
 
 _BADGE = {  # state → (bg 토큰, fg 토큰, i18n 키)
     ItemState.QUEUED: ("stQueuedBg", "stQueuedFg", "st.queued"),
@@ -60,7 +96,11 @@ class FileRow(QFrame):
         lay.setContentsMargins(10, 6, 10, 6)
         lay.setSpacing(8)
 
-        self.icon = QLabel(_ICONS.get(item.source_fmt, "🚫") if item.target_fmt is not None or converters.supported(item.source_fmt) else "🚫")
+        self.icon = QLabel(
+            _ICONS.get(item.source_fmt, "🚫")
+            if item.target_fmt is not None or converters.supported(item.source_fmt)
+            else "🚫"
+        )
         lay.addWidget(self.icon)
 
         mid = QVBoxLayout()
@@ -164,13 +204,20 @@ class FileRow(QFrame):
             note_key = "note.pdf_to_pptx"
         elif self.item.target_fmt == "csv" and self.item.source_fmt == "xlsx":
             from ..converters.data import xlsx_sheet_count
+
             note_key = "note.xlsx_multisheet" if xlsx_sheet_count(self.item.source) > 1 else None
-        elif (self.item.source_fmt in ("gif", "webp", "tiff")
-              and self.item.target_fmt in ("jpg", "png", "bmp", "gif", "webp", "tiff")):
+        elif self.item.source_fmt in ("gif", "webp", "tiff") and self.item.target_fmt in (
+            "jpg",
+            "png",
+            "bmp",
+            "gif",
+            "webp",
+            "tiff",
+        ):
             from ..converters.image import is_animated
+
             note_key = "note.image_first_frame" if is_animated(self.item.source) else None
-        elif (self.item.target_fmt == "stl"
-              and self.item.source_fmt in ("obj", "ply", "glb", "gltf")):
+        elif self.item.target_fmt == "stl" and self.item.source_fmt in ("obj", "ply", "glb", "gltf"):
             # STL 포맷 자체에 색상/재질 필드가 없어(model3d.py에서 직접
             # 재현 확인 — 빨간 정육면체가 STL로 나가면 회색이 됨) 다른
             # 3D 포맷에서 STL로 갈 때만 고지한다(형태 자체는 항상 보존됨).
@@ -184,8 +231,7 @@ class FileRow(QFrame):
         else:
             note_key = None
         if note_key:
-            self.reason.setStyleSheet(
-                f"color:{self.tokens['onSurfaceVariant']};font-size:11px;")
+            self.reason.setStyleSheet(f"color:{self.tokens['onSurfaceVariant']};font-size:11px;")
             self.reason.setText(tr(note_key))
             self.reason.show()
         else:
@@ -204,12 +250,11 @@ class FileRow(QFrame):
         if it.state == ItemState.QUEUED and not self.badge.isVisible() and self.combo.isVisible():
             pass  # 목록 편집 중엔 배지 없음
         bg, fg, key = _BADGE[it.state]
-        icon = {"st.queued": "🕘", "st.converting": "⟳", "st.done": "✓",
-                "st.failed": "⚠", "st.skipped": "→"}[key]
+        icon = {"st.queued": "🕘", "st.converting": "⟳", "st.done": "✓", "st.failed": "⚠", "st.skipped": "→"}[key]
         self.badge.setText(f"{icon} {tr(key)}")
         self.badge.setStyleSheet(
-            f"background:{t[bg]};color:{t[fg]};border-radius:10px;"
-            "padding:2px 10px;font-size:11px;font-weight:600;")
+            f"background:{t[bg]};color:{t[fg]};border-radius:10px;padding:2px 10px;font-size:11px;font-weight:600;"
+        )
         self.setProperty("failed", "true" if it.state == ItemState.FAILED else "false")
         self.style().unpolish(self)
         self.style().polish(self)
@@ -235,8 +280,7 @@ class FileRow(QFrame):
             # 항상 False) — set_locked()가 combo에 setVisible()로 남긴 잠금
             # 상태를 그대로 재사용한다.
             if self.combo.isHidden() and self.item.target_fmt:
-                self.fmt_label.setText(
-                    f"{_display_fmt(self.item.source_fmt)} → {self.item.target_fmt.upper()}")
+                self.fmt_label.setText(f"{_display_fmt(self.item.source_fmt)} → {self.item.target_fmt.upper()}")
             else:
                 self.fmt_label.setText(_display_fmt(self.item.source_fmt) + " →")
         if self.badge.isVisible():
@@ -316,7 +360,8 @@ class MainWindow(QMainWindow):
         self.drop_big.setCursor(Qt.PointingHandCursor)
         self.drop_big.setStyleSheet(
             f"border:2px dashed {t['outline']};border-radius:12px;"
-            f"background:{t['surfaceContainerLowest']};color:{t['onSurfaceVariant']};font-size:14px;")
+            f"background:{t['surfaceContainerLowest']};color:{t['onSurfaceVariant']};font-size:14px;"
+        )
         self.drop_big.clicked.connect(self._browse)
         main_col.addWidget(self.drop_big, 1)
 
@@ -324,7 +369,8 @@ class MainWindow(QMainWindow):
         self.drop_strip.setCursor(Qt.PointingHandCursor)
         self.drop_strip.setStyleSheet(
             f"border:2px dashed {t['outline']};border-radius:10px;padding:7px;"
-            f"background:{t['surfaceContainerLowest']};color:{t['onSurfaceVariant']};font-size:12px;")
+            f"background:{t['surfaceContainerLowest']};color:{t['onSurfaceVariant']};font-size:12px;"
+        )
         self.drop_strip.clicked.connect(self._browse)
         main_col.addWidget(self.drop_strip)
 
@@ -611,8 +657,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, e):
         if self.job is not None:
-            if self._safe_dialog(tr("dlg.quit.title"), tr("dlg.quit.body"),
-                                 tr("dlg.quit.stay"), tr("dlg.quit.quit")):
+            if self._safe_dialog(tr("dlg.quit.title"), tr("dlg.quit.body"), tr("dlg.quit.stay"), tr("dlg.quit.quit")):
                 # job.cancel()은 취소 플래그만 세울 뿐, 이미 변환 중이던
                 # 워커 태스크는 계속 실행돼 나중에 item_failed/item_done을
                 # emit하고 그 슬롯이 history.add()를 호출한다(코드 리뷰
