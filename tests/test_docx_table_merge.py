@@ -5,6 +5,7 @@ docx_extract.py(DOCX→블록)·docx_build.py(블록→DOCX)의 순수 파이썬
 실행된다. HWP 왕복까지 포함한 통합 테스트는 test_hwp_table_generation.py에
 있다(hwplib 필요, 조건부 스킵).
 """
+
 import tempfile
 import unittest
 from pathlib import Path
@@ -103,13 +104,15 @@ class TestDocxBuildMerge(unittest.TestCase):
         self.assertEqual(table.cell(0, 1).text, "obj")
 
     def test_horizontal_merge_rebuilt(self):
-        blocks = [{
-            "type": "table",
-            "rows": [
-                [{"text": "merged", "colSpan": 2, "rowSpan": 1}, "02"],
-                ["10", "11", "12"],
-            ],
-        }]
+        blocks = [
+            {
+                "type": "table",
+                "rows": [
+                    [{"text": "merged", "colSpan": 2, "rowSpan": 1}, "02"],
+                    ["10", "11", "12"],
+                ],
+            }
+        ]
         out = blocks_to_docx(blocks, self.tmp / "out.docx")
         doc = Document(out)
         table = doc.tables[0]
@@ -120,13 +123,15 @@ class TestDocxBuildMerge(unittest.TestCase):
         self.assertIn("<w:gridSpan", table._tbl.xml)
 
     def test_vertical_merge_rebuilt(self):
-        blocks = [{
-            "type": "table",
-            "rows": [
-                ["00", {"text": "merged", "colSpan": 1, "rowSpan": 2}],
-                ["10"],
-            ],
-        }]
+        blocks = [
+            {
+                "type": "table",
+                "rows": [
+                    ["00", {"text": "merged", "colSpan": 1, "rowSpan": 2}],
+                    ["10"],
+                ],
+            }
+        ]
         out = blocks_to_docx(blocks, self.tmp / "out.docx")
         doc = Document(out)
         table = doc.tables[0]
@@ -162,6 +167,7 @@ class TestDocxBuildMerge(unittest.TestCase):
         순수 파이썬 경로만 검증, 사이드카 왕복은 test_hwp_table_generation.py/
         test_hwpx.py에 있음)."""
         from docx.shared import RGBColor
+
         from app.converters.docx_extract import docx_to_blocks
 
         src = self.tmp / "formatted.docx"
@@ -196,6 +202,7 @@ class TestDocxBuildMerge(unittest.TestCase):
         검증, 사이드카 왕복은 test_hwp_table_generation.py/test_hwpx.py에
         있음)."""
         from docx.enum.text import WD_ALIGN_PARAGRAPH
+
         from app.converters.docx_extract import docx_to_blocks
 
         src = self.tmp / "aligned.docx"

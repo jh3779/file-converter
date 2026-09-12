@@ -5,6 +5,7 @@
 있어 exit code만으로 판단하면 안 된다는 걸 재현 확인 후 반영), AAC가
 아닌 오디오는 ffmpeg 내장 AAC로만 재인코딩.
 """
+
 import shutil
 import subprocess
 import tempfile
@@ -15,6 +16,7 @@ from app import converters
 from app.converters import video
 from app.converters.base import ConversionError
 
+
 def _detect_test_fixture_support() -> bool:
     """ffmpeg/ffprobe 존재만으로는 부족하다 — 테스트 픽스처(가짜 영상) 생성에
     libx264가 필요한데, 배포용으로 번들하는 LGPL 빌드에는 라이선스상 없다
@@ -24,8 +26,7 @@ def _detect_test_fixture_support() -> bool:
     if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
         return False
     try:
-        proc = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
-                               capture_output=True, timeout=10, text=True)
+        proc = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, timeout=10, text=True)
     except Exception:
         return False
     return "libx264" in proc.stdout
@@ -44,8 +45,7 @@ def _detect_h264_mf_support() -> bool:
     if ffmpeg is None:
         return False
     try:
-        proc = subprocess.run([ffmpeg, "-hide_banner", "-encoders"],
-                               capture_output=True, timeout=10, text=True)
+        proc = subprocess.run([ffmpeg, "-hide_banner", "-encoders"], capture_output=True, timeout=10, text=True)
     except Exception:
         return False
     return "h264_mf" in proc.stdout
@@ -55,8 +55,7 @@ _HAS_H264_MF = _detect_h264_mf_support()
 
 
 def _make_clip(path: Path, video_codec: str, audio_codec: str | None = None, duration: int = 1):
-    cmd = ["ffmpeg", "-hide_banner", "-y", "-f", "lavfi",
-           "-i", f"testsrc=duration={duration}:size=160x120:rate=10"]
+    cmd = ["ffmpeg", "-hide_banner", "-y", "-f", "lavfi", "-i", f"testsrc=duration={duration}:size=160x120:rate=10"]
     if audio_codec:
         cmd += ["-f", "lavfi", "-i", f"sine=frequency=1000:duration={duration}"]
     cmd += ["-c:v", video_codec]
@@ -76,14 +75,18 @@ class TestVideoTargetsPlatformGating(unittest.TestCase):
     def _reload_with_find_ffmpeg(self, return_value):
         import importlib
         from unittest.mock import patch
+
         with patch("app.converters.video.find_ffmpeg", return_value=return_value):
             import app.converters as converters_mod
+
             importlib.reload(converters_mod)
             return converters_mod
 
     def tearDown(self):
         import importlib
+
         import app.converters as converters_mod
+
         importlib.reload(converters_mod)  # 실제 환경 기준으로 되돌림
 
     def test_video_hidden_when_ffmpeg_unavailable(self):
@@ -107,9 +110,12 @@ class TestVideoToMp4(unittest.TestCase):
 
     def _probe(self, path: Path) -> list[dict]:
         import json
+
         proc = subprocess.run(
             ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_streams", str(path)],
-            capture_output=True, timeout=10)
+            capture_output=True,
+            timeout=10,
+        )
         return json.loads(proc.stdout)["streams"]
 
     def test_h264_aac_full_copy_lossless(self):
@@ -122,8 +128,11 @@ class TestVideoToMp4(unittest.TestCase):
         # 영상 스트림 MD5가 원본과 완전히 같아야 함(재인코딩 안 됐다는 증거)
         def video_md5(path):
             md5_file = self.tmp / f"{path.stem}.md5"
-            subprocess.run(["ffmpeg", "-y", "-i", str(path), "-f", "md5", "-c:v", "copy", "-an",
-                             str(md5_file)], capture_output=True, timeout=10)
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(path), "-f", "md5", "-c:v", "copy", "-an", str(md5_file)],
+                capture_output=True,
+                timeout=10,
+            )
             return md5_file.read_text()
 
         self.assertEqual(video_md5(src), video_md5(out))
@@ -178,15 +187,41 @@ class TestVideoToMp4(unittest.TestCase):
         cover = self.tmp / "cover.jpg"
         src = self.tmp / "with_cover.mkv"
         _make_clip(clip, "libx264", "aac")
-        subprocess.run(["ffmpeg", "-hide_banner", "-y", "-f", "lavfi",
-                         "-i", "color=c=red:s=32x32", "-frames:v", "1", str(cover)],
-                        capture_output=True, check=True, timeout=15)
-        subprocess.run(["ffmpeg", "-hide_banner", "-y",
-                         "-i", str(cover), "-i", str(clip),
-                         "-map", "0:v", "-map", "1:v", "-map", "1:a",
-                         "-c:v:0", "mjpeg", "-disposition:v:0", "attached_pic",
-                         "-c:v:1", "copy", "-c:a", "copy", str(src)],
-                        capture_output=True, check=True, timeout=15)
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-y", "-f", "lavfi", "-i", "color=c=red:s=32x32", "-frames:v", "1", str(cover)],
+            capture_output=True,
+            check=True,
+            timeout=15,
+        )
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-y",
+                "-i",
+                str(cover),
+                "-i",
+                str(clip),
+                "-map",
+                "0:v",
+                "-map",
+                "1:v",
+                "-map",
+                "1:a",
+                "-c:v:0",
+                "mjpeg",
+                "-disposition:v:0",
+                "attached_pic",
+                "-c:v:1",
+                "copy",
+                "-c:a",
+                "copy",
+                str(src),
+            ],
+            capture_output=True,
+            check=True,
+            timeout=15,
+        )
         out = converters.convert(src, "mp4", self.tmp)
         streams = self._probe(out)
         video = next(s for s in streams if s["codec_type"] == "video")
@@ -201,11 +236,31 @@ class TestVideoToMp4(unittest.TestCase):
         src = self.tmp / "multi_audio.mkv"
         _make_clip(clip, "libx264", "aac")
         _make_clip(second, "libx264", "ac3")
-        subprocess.run(["ffmpeg", "-hide_banner", "-y",
-                         "-i", str(clip), "-i", str(second),
-                         "-map", "0:v", "-map", "0:a", "-map", "1:a",
-                         "-c:v", "copy", "-c:a", "copy", str(src)],
-                        capture_output=True, check=True, timeout=15)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-y",
+                "-i",
+                str(clip),
+                "-i",
+                str(second),
+                "-map",
+                "0:v",
+                "-map",
+                "0:a",
+                "-map",
+                "1:a",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "copy",
+                str(src),
+            ],
+            capture_output=True,
+            check=True,
+            timeout=15,
+        )
         out = converters.convert(src, "mp4", self.tmp)
         streams = self._probe(out)
         audios = [s for s in streams if s["codec_type"] == "audio"]
@@ -219,10 +274,33 @@ class TestVideoToMp4(unittest.TestCase):
         with_sub = self.tmp / "with_sub.mkv"
         srt = self.tmp / "sub.srt"
         srt.write_text("1\n00:00:00,000 --> 00:00:01,000\ntest\n", encoding="utf-8")
-        subprocess.run(["ffmpeg", "-hide_banner", "-y", "-i", str(src), "-i", str(srt),
-                         "-map", "0:v", "-map", "0:a", "-map", "1:s",
-                         "-c:v", "copy", "-c:a", "copy", "-c:s", "srt", str(with_sub)],
-                        capture_output=True, check=True, timeout=15)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-y",
+                "-i",
+                str(src),
+                "-i",
+                str(srt),
+                "-map",
+                "0:v",
+                "-map",
+                "0:a",
+                "-map",
+                "1:s",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "copy",
+                "-c:s",
+                "srt",
+                str(with_sub),
+            ],
+            capture_output=True,
+            check=True,
+            timeout=15,
+        )
         out = converters.convert(with_sub, "mp4", self.tmp)
         streams = self._probe(out)
         self.assertEqual(len(streams), 2)  # 자막 제외, 영상+오디오만

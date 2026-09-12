@@ -5,10 +5,17 @@ main_window.py에 응집돼 있던 오버레이 구성·렌더링을 분리했�
 받아 그 위에 필요한 위젯을 속성으로 붙이거나 조작한다 — 테스트가
 `win.result_scroll`처럼 직접 접근하는 기존 방식을 그대로 유지하기 위해서다.
 """
+
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QVBoxLayout, QWidget,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ..i18n import tr
@@ -26,7 +33,8 @@ def build(win, central):
     win.result_card.setObjectName("resultCard")
     win.result_card.setStyleSheet(
         f"QFrame#resultCard{{background:{t['surfaceContainerLow']};border-radius:16px;}}"
-        "QFrame#resultCard QLabel{background:transparent;}")
+        "QFrame#resultCard QLabel{background:transparent;}"
+    )
     win.result_card.setFixedWidth(360)
     rc = QVBoxLayout(win.result_card)
     rc.setContentsMargins(18, 16, 18, 14)
@@ -105,8 +113,7 @@ def show_result(win):
         win.result_title.setText("❌ " + tr("result.allfail"))
     ok_color = t["tertiary"] if done else t["onSurfaceVariant"]
     win.result_counts.setText(tr("result.counts", ok=len(done), fail=len(failed)))
-    win.result_counts.setStyleSheet(
-        f'font-family:"Menlo","Consolas",monospace;font-size:12px;color:{ok_color};')
+    win.result_counts.setStyleSheet(f'font-family:"Menlo","Consolas",monospace;font-size:12px;color:{ok_color};')
 
     while win.result_fails.count():
         w = win.result_fails.takeAt(0).widget()
@@ -117,7 +124,8 @@ def show_result(win):
         lbl.setWordWrap(True)
         lbl.setStyleSheet(
             f"background:{t['errorContainer']};color:{t['onErrorContainer']};"
-            "border-radius:8px;padding:8px;font-size:11px;")
+            "border-radius:8px;padding:8px;font-size:11px;"
+        )
         win.result_fails.addWidget(lbl)
 
     renamed = [it for it in done if it.renamed]
@@ -154,8 +162,7 @@ def show_result(win):
     for loc in locations[:3]:
         lbl = QLabel(f"📂 {loc}")
         lbl.setWordWrap(True)
-        lbl.setStyleSheet(
-            f'font-family:"Menlo","Consolas",monospace;font-size:10px;color:{t["onSurfaceVariant"]};')
+        lbl.setStyleSheet(f'font-family:"Menlo","Consolas",monospace;font-size:10px;color:{t["onSurfaceVariant"]};')
         win.result_locations.addWidget(lbl)
     if len(locations) > 3:
         more = QLabel(tr("result.location_more", n=len(locations) - 3))

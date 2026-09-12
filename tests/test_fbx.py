@@ -18,6 +18,7 @@
 검증한다 — 이런 조건의 손상 파일을 바이너리로 새로 인코딩하는 것보다
 훨씬 안정적이고 읽기 쉽다(`fbx.py`의 `_extract_from_nodes` docstring 참고).
 """
+
 import os
 import shutil
 import struct
@@ -34,13 +35,15 @@ from app.converters import fbx
 from app.converters.base import ConversionError
 
 try:
-    import resource
+    import resource  # noqa: F401 — 이 플랫폼에 있는지 확인하는 게 목적, import 자체가 신호
+
     _HAS_RESOURCE = True
 except ImportError:  # pragma: no cover - Windows에는 resource 모듈이 없음
     _HAS_RESOURCE = False
 
 try:
     import trimesh
+
     _HAS_TRIMESH = True
 except ImportError:
     _HAS_TRIMESH = False
@@ -351,7 +354,10 @@ class TestFbxRobustness(unittest.TestCase):
         유효한 Geometry는 정상 반영돼야 한다."""
         g_empty = _geom(300, (), ())
         g_valid = _geom(100, _TRI_VERTS, _TRI_POLY)
-        nodes = [_objects([g_empty, g_valid]), _connections([(100, 101), (300, 101)]), ]
+        nodes = [
+            _objects([g_empty, g_valid]),
+            _connections([(100, 101), (300, 101)]),
+        ]
         # Connections에 Model(101)이 실제로 없어도(연결 대상 누락) 안전한
         # 기본값(모든 Geometry 포함)으로 fallback해야 하므로 Model 없이도 확인.
         vertices, faces = _extract_from_nodes_chunked(nodes)
@@ -765,9 +771,7 @@ class TestFbxCompressedArrayBounds(unittest.TestCase):
     def test_decompressed_size_smaller_than_declared_raises_corrupted(self):
         """실제 해제 결과가 선언된 array_length보다 작은 경우(손상된
         압축 블록)도 명확히 실패해야 한다."""
-        buf = self._build_compressed_array_property(
-            declared_array_length=100, actual_floats=[1.0, 2.0]
-        )
+        buf = self._build_compressed_array_property(declared_array_length=100, actual_floats=[1.0, 2.0])
         with self.assertRaises(ConversionError) as ctx:
             fbx._read_properties(buf, 0, 1)
         self.assertEqual(ctx.exception.key, "err.corrupted")
@@ -871,9 +875,10 @@ class TestFbxFaceCountLimitBypassViaUnterminatedPolygon(unittest.TestCase):
     두 지점 모두에서 물질화 전에 먼저 상한을 확인해야 한다."""
 
     def test_unterminated_repeated_index_polygon_raises_too_large_without_triangulating(self):
-        with mock.patch.object(fbx, "_MAX_FACE_COUNT", 3), mock.patch.object(
-            fbx, "_triangulate_fan"
-        ) as mock_triangulate_fan:
+        with (
+            mock.patch.object(fbx, "_MAX_FACE_COUNT", 3),
+            mock.patch.object(fbx, "_triangulate_fan") as mock_triangulate_fan,
+        ):
             # 종결자(비트 NOT 인덱스)가 나오기 전까지 같은 정점(인덱스 0)을
             # 상한(3)보다 훨씬 많이 반복 참조하는 단일 폴리곤 — 실제
             # 수천만 번까지 만들 필요 없이, 상한을 작게 낮춰 같은 로직을

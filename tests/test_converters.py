@@ -1,4 +1,5 @@
 """데이터 변환기·출력 규칙 테스트: python -m unittest discover tests"""
+
 import csv
 import json
 import shutil
@@ -40,7 +41,8 @@ def _mini_pdf_pages(path: Path, texts: list[str]):
         stream = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
         page_bodies.append(
             f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_idx} 0 R"
-            f" /Resources << /Font << /F1 {font_obj_num} 0 R >> >> >>".encode())
+            f" /Resources << /Font << /F1 {font_obj_num} 0 R >> >> >>".encode()
+        )
         content_bodies.append(stream)
     objs = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -60,8 +62,13 @@ def _mini_pdf_pages(path: Path, texts: list[str]):
     buf += b"xref\n0 " + str(len(objs) + 1).encode() + b"\n0000000000 65535 f \n"
     for off in offsets:
         buf += f"{off:010d} 00000 n \n".encode()
-    buf += (b"trailer\n<< /Size " + str(len(objs) + 1).encode() +
-            b" /Root 1 0 R >>\nstartxref\n" + str(xref).encode() + b"\n%%EOF")
+    buf += (
+        b"trailer\n<< /Size "
+        + str(len(objs) + 1).encode()
+        + b" /Root 1 0 R >>\nstartxref\n"
+        + str(xref).encode()
+        + b"\n%%EOF"
+    )
     path.write_bytes(buf)
 
 
@@ -109,13 +116,18 @@ class TestPdfToHwpPageBreaks(Base):
 
         # extract_pages는 _extract_pdf_blocks_by_page 안에서 지역 import되므로
         # pdf_mod 네임스페이스가 아니라 pdfminer.high_level 자체를 패치해야 한다.
-        with patch("pdfminer.high_level.extract_pages", return_value=[page0, page1]), \
-             patch.object(pdf_mod, "_paragraph_candidates",
-                           side_effect=lambda page: ["c1"] if page == "page0" else ["ws", "c2"]), \
-             patch.object(pdf_mod, "_container_to_runs",
-                           side_effect=lambda c: [{"text": {"c1": "First page", "ws": "   ",
-                                                             "c2": "Real second-page text"}[c]}]), \
-             patch.object(pdf_mod, "_detect_alignment", return_value=None):
+        with (
+            patch("pdfminer.high_level.extract_pages", return_value=[page0, page1]),
+            patch.object(
+                pdf_mod, "_paragraph_candidates", side_effect=lambda page: ["c1"] if page == "page0" else ["ws", "c2"]
+            ),
+            patch.object(
+                pdf_mod,
+                "_container_to_runs",
+                side_effect=lambda c: [{"text": {"c1": "First page", "ws": "   ", "c2": "Real second-page text"}[c]}],
+            ),
+            patch.object(pdf_mod, "_detect_alignment", return_value=None),
+        ):
             blocks = pdf_mod._extract_pdf_blocks_by_page(Path("dummy.pdf"))
 
         texts = [b["text"] for b in blocks]
@@ -143,7 +155,9 @@ class TestCsvXlsx(Base):
         """엑셀에서 보던 모습(날짜 "2026-07-31", 정수 "3")과 다르게 파이썬
         객체를 그대로 str()해서 "2026-07-31 00:00:00"·"3.0"처럼 나오던 문제."""
         import datetime
+
         from openpyxl import Workbook
+
         wb = Workbook()
         ws = wb.active
         ws.append(["날짜", "정수형태float", "일반소수", "문자열"])
@@ -161,6 +175,7 @@ class TestCsvXlsx(Base):
         변환돼요"이므로, 두 번째 시트가 활성 탭이어도 실제로는 첫 번째
         시트가 나가야 한다."""
         from openpyxl import Workbook
+
         wb = Workbook()
         ws1 = wb.active
         ws1.title = "첫번째"
@@ -178,6 +193,7 @@ class TestCsvXlsx(Base):
 
     def test_xlsx_sheet_count(self):
         from openpyxl import Workbook
+
         wb = Workbook()
         wb.active.append(["a"])
         wb.create_sheet("두번째")
@@ -226,11 +242,13 @@ class TestCsvJson(Base):
         (text.splitlines() 선분할 + Sniffer의 doublequote 오탐)."""
         src = self.tmp / "d.csv"
         with src.open("w", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerows([
-                ["이름", "메모"],
-                ["김철수", '비고: "특이사항, 있음"'],
-                ["이영희", "여러줄\n텍스트 포함"],
-            ])
+            csv.writer(f).writerows(
+                [
+                    ["이름", "메모"],
+                    ["김철수", '비고: "특이사항, 있음"'],
+                    ["이영희", "여러줄\n텍스트 포함"],
+                ]
+            )
         out = data.csv_to_json(src, self.tmp)
         payload = json.loads(out.read_text(encoding="utf-8"))
         self.assertEqual(payload[0]["메모"], '비고: "특이사항, 있음"')
@@ -274,6 +292,7 @@ class TestDocxExtractNumbering(Base):
 
     def test_style_based_numbered_and_bullet_list(self):
         from docx import Document
+
         src = self.tmp / "d.docx"
         doc = Document()
         doc.add_paragraph("일반 문단")
@@ -284,9 +303,15 @@ class TestDocxExtractNumbering(Base):
 
         blocks = docx_to_blocks(src)
         texts = [_block_text(b) for b in blocks]
-        self.assertEqual(texts, [
-            "일반 문단", "1. 첫 항목", "2. 둘째 항목", "• 불릿 항목",
-        ])
+        self.assertEqual(
+            texts,
+            [
+                "일반 문단",
+                "1. 첫 항목",
+                "2. 둘째 항목",
+                "• 불릿 항목",
+            ],
+        )
 
     def test_direct_numpr_without_named_style(self):
         """사용자가 툴바로 번호 매기기를 켠 경우 — 문단 자신의 pPr에 numPr이
@@ -340,6 +365,7 @@ class TestDocxExtractAlignment(Base):
     def test_explicit_alignment_extracted(self):
         from docx import Document
         from docx.enum.text import WD_ALIGN_PARAGRAPH
+
         src = self.tmp / "d.docx"
         doc = Document()
         doc.add_paragraph("기본")
@@ -453,25 +479,46 @@ class TestDocxExtractCharFormatting(Base):
         blocks = docx_to_blocks(src)
         self.assertEqual(len(blocks), 1)
         runs = blocks[0]["runs"]
-        self.assertEqual(runs[0], {"text": "일반 ", "bold": False, "italic": False,
-                                    "underline": False, "size": None, "color": None})
-        self.assertEqual(runs[1], {"text": "굵게", "bold": True, "italic": False,
-                                    "underline": False, "size": None, "color": None})
-        self.assertEqual(runs[2], {"text": "기울임크게빨강", "bold": False, "italic": True,
-                                    "underline": False, "size": 18.0, "color": "FF0000"})
+        self.assertEqual(
+            runs[0], {"text": "일반 ", "bold": False, "italic": False, "underline": False, "size": None, "color": None}
+        )
+        self.assertEqual(
+            runs[1], {"text": "굵게", "bold": True, "italic": False, "underline": False, "size": None, "color": None}
+        )
+        self.assertEqual(
+            runs[2],
+            {
+                "text": "기울임크게빨강",
+                "bold": False,
+                "italic": True,
+                "underline": False,
+                "size": 18.0,
+                "color": "FF0000",
+            },
+        )
 
     def test_plain_run_has_no_formatting(self):
         from docx import Document
+
         src = self.tmp / "d.docx"
         doc = Document()
         doc.add_paragraph("서식 없는 문단")
         doc.save(src)
 
         blocks = docx_to_blocks(src)
-        self.assertEqual(blocks[0]["runs"], [
-            {"text": "서식 없는 문단", "bold": False, "italic": False,
-             "underline": False, "size": None, "color": None},
-        ])
+        self.assertEqual(
+            blocks[0]["runs"],
+            [
+                {
+                    "text": "서식 없는 문단",
+                    "bold": False,
+                    "italic": False,
+                    "underline": False,
+                    "size": None,
+                    "color": None,
+                },
+            ],
+        )
 
     def test_numbering_marker_prepended_as_unformatted_run(self):
         """마커(번호/불릿)는 본문 run의 서식과 무관하게 별도의 서식 없는
@@ -489,15 +536,17 @@ class TestDocxExtractCharFormatting(Base):
         runs = blocks[0]["runs"]
         self.assertEqual(runs[0]["text"], "1. ")
         self.assertFalse(runs[0]["bold"])
-        self.assertEqual(runs[1], {"text": "굵은 항목", "bold": True, "italic": False,
-                                    "underline": False, "size": None, "color": None})
+        self.assertEqual(
+            runs[1],
+            {"text": "굵은 항목", "bold": True, "italic": False, "underline": False, "size": None, "color": None},
+        )
 
     def test_hyperlink_only_paragraph_not_dropped(self):
         """`paragraph.runs`(python-docx)는 <w:hyperlink> 안에 중첩된 run을
         포함하지 않는다 — 문단 전체가 하이퍼링크 하나뿐이면 옛 구현은 runs가
         빈 리스트가 되어 문단째로 조용히 드롭됐다(회귀, 이번에 수정)."""
-        import docx.oxml
         import docx.opc.constants
+        import docx.oxml
         from docx import Document
         from docx.oxml.ns import qn
 
@@ -536,12 +585,14 @@ class TestDocxBuildFont(Base):
         out = blocks_to_docx(blocks, self.tmp / "out.docx")
 
         import zipfile
+
         with zipfile.ZipFile(out) as z:
             xml = z.read("word/document.xml").decode("utf-8")
         self.assertIn(f'w:eastAsia="{EAST_ASIAN_FONT}"', xml)
         self.assertIn(f'w:ascii="{EAST_ASIAN_FONT}"', xml)
 
         from docx import Document
+
         doc = Document(out)
         for p in doc.paragraphs:
             for run in p.runs:
@@ -561,6 +612,7 @@ class TestDocxBuildAlignment(Base):
     def test_align_field_sets_paragraph_alignment(self):
         from docx import Document
         from docx.enum.text import WD_ALIGN_PARAGRAPH
+
         blocks = [
             {"type": "p", "text": "기본"},
             {"type": "p", "text": "가운데", "align": "center"},
@@ -594,6 +646,7 @@ class TestOutputNaming(Base):
         않으면(TOCTOU) 둘 다 같은 "충돌 없음" 경로를 계산해 한쪽이 다른 쪽
         결과물을 조용히 덮어쓴다 — 실제 스레드로 재현 확인 후 락으로 수정."""
         import threading
+
         from app.output import finalize
 
         source = self.tmp / "r.docx"

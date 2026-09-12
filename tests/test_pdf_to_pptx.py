@@ -6,14 +6,16 @@
 이 파일은 텍스트 레이어만 검증한다 — 이미지·표 테두리(사각형/직선) 추출은
 DEC-036부터 지원되며 검증은 test_pdf_to_pptx_visuals.py에 별도로 있다.
 """
+
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
 
+from pptx import Presentation
+
 from app import converters
 from app.converters.base import ConversionError
-from pptx import Presentation
 
 
 def _mini_pdf(path: Path, pages: list[list[tuple]]):
@@ -36,7 +38,8 @@ def _mini_pdf(path: Path, pages: list[list[tuple]]):
         stream = b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream"
         page_bodies.append(
             f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_idx} 0 R"
-            f" /Resources << /Font << /F1 {font1_num} 0 R /F2 {font2_num} 0 R >> >> >>".encode())
+            f" /Resources << /Font << /F1 {font1_num} 0 R /F2 {font2_num} 0 R >> >> >>".encode()
+        )
         content_bodies.append(stream)
     objs = [
         b"<< /Type /Catalog /Pages 2 0 R >>",
@@ -57,8 +60,13 @@ def _mini_pdf(path: Path, pages: list[list[tuple]]):
     buf += b"xref\n0 " + str(len(objs) + 1).encode() + b"\n0000000000 65535 f \n"
     for off in offsets:
         buf += f"{off:010d} 00000 n \n".encode()
-    buf += (b"trailer\n<< /Size " + str(len(objs) + 1).encode() +
-            b" /Root 1 0 R >>\nstartxref\n" + str(xref).encode() + b"\n%%EOF")
+    buf += (
+        b"trailer\n<< /Size "
+        + str(len(objs) + 1).encode()
+        + b" /Root 1 0 R >>\nstartxref\n"
+        + str(xref).encode()
+        + b"\n%%EOF"
+    )
     path.write_bytes(buf)
 
 
@@ -71,11 +79,14 @@ class TestPdfToPptx(unittest.TestCase):
 
     def test_slide_count_matches_page_count(self):
         src = self.tmp / "multi.pdf"
-        _mini_pdf(src, [
-            [("Page one", 50, 700, "F1", 12)],
-            [("Page two", 50, 700, "F1", 12)],
-            [("Page three", 50, 700, "F1", 12)],
-        ])
+        _mini_pdf(
+            src,
+            [
+                [("Page one", 50, 700, "F1", 12)],
+                [("Page two", 50, 700, "F1", 12)],
+                [("Page three", 50, 700, "F1", 12)],
+            ],
+        )
         out = converters.convert(src, "pptx", self.tmp)
         self.assertTrue(out.exists())
         prs = Presentation(out)
@@ -112,10 +123,15 @@ class TestPdfToPptx(unittest.TestCase):
         """pdf_to_docx(DEC-027)와 같은 휴리스틱 재사용 — Helvetica-Bold로 그려진
         줄은 run.font.bold=True로 반영돼야 한다."""
         src = self.tmp / "bold.pdf"
-        _mini_pdf(src, [[
-            ("Normal", 50, 700, "F1", 12),
-            ("Bold", 50, 680, "F2", 12),
-        ]])
+        _mini_pdf(
+            src,
+            [
+                [
+                    ("Normal", 50, 700, "F1", 12),
+                    ("Bold", 50, 680, "F2", 12),
+                ]
+            ],
+        )
         out = converters.convert(src, "pptx", self.tmp)
         prs = Presentation(out)
         slide = list(prs.slides)[0]
@@ -123,7 +139,6 @@ class TestPdfToPptx(unittest.TestCase):
         for shape in slide.shapes:
             if not shape.has_text_frame:
                 continue
-            text = shape.text_frame.text
             for para in shape.text_frame.paragraphs:
                 for run in para.runs:
                     bold_flags[run.text] = run.font.bold

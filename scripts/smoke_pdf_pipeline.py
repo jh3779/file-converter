@@ -21,6 +21,7 @@ PDF 결과는 파일 크기뿐 아니라 %PDF- 매직바이트 + pdfminer 텍스
 사용. "번들이 깨졌다"와 "이 플랫폼은 원래 미지원"을 구분하기 위한 옵션이며,
 Windows CI는 계속 이 플래그 없이 실행해 영상 경로를 그대로 검증한다.
 """
+
 import shutil
 import sys
 import tempfile
@@ -36,10 +37,10 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from app import converters  # noqa: E402
-from app.converters.base import ConversionError  # noqa: E402
-from app.converters import office as office_mod  # noqa: E402
 from app.converters import hwp as hwp_mod  # noqa: E402
+from app.converters import office as office_mod  # noqa: E402
 from app.converters import video as video_mod  # noqa: E402
+from app.converters.base import ConversionError  # noqa: E402
 
 
 def check(label: str, cond: bool, detail: str = ""):
@@ -58,13 +59,12 @@ def _font_actually_embedded(path: Path, font_substr: str) -> bool:
     font_substr이 포함된 항목에 /FontFile·/FontFile2·/FontFile3 중 하나가
     실제로 있는지 확인해야 '내장'의 증거가 된다.
     """
-    from pdfminer.pdfparser import PDFParser
     from pdfminer.pdfdocument import PDFDocument
-    from pdfminer.pdftypes import resolve1, PDFObjRef
+    from pdfminer.pdfparser import PDFParser
+    from pdfminer.pdftypes import resolve1
 
     with path.open("rb") as f:
         doc = PDFDocument(PDFParser(f))
-        xref = doc.xrefs[0] if doc.xrefs else None
         obj_ids = set()
         for x in doc.xrefs:
             obj_ids.update(x.get_objids())
@@ -90,16 +90,18 @@ def verify_pdf_content(path: Path, must_contain: str, must_embed_font: bool = Fa
     raw = path.read_bytes()
     check(f"{path.name}: %PDF- 매직바이트", raw[:5] == b"%PDF-")
     from pdfminer.high_level import extract_text
+
     text = extract_text(str(path))
-    check(f"{path.name}: 텍스트 내용('{must_contain}') 포함",
-          must_contain in text, repr(text[:120]))
+    check(f"{path.name}: 텍스트 내용('{must_contain}') 포함", must_contain in text, repr(text[:120]))
     if must_embed_font:
         # 텍스트 추출은 ToUnicode CMap만 보므로 코드값이 맞아도 실제 렌더링
         # 글리프가 깨질 수 있다(DEC-015 재현 당시 직접 확인) — 폰트 이름이
         # 문자열로 등장하는 것만으론 부족하고, FontDescriptor에 실제
         # /FontFile* 스트림이 물려 있는지까지 객체 단위로 확인해야 한다.
-        check(f"{path.name}: NotoSansKR 폰트 실제 내장(FontDescriptor/FontFile* 확인)",
-              _font_actually_embedded(path, "NotoSansKR"))
+        check(
+            f"{path.name}: NotoSansKR 폰트 실제 내장(FontDescriptor/FontFile* 확인)",
+            _font_actually_embedded(path, "NotoSansKR"),
+        )
 
 
 def simulate_frozen(exe_path: str, skip_video: bool = False):
@@ -126,9 +128,9 @@ def simulate_frozen(exe_path: str, skip_video: bool = False):
         check("자동 탐색: ffprobe (env 미사용)", ffprobe is not None and str(engine) in ffprobe, ffprobe)
 
     from app.version import current_version
+
     version = current_version()
-    check("자동 탐색: 번들 VERSION 파일 (업데이트 확인 기능용)",
-          version != "0.0.0", version)
+    check("자동 탐색: 번들 VERSION 파일 (업데이트 확인 기능용)", version != "0.0.0", version)
 
 
 def main():
@@ -152,6 +154,7 @@ def main():
         #    최종 렌더링은 호스트에 설치된 글꼴에 좌우되며 우리가 보장할 수 있는
         #    범위 밖이다(잔여 리스크, 아래 4번 참고).
         from docx import Document
+
         src_docx = tmp / "smoke.docx"
         doc = Document()
         doc.add_paragraph("LibreOffice 번들 스모크 테스트 — 드문 자모: 뷁 밟 닳 넋 앎 옳")
@@ -177,6 +180,7 @@ def main():
         #    (위 1번 DOCX와 같은 이유로 폰트 내장은 여기서 보장 대상이 아니다).
         try:
             from pptx import Presentation
+
             src_pptx = tmp / "smoke.pptx"
             prs = Presentation()
             slide = prs.slides.add_slide(prs.slide_layouts[1])
@@ -202,6 +206,7 @@ def main():
         try:
             from pptx import Presentation
             from pptx.oxml.ns import qn
+
             src_pptx2 = tmp / "smoke_font.pptx"
             prs = Presentation()
             slide = prs.slides.add_slide(prs.slide_layouts[1])
@@ -231,6 +236,7 @@ def main():
         #    우리 통제 안에 있으므로, 그 결과를 다시 PDF로 렌더링해 번들 폰트가
         #    실제로 내장되는지까지 엄격하게 검증한다.
         from app.converters.docx_build import blocks_to_docx
+
         own_docx = blocks_to_docx(
             [{"type": "p", "text": "자체 생성 DOCX 검증 — 드문 자모: 뷁 밟 닳 넋 앎 옳"}],
             tmp / "own.docx",
@@ -247,8 +253,7 @@ def main():
         # 4) HWP -> PDF (DEC-007 파이프라인: hwplib 구조 추출 → DOCX → LibreOffice)
         #    중간 산출물이 blocks_to_docx를 거치므로 여기도 폰트 내장을 엄격 검증한다.
         if not skip_hwp:
-            check("HWP 샘플 존재", hwp_sample is not None and hwp_sample.exists(),
-                  str(hwp_sample))
+            check("HWP 샘플 존재", hwp_sample is not None and hwp_sample.exists(), str(hwp_sample))
             try:
                 out = converters.convert(hwp_sample, "pdf", tmp)
                 check("HWP→PDF 변환 완료(전체 파이프라인)", out.exists())
@@ -256,8 +261,7 @@ def main():
             except ConversionError as e:
                 check("HWP→PDF 변환 완료(전체 파이프라인)", False, f"{e.key}: {e.detail}")
             except Exception as e:
-                check("HWP→PDF 변환 완료(전체 파이프라인)", False,
-                      f"예상 밖 예외 {type(e).__name__}: {e}")
+                check("HWP→PDF 변환 완료(전체 파이프라인)", False, f"예상 밖 예외 {type(e).__name__}: {e}")
 
         # 5) DOCX -> HWP (DEC-017: hwplib 신규 생성 — 문단 텍스트 보존, 표는
         #    " | " 텍스트로 단순화). 생성된 HWP를 다시 TXT로 읽어 왕복 검증한다.
@@ -289,9 +293,11 @@ def main():
                 check("영상→MP4 변환 완료", out.exists())
                 src_bytes = video_sample.read_bytes()
                 check("영상→MP4: 결과 파일 비어있지 않음", out.stat().st_size > 0)
-                check("영상→MP4: 원본보다 극단적으로 작지 않음(재인코딩 없이 카피됐다는 방증)",
-                      out.stat().st_size > len(src_bytes) * 0.5,
-                      f"src={len(src_bytes)} out={out.stat().st_size}")
+                check(
+                    "영상→MP4: 원본보다 극단적으로 작지 않음(재인코딩 없이 카피됐다는 방증)",
+                    out.stat().st_size > len(src_bytes) * 0.5,
+                    f"src={len(src_bytes)} out={out.stat().st_size}",
+                )
             except ConversionError as e:
                 check("영상→MP4 변환 완료", False, f"{e.key}: {e.detail}")
             except Exception as e:
@@ -302,6 +308,7 @@ def main():
         #    수준으로 패키징 경로 검증이 필요함).
         try:
             from PIL import Image
+
             src_png = tmp / "smoke.png"
             Image.new("RGB", (8, 8), (10, 20, 30)).save(src_png)
             out = converters.convert(src_png, "jpg", tmp)
@@ -321,8 +328,7 @@ def main():
             out = converters.convert(src_docx, "pdf", tmp)
             img_dir = converters.convert(out, "png", tmp)
             check("PDF→PNG: 폴더 결과물 생성", img_dir.is_dir(), str(img_dir))
-            check("PDF→PNG: 폴더명이 원본 파일명과 일치", img_dir.name == out.stem,
-                  f"{img_dir.name} != {out.stem}")
+            check("PDF→PNG: 폴더명이 원본 파일명과 일치", img_dir.name == out.stem, f"{img_dir.name} != {out.stem}")
             pages = list(img_dir.iterdir())
             check("PDF→PNG: 페이지 이미지 1개 이상 생성", len(pages) >= 1, str(len(pages)))
             check("PDF→PNG: 확장자가 .png", all(p.suffix == ".png" for p in pages), str(pages))
@@ -336,6 +342,7 @@ def main():
             check("PDF→JPG: 페이지 이미지 1개 이상 생성", len(jpg_pages) >= 1, str(len(jpg_pages)))
             check("PDF→JPG: 확장자가 .jpg", all(p.suffix == ".jpg" for p in jpg_pages), str(jpg_pages))
             from PIL import Image
+
             with Image.open(jpg_pages[0]) as jpg_result:
                 check("PDF→JPG: 결과 포맷이 JPEG", jpg_result.format == "JPEG", jpg_result.format)
         except ConversionError as e:
@@ -348,19 +355,18 @@ def main():
         #    필요함. 자체 생성 DOCX→PDF를 다시 PPTX로 변환해 슬라이드 수·텍스트
         #    보존·표 테두리(LTLine → LINE 커넥터) 재구성을 확인한다.
         try:
-            from pptx.enum.shapes import MSO_SHAPE_TYPE
             from pptx import Presentation
+            from pptx.enum.shapes import MSO_SHAPE_TYPE
+
             out = converters.convert(src_docx, "pdf", tmp)
             pptx_out = converters.convert(out, "pptx", tmp)
             check("PDF→PPTX 변환 완료", pptx_out.exists())
             prs = Presentation(pptx_out)
             slides = list(prs.slides)
             check("PDF→PPTX: 슬라이드 1개 이상 생성", len(slides) >= 1, str(len(slides)))
-            texts = " ".join(s.text_frame.text for slide in slides
-                              for s in slide.shapes if s.has_text_frame)
+            texts = " ".join(s.text_frame.text for slide in slides for s in slide.shapes if s.has_text_frame)
             check("PDF→PPTX: 텍스트 내용 보존", "뷁 밟 닳 넋 앎 옳" in texts, repr(texts[:120]))
-            n_lines = sum(1 for slide in slides for s in slide.shapes
-                          if s.shape_type == MSO_SHAPE_TYPE.LINE)
+            n_lines = sum(1 for slide in slides for s in slide.shapes if s.shape_type == MSO_SHAPE_TYPE.LINE)
             check("PDF→PPTX: 표 테두리(LTLine→LINE) 재구성", n_lines >= 1, str(n_lines))
         except ConversionError as e:
             check("PDF→PPTX 변환 완료", False, f"{e.key}: {e.detail}")
@@ -375,6 +381,7 @@ def main():
         try:
             from docx import Document
             from docx.oxml.ns import qn
+
             out = converters.convert(src_docx, "pdf", tmp)
             docx_out = converters.convert(out, "docx", tmp)
             check("PDF→DOCX 변환 완료", docx_out.exists())
@@ -382,9 +389,9 @@ def main():
             texts = " ".join(p.text for p in doc.paragraphs)
             check("PDF→DOCX: 텍스트 내용 보존", "뷁 밟 닳 넋 앎 옳" in texts, repr(texts[:120]))
             has_frame_pr = any(
-                p._p.find(qn("w:pPr")) is not None
-                and p._p.find(qn("w:pPr")).find(qn("w:framePr")) is not None
-                for p in doc.paragraphs if p.text.strip()
+                p._p.find(qn("w:pPr")) is not None and p._p.find(qn("w:pPr")).find(qn("w:framePr")) is not None
+                for p in doc.paragraphs
+                if p.text.strip()
             )
             check("PDF→DOCX: 줄이 w:framePr로 절대 위치 고정됨", has_frame_pr)
         except ConversionError as e:

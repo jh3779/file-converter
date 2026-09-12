@@ -13,6 +13,7 @@ build.yml의 HWP 엔진 스모크 쪽에 별도로 있음).
 테스트로 확인할 수 없다(DEC-018과 동일한 근본적 제약, Mac 개발 환경에는
 뷰어가 없음). Windows 실사용자 테스트가 최종 검증에 반드시 필요하다.
 """
+
 import shutil
 import tempfile
 import unittest
@@ -28,12 +29,14 @@ HWP_SAMPLE = REPO / "spike" / "hwplib" / "repo" / "sample_hwp" / "basic" / "표.
 
 def _hwp_available():
     from app.converters import hwp as hwp_mod
+
     return hwp_mod._java() is not None and hwp_mod._classpath() is not None
 
 
 @unittest.skipUnless(
     HWP_SAMPLE.exists() and shutil.which("java") and _hwp_available(),
-    "hwplib 샘플/JDK 없음 — spike 빌드 후 실행 (RESULT.md)")
+    "hwplib 샘플/JDK 없음 — spike 빌드 후 실행 (RESULT.md)",
+)
 class TestDocxToHwpTableGeneration(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -76,11 +79,13 @@ class TestDocxToHwpTableGeneration(unittest.TestCase):
         self.assertNotIn("김철수 | 영업1팀", joined_paragraphs)
 
     def test_table_row_and_column_count_preserved(self):
-        src = self._docx_with_table([
-            ["A", "B", "C"],
-            ["1", "2", "3"],
-            ["4", "5", "6"],
-        ])
+        src = self._docx_with_table(
+            [
+                ["A", "B", "C"],
+                ["1", "2", "3"],
+                ["4", "5", "6"],
+            ]
+        )
         out = converters.convert(src, "hwp", self.tmp)
         back_dir = self.tmp / "back"
         back_dir.mkdir()
@@ -140,11 +145,9 @@ class TestDocxToHwpTableGeneration(unittest.TestCase):
         self.assertEqual(len(table2.rows), 3)
         self.assertEqual(len(table2.columns), 3)
         self.assertEqual(table2.cell(0, 0).text, "H-merged")
-        self.assertEqual(table2.cell(0, 0)._tc, table2.cell(0, 1)._tc,
-                          "가로 병합이 풀려서 돌아옴")
+        self.assertEqual(table2.cell(0, 0)._tc, table2.cell(0, 1)._tc, "가로 병합이 풀려서 돌아옴")
         self.assertEqual(table2.cell(1, 2).text, "V-merged")
-        self.assertEqual(table2.cell(1, 2)._tc, table2.cell(2, 2)._tc,
-                          "세로 병합이 풀려서 돌아옴")
+        self.assertEqual(table2.cell(1, 2)._tc, table2.cell(2, 2)._tc, "세로 병합이 풀려서 돌아옴")
 
     def test_cell_char_formatting_survives_docx_to_hwp_to_docx_round_trip(self):
         """표 셀 안 문자 서식 보존 개선 — 굵게·기울임·밑줄·크기·색상이
@@ -229,8 +232,7 @@ class TestDocxToHwpTableGeneration(unittest.TestCase):
         table2 = doc2.tables[0]
         self.assertEqual(len(table2.rows), 3, "행 전체를 덮는 세로 병합 때문에 행 수가 줄어듦(회귀)")
         self.assertEqual(table2.cell(0, 0).text, "머리글")
-        self.assertEqual(table2.cell(0, 0)._tc, table2.cell(1, 0)._tc,
-                          "세로 병합이 풀려서 돌아옴")
+        self.assertEqual(table2.cell(0, 0)._tc, table2.cell(1, 0)._tc, "세로 병합이 풀려서 돌아옴")
         self.assertEqual(table2.cell(2, 0).text, "마지막행")
 
     def test_hwp_to_json_structure_matches_source_dimensions(self):
@@ -238,6 +240,7 @@ class TestDocxToHwpTableGeneration(unittest.TestCase):
         나오는지 — Python DOCX 재변환 경로를 거치지 않는 더 직접적인 확인.
         DEC-051부터 셀은 항상 {"runs":[...],"colSpan":n,"rowSpan":m} 객체다."""
         import json
+
         from app.converters import hwp as hwp_mod
 
         src = self._docx_with_table([["x", "y", "z"], ["1", "2", "3"]])

@@ -76,7 +76,7 @@
 |----|--------|------|------|------|-----------|
 | F-01 | Blocker | 테스트/변환 엔진 | 로컬 전체 테스트가 핵심 PDF 변환 경로에서 실패한다. | `office_to_pdf()`는 `app/converters/office.py:40-60`에서 LibreOffice를 호출한다. 실패 테스트 5개가 모두 이 경로로 수렴한다. | 릴리스 전 GitHub Actions 최신 실행 전체 green 확인. 로컬에서는 LibreOffice headless crash 원인을 분리하고, 가능하면 CI와 같은 Python 3.12 환경에서 재실행한다. |
 | F-02 | High | 라이선스/고지 | 제3자 고지 문서가 현재 구현과 불일치한다. | `packaging/THIRD_PARTY_NOTICES.txt:15`는 HWPX를 "읽기 Phase 1"로만 표기한다. `:35`는 LibreOffice를 Windows x86_64만으로 표기한다. `:68`은 FFmpeg n7.1이라고 쓰지만 워크플로는 n9.0.1을 사용한다. `:69-71`은 H.264/HEVC 외 코덱 미지원이라고 쓰지만 `app/converters/video.py:128-135`는 Windows `h264_mf` 재인코딩을 시도한다. | 릴리스 전 고지 문서를 Windows/macOS/Linux 번들, FFmpeg n9.0.1, HWPX 읽기/쓰기, Windows 재인코딩 범위에 맞게 갱신한다. |
-| F-03 | Medium | 재현성/공급망 | Python 의존성과 PyInstaller가 릴리스 빌드 시점의 최신 버전으로 설치된다. | `requirements.txt:1-10`은 모두 `>=` 하한만 둔다. `.github/workflows/build.yml:71`, `:914` 등은 `pip install -r requirements.txt pyinstaller`를 그대로 실행한다. 이 리스크는 `docs/06_open_questions.md`에도 이미 별도 결정 필요 항목으로 남아 있다. | 플랫폼별로 검증된 `constraints.txt` 또는 lock 파일을 만들고, PyInstaller도 명시 버전으로 고정한다. |
+| F-03 | ~~Medium~~ → **해소(2026-09-11)** | 재현성/공급망 | ~~Python 의존성과 PyInstaller가 릴리스 빌드 시점의 최신 버전으로 설치된다.~~ `requirements.txt`를 `pyproject.toml`+`uv.lock`(uv)으로 교체 — 세 플랫폼 빌드 잡·test 잡 전부 `uv sync --locked`로 lock 파일에 고정된 정확한 버전을 설치한다(권장 조치 그대로 반영). | ~~`requirements.txt:1-10`은 모두 `>=` 하한만 둔다.~~ `pyproject.toml`이 의존성 정본, `uv.lock`이 플랫폼 무관 정확한 버전 고정(dev 그룹의 `pyinstaller`도 포함). `.github/workflows/build.yml`의 4개 잡 모두 `astral-sh/setup-uv`+`uv sync --locked`로 통일. | ~~플랫폼별로 검증된 `constraints.txt` 또는 lock 파일을 만들고, PyInstaller도 명시 버전으로 고정한다.~~ 완료. |
 | F-04 | Medium | UX/제품 계약 | 드롭존 문구가 영상 변환을 항상 광고한다. macOS 등 FFmpeg가 없는 환경에서는 실제 TARGETS에서 영상이 빠진다. | `app/i18n.py:21-24`는 영상 파일을 항상 표시한다. `app/converters/__init__.py:34-37`은 `find_ffmpeg()`가 성공할 때만 영상 확장자를 노출한다. | 드롭존 보조 문구를 런타임 지원 상태에 맞게 만들거나, 플랫폼별 문구를 분리한다. "가능한 것만 노출" 원칙과 UI 카피를 맞춘다. |
 | F-05 | Medium | 오류 문구 | 영상 코덱 오류 문구가 현재 구현보다 좁게 말한다. | `app/i18n.py:108-111`은 H.264/HEVC만 지원한다고 말한다. 실제 구현은 H.264/HEVC 스트림 카피 외에 Windows `h264_mf` 재인코딩을 시도한다. | 오류 문구를 "이 환경에서 이 코덱을 MP4로 변환할 수 없음"처럼 구현과 플랫폼 차이를 반영하는 표현으로 바꾼다. |
 | F-06 | Low | 문서 정합성 | 일부 정본/보조 문서가 현재 코드와 어긋난다. | `docs/README.md:17`과 `docs/01_requirements.md:9`는 영상 범위를 H.264/HEVC만으로 요약한다. `docs/06_open_questions.md:107`도 DEC-060 이후와 다르다. `docs/07_test_plan.md:15`는 전체 테스트를 232개라고 쓰지만 현재 실행은 234개다. `docs/07_test_plan.md:18-19`는 Linux build job을 언급하지 않는다. | 문서 정합성 브랜치라면 위 항목까지 같은 PR에서 맞추는 편이 좋다. |
@@ -111,7 +111,7 @@
 1. P0: 현재 커밋의 GitHub Actions 최신 실행을 확인한다. `test`, `build-windows`, `build-macos`, `build-linux`가 모두 green이어야 한다.
 2. P0: 로컬 LibreOffice crash를 분리한다. Homebrew LibreOffice 문제인지, Python 3.14/테스트 조합 문제인지, 앱의 `UserInstallation` 프로필 처리 문제인지 확인한다.
 3. P1: `packaging/THIRD_PARTY_NOTICES.txt`를 갱신한다. 이 파일은 배포물에 들어갈 가능성이 높아 릴리스 전 우선순위가 높다.
-4. P1: `requirements.txt`와 release install 경로에 constraints/lock을 도입한다. 최소한 릴리스 태그에서는 의존성 해시와 PyInstaller 버전을 고정한다.
+4. ~~P1: `requirements.txt`와 release install 경로에 constraints/lock을 도입한다. 최소한 릴리스 태그에서는 의존성 해시와 PyInstaller 버전을 고정한다.~~ → **완료(2026-09-11)** — F-03 참고.
 5. P2: 영상 지원 UI 문구를 런타임 지원 상태와 맞춘다. macOS/FFmpeg 미탑재 환경에서는 드롭존에서 영상 변환을 광고하지 않게 한다.
 6. P2: 문서 정합성 잔여 항목을 정리한다. 특히 영상 요약, 테스트 수, Linux build job, HWPX Phase 1 표현을 맞춘다.
 7. P3: `History.close()`와 UI 종료 시 연결 정리를 추가해 ResourceWarning을 없앤다.

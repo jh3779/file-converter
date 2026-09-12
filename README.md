@@ -84,10 +84,12 @@ packaging/             배포 자산 — 아이콘, 인스톨러 스크립트, �
 ```
 
 ## 실행 방법 (개발)
+의존성은 [uv](https://docs.astral.sh/uv/)로 관리한다(`pyproject.toml`+`uv.lock`) — 설치는 [uv 설치 가이드](https://docs.astral.sh/uv/getting-started/installation/) 참고. `pyproject.toml`의 `tool.uv.required-version`이 uv 버전을 `0.12.5`로 고정해두므로(재현성 — DEC-071), 이미 다른 버전의 uv가 설치돼 있다면 `uv self update 0.12.5`로 맞추거나 `uvx --from uv@0.12.5 uv sync`처럼 그 버전으로만 실행할 것 — 버전이 안 맞으면 첫 `uv sync`가 바로 실패한다.
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m app.main          # 앱 실행
-.venv/bin/python -m unittest discover tests   # 테스트
+uv sync                               # .venv 생성 + 의존성 설치(pyinstaller·ruff 포함)
+uv run python -m app.main             # 앱 실행
+uv run python -m unittest discover tests   # 테스트
+uv run pre-commit install             # 커밋 전 자동 검사(ruff lint+format 등) 활성화 — 최초 1회만
 sh sidecar/hwp/build.sh               # HWP 사이드카 빌드 (JDK + spike 빌드 필요)
 ```
 - UI 언어: 한국어/영어 (⚙ 메뉴에서 전환, 기본은 시스템 언어 — DEC-009)

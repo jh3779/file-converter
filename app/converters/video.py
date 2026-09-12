@@ -35,12 +35,13 @@ DEC-066부터는 콘텐츠 기반 입력 감지(확장자 없음/알 수 없는 
 변환 가능으로 노출해, 감지는 됐는데 실제 변환은 실패하는 false positive를
 막는다.
 """
-from functools import lru_cache
+
 import json
 import os
 import shutil
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 from ..bundle import engine_dir
@@ -76,7 +77,8 @@ def _probe_streams(ffprobe: str, src: Path) -> list[dict]:
     try:
         proc = subprocess.run(
             [ffprobe, "-v", "quiet", "-print_format", "json", "-show_streams", str(src)],
-            capture_output=True, timeout=30,
+            capture_output=True,
+            timeout=30,
         )
     except subprocess.TimeoutExpired:
         raise ConversionError("err.engine", "timeout")
@@ -91,11 +93,7 @@ def _probe_streams(ffprobe: str, src: Path) -> list[dict]:
 
 def _real_video_streams(streams: list[dict]) -> list[dict]:
     """커버 아트(attached_pic)를 제외한 실제 영상 스트림만 반환."""
-    return [
-        s for s in streams
-        if s.get("codec_type") == "video"
-        and not s.get("disposition", {}).get("attached_pic")
-    ]
+    return [s for s in streams if s.get("codec_type") == "video" and not s.get("disposition", {}).get("attached_pic")]
 
 
 @lru_cache(maxsize=8)
@@ -108,7 +106,8 @@ def _encoder_available(ffmpeg: str, encoder: str) -> bool:
     try:
         proc = subprocess.run(
             [ffmpeg, "-hide_banner", "-encoders"],
-            capture_output=True, timeout=10,
+            capture_output=True,
+            timeout=10,
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -203,15 +202,23 @@ def video_to_mp4(src: Path, tmpdir: Path) -> Path:
         if not _fallback_video_encoder_available(ffmpeg):
             raise ConversionError("err.video_codec_unsupported", video_codec or "unknown")
         video_codec_args = [
-            "-c:v", _FALLBACK_VIDEO_ENCODER,
-            "-b:v", str(_target_video_bitrate(video_stream)),
+            "-c:v",
+            _FALLBACK_VIDEO_ENCODER,
+            "-b:v",
+            str(_target_video_bitrate(video_stream)),
         ]
 
     # ffprobe로 검증한 절대 스트림 인덱스를 그대로 매핑해 attached picture와
     # 실제 영상이 섞인 파일에서도 검증 대상과 실제 변환 대상을 일치시킨다.
     cmd = [
-        ffmpeg, "-y", "-i", str(src),
-        "-map", f"0:{video_stream['index']}", *video_codec_args, "-sn",
+        ffmpeg,
+        "-y",
+        "-i",
+        str(src),
+        "-map",
+        f"0:{video_stream['index']}",
+        *video_codec_args,
+        "-sn",
     ]
     # 오디오 트랙 전부 보존(다국어/해설 트랙 등) — 트랙별로 AAC 여부를
     # 독립적으로 판단해 필요한 것만 재인코딩한다.
